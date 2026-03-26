@@ -1,0 +1,5 @@
+[2026-03-26T02:42:14Z] [DAEMON] LFI IPC Daemon v5.6 starting. Sovereign root: /root/lfi_project
+[2026-03-26T02:42:14Z] [DAEMON] Enforcing Zero-Trust routing on bus files.
+[2026-03-26T02:42:14Z] [DAEMON] Watchdog active. Monitoring: /root/lfi_project/lfi_bus.json, /root/lfi_project/lfi_audit.json
+Setting up watches.
+Watches established.
