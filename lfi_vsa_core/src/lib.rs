@@ -11,47 +11,42 @@ pub mod psl;
 pub mod hdlm;
 pub mod hid;
 pub mod agent;
+pub mod hmas;
 pub mod api;
 pub mod transducers;
 pub mod languages;
 pub mod coder;
+pub mod laws;
+pub mod identity;
+pub mod intelligence;
 
 // --------------------------------------------------------
 // Re-export core public types for ergonomic access.
 // --------------------------------------------------------
 
-// I. HDC Core (Logic & Compute)
+// I. HDC & Liquid Core
 pub use hdc::error::HdcError;
 pub use hdc::vector::{BipolarVector, HD_DIMENSIONS};
 pub use hdc::compute::{ComputeBackend, LocalBackend};
-pub use hdc::adaptive::{UiAttributes, UiElement};
+pub use hdc::liquid::{LiquidSensorium, LiquidNeuron};
 
 // II. PSL Supervisor (The Auditor)
 pub use psl::supervisor::PslSupervisor;
 pub use psl::trust::{TrustLevel, TrustAssessment};
 pub use psl::axiom::{Axiom, AuditTarget, AxiomVerdict};
 
-// III. HDLM (Language & Generation)
+// III. HDLM (Discretization & Mapping)
 pub use hdlm::ast::{Ast, AstNode, NodeKind};
-pub use hdlm::tier1_forensic::{ForensicGenerator, ArithmeticGenerator, CodebookGenerator};
-pub use hdlm::tier2_decorative::DecorativeExpander;
 pub use hdlm::codebook::HdlmCodebook;
 
-// IV. Unified Sensorium & Interaction
+// IV. Intelligence & OSINT
+pub use intelligence::{OsintAnalyzer, OsintSignal};
+
+// V. Laws & Identity (The Sovereign Constraints)
+pub use laws::{PrimaryLaw, ArchonConstraint};
+pub use identity::{IdentityProver, SovereignProof};
+
+// V. Unified Sensorium & Interaction
 pub use hid::{HidDevice, HidCommand};
-pub use transducers::audio::AudioTransducer;
-pub use transducers::image::ImageTransducer;
-pub use transducers::text::TextTransducer;
-pub use transducers::binary::BinaryTransducer;
-
-// V. High-Level Orchestration
 pub use agent::LfiAgent;
-pub use coder::LfiCoder;
-
-// VI. External Interfaces
-pub use api::start_api_server;
-
-// VII. Universal Polyglot Code Engine
-pub use languages::constructs::{UniversalConstruct, Paradigm, PlatformTarget};
-pub use languages::registry::{LanguageId, LanguageRegistry, LanguageMetadata};
-pub use languages::self_improve::{SelfImproveEngine, OptimizationMetrics};
+pub use hmas::{MicroSupervisor, AgentRole, AgentTemplate};

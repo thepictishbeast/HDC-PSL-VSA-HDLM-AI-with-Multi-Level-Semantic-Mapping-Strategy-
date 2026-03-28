@@ -1,11 +1,21 @@
+// ============================================================
+// HDC (Hyperdimensional Computing) Core
+// Section 1.II: "Maps concepts into a high-dimensional, discrete
+// semantic space using 10,000-bit bipolar vectors."
+// ============================================================
+
 pub mod vector;
-pub mod error;
 pub mod compute;
-pub mod hdlm;
 pub mod adaptive;
+pub mod error;
+pub mod liquid;
+pub mod superposition;
+pub mod holographic;
+pub mod analogy;
+pub mod sensory;
 
 pub use vector::{BipolarVector, HD_DIMENSIONS};
-pub use error::HdcError;
 pub use compute::{ComputeBackend, LocalBackend};
-pub use hdlm::{ForensicNode, SemanticMap};
 pub use adaptive::{UiAttributes, UiElement};
+pub use error::HdcError;
+pub use liquid::{LiquidSensorium, LiquidNeuron};

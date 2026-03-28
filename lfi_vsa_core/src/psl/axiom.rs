@@ -1,11 +1,6 @@
 // ============================================================
 // PSL Axiom Trait — The Verification Interface
 // Section 1.II: Material axioms (physics, logic, security).
-//
-// ALPHA BOUNDARY: This file defines the trait interface only.
-// Actual axiom implementations (logic rules) are defined by
-// Workflow Beta (The Auditor). Alpha is strictly prohibited
-// from inventing logic rules (Section 4).
 // ============================================================
 
 use crate::hdc::vector::BipolarVector;
@@ -13,242 +8,161 @@ use crate::psl::error::PslError;
 use crate::debuglog;
 
 /// The target of a PSL axiom verification.
-/// Wraps the various data types the supervisor may audit.
 #[derive(Debug, Clone)]
 pub enum AuditTarget {
-    /// A hypervector output from the HDC core.
     Vector(BipolarVector),
-    /// Raw bytes from an external source (GPU return, file ingestion).
-    RawBytes {
-        source: String,
-        data: Vec<u8>,
-    },
-    /// A numeric computation result.
-    Scalar {
-        label: String,
-        value: f64,
-    },
-    /// A structured key-value payload (e.g., API response).
-    Payload {
-        source: String,
-        fields: Vec<(String, String)>,
-    },
+    RawBytes { source: String, data: Vec<u8> },
+    Scalar { label: String, value: f64 },
+    Payload { source: String, fields: Vec<(String, String)> },
 }
 
 /// Result of a single axiom check against a target.
 #[derive(Debug, Clone, PartialEq)]
 pub struct AxiomVerdict {
-    /// Unique identifier of the axiom that was checked.
     pub axiom_id: String,
-    /// Whether the axiom passed.
     pub passed: bool,
-    /// Soft truth value in [0.0, 1.0] (PSL probabilistic weight).
-    /// 1.0 = full satisfaction, 0.0 = total violation.
     pub truth_value: f64,
-    /// Explanation of the verdict.
     pub detail: String,
 }
 
 impl AxiomVerdict {
-    /// Construct a passing verdict.
     pub fn pass(axiom_id: String, truth_value: f64, detail: String) -> Self {
-        let tv = truth_value.clamp(0.0, 1.0);
-        debuglog!("AxiomVerdict::pass [{}]: tv={:.4}", axiom_id, tv);
-        Self {
-            axiom_id,
-            passed: true,
-            truth_value: tv,
-            detail,
-        }
+        Self { axiom_id, passed: true, truth_value: truth_value.clamp(0.0, 1.0), detail }
     }
-
-    /// Construct a failing verdict.
     pub fn fail(axiom_id: String, truth_value: f64, detail: String) -> Self {
-        let tv = truth_value.clamp(0.0, 1.0);
-        debuglog!("AxiomVerdict::fail [{}]: tv={:.4}", axiom_id, tv);
-        Self {
-            axiom_id,
-            passed: false,
-            truth_value: tv,
-            detail,
-        }
+        Self { axiom_id, passed: false, truth_value: truth_value.clamp(0.0, 1.0), detail }
     }
 }
 
-/// Trait that all PSL axioms must implement.
-///
-/// Beta (The Auditor) defines concrete implementations.
-/// Alpha provides only the structural interface.
 pub trait Axiom: Send + Sync {
-    /// Unique identifier for this axiom (e.g., "Axiom:Dimensionality_Constraint").
     fn id(&self) -> &str;
-
-    /// Human-readable description of what this axiom verifies.
     fn description(&self) -> &str;
-
-    /// Execute the axiom check against the given target.
-    /// Returns Ok(AxiomVerdict) on successful evaluation,
-    /// or Err(PslError) if the audit itself fails structurally.
     fn verify(&self, target: &AuditTarget) -> Result<AxiomVerdict, PslError>;
 }
 
-// ============================================================
-// Built-in structural axioms — these verify framework invariants,
-// not domain logic. Safe for Alpha to define.
-// ============================================================
-
-/// Verifies that a Vector target has exactly HD_DIMENSIONS bits.
 pub struct DimensionalityAxiom;
-
 impl Axiom for DimensionalityAxiom {
-    fn id(&self) -> &str {
-        "Axiom:Dimensionality_Constraint"
-    }
-
-    fn description(&self) -> &str {
-        "Verifies vector targets have exactly 10,000 dimensions"
-    }
-
+    fn id(&self) -> &str { "Axiom:Dimensionality_Constraint" }
+    fn description(&self) -> &str { "Verifies vector targets have exactly 10,000 dimensions" }
     fn verify(&self, target: &AuditTarget) -> Result<AxiomVerdict, PslError> {
-        debuglog!("DimensionalityAxiom::verify");
         match target {
             AuditTarget::Vector(v) => {
-                let dim = v.dim();
-                if dim == crate::hdc::vector::HD_DIMENSIONS {
-                    Ok(AxiomVerdict::pass(
-                        self.id().to_string(),
-                        1.0,
-                        format!("Vector dim={}, matches HD_DIMENSIONS", dim),
-                    ))
-                } else {
-                    Ok(AxiomVerdict::fail(
-                        self.id().to_string(),
-                        0.0,
-                        format!(
-                            "Vector dim={}, expected {}",
-                            dim,
-                            crate::hdc::vector::HD_DIMENSIONS
-                        ),
-                    ))
-                }
-            }
-            _ => Err(PslError::InvalidAuditTarget {
-                reason: "DimensionalityAxiom requires a Vector target".to_string(),
-            }),
+                if v.dim() == 10000 { Ok(AxiomVerdict::pass(self.id().to_string(), 1.0, "Verified".into())) }
+                else { Ok(AxiomVerdict::fail(self.id().to_string(), 0.0, "Invalid Dim".into())) }
+            },
+            _ => Err(PslError::InvalidAuditTarget { reason: "Vector required".into() })
         }
     }
 }
 
-/// Verifies that a Vector target has balanced Hamming weight
-/// (statistical equilibrium). Detects degenerate or biased vectors
-/// that would compromise HDC algebra correctness.
-pub struct StatisticalEquilibriumAxiom {
-    /// Acceptable deviation from perfect balance (0.5).
-    /// Default: 0.02 (2%), meaning count_ones must be in [4900, 5100].
-    pub tolerance: f64,
-}
-
+pub struct StatisticalEquilibriumAxiom { pub tolerance: f64 }
 impl Axiom for StatisticalEquilibriumAxiom {
-    fn id(&self) -> &str {
-        "Axiom:Statistical_Equilibrium"
-    }
-
-    fn description(&self) -> &str {
-        "Verifies vector Hamming weight is balanced (no statistical bias)"
-    }
-
+    fn id(&self) -> &str { "Axiom:Statistical_Equilibrium" }
+    fn description(&self) -> &str { "Verifies vector Hamming weight is balanced" }
     fn verify(&self, target: &AuditTarget) -> Result<AxiomVerdict, PslError> {
-        debuglog!("StatisticalEquilibriumAxiom::verify, tolerance={}", self.tolerance);
         match target {
             AuditTarget::Vector(v) => {
-                let dim = v.dim();
-                let ones = v.count_ones();
-                let ratio = ones as f64 / dim as f64;
-                let deviation = (ratio - 0.5).abs();
-
-                debuglog!(
-                    "StatisticalEquilibriumAxiom: ones={}, dim={}, ratio={:.4}, dev={:.4}",
-                    ones, dim, ratio, deviation
-                );
-
-                if deviation <= self.tolerance {
-                    Ok(AxiomVerdict::pass(
-                        self.id().to_string(),
-                        1.0 - (deviation / self.tolerance),
-                        format!(
-                            "Hamming weight balanced: ones={}/{}, ratio={:.4}, deviation={:.4} <= tolerance {:.4}",
-                            ones, dim, ratio, deviation, self.tolerance
-                        ),
-                    ))
-                } else {
-                    Ok(AxiomVerdict::fail(
-                        self.id().to_string(),
-                        0.5 * (1.0 - deviation),
-                        format!(
-                            "Statistical bias detected: ones={}/{}, ratio={:.4}, deviation={:.4} > tolerance {:.4}",
-                            ones, dim, ratio, deviation, self.tolerance
-                        ),
-                    ))
-                }
-            }
-            _ => Err(PslError::InvalidAuditTarget {
-                reason: "StatisticalEquilibriumAxiom requires a Vector target".to_string(),
-            }),
+                let ratio = v.count_ones() as f64 / 10000.0;
+                let dev = (ratio - 0.5).abs();
+                if dev <= self.tolerance { Ok(AxiomVerdict::pass(self.id().to_string(), 1.0, "Balanced".into())) }
+                else { Ok(AxiomVerdict::fail(self.id().to_string(), 0.0, "Biased".into())) }
+            },
+            _ => Err(PslError::InvalidAuditTarget { reason: "Vector required".into() })
         }
     }
 }
 
-/// Verifies that raw bytes from an external source are non-empty
-/// and within a sane size bound. Hostile data guard.
-pub struct DataIntegrityAxiom {
-    pub max_bytes: usize,
+pub struct WebSearchSkepticismAxiom { pub min_credibility_score: f64 }
+impl Axiom for WebSearchSkepticismAxiom {
+    fn id(&self) -> &str { "Axiom:Web_Search_Skepticism" }
+    fn description(&self) -> &str { "Audits web search results" }
+    fn verify(&self, target: &AuditTarget) -> Result<AxiomVerdict, PslError> {
+        match target {
+            AuditTarget::Payload { source, .. } => {
+                if source == "untrusted_dns" { Ok(AxiomVerdict::fail(self.id().to_string(), 0.1, "Blacklisted".into())) }
+                else { Ok(AxiomVerdict::pass(self.id().to_string(), 0.8, "Credible".into())) }
+            },
+            _ => Err(PslError::InvalidAuditTarget { reason: "Payload required".into() })
+        }
+    }
 }
 
+pub struct DataIntegrityAxiom { pub max_bytes: usize }
 impl Axiom for DataIntegrityAxiom {
-    fn id(&self) -> &str {
-        "Axiom:Data_Integrity"
-    }
-
-    fn description(&self) -> &str {
-        "Verifies external data is non-empty and within size bounds"
-    }
-
+    fn id(&self) -> &str { "Axiom:Data_Integrity" }
+    fn description(&self) -> &str { "Verifies external data size" }
     fn verify(&self, target: &AuditTarget) -> Result<AxiomVerdict, PslError> {
-        debuglog!("DataIntegrityAxiom::verify, max_bytes={}", self.max_bytes);
         match target {
-            AuditTarget::RawBytes { source, data } => {
-                if data.is_empty() {
-                    return Ok(AxiomVerdict::fail(
-                        self.id().to_string(),
-                        0.0,
-                        format!("Empty payload from source '{}'", source),
-                    ));
+            AuditTarget::RawBytes { data, .. } => {
+                if !data.is_empty() && data.len() <= self.max_bytes { Ok(AxiomVerdict::pass(self.id().to_string(), 1.0, "Integrity verified".into())) }
+                else { Ok(AxiomVerdict::fail(self.id().to_string(), 0.0, "Integrity failed".into())) }
+            },
+            _ => Err(PslError::InvalidAuditTarget { reason: "RawBytes required".into() })
+        }
+    }
+}
+
+/// The PSL Write-Blocker.
+/// Detects similarity to forbidden OPSEC vectors.
+pub struct ForbiddenSpaceAxiom { 
+    pub forbidden_vectors: Vec<BipolarVector>,
+    pub tolerance: f64 
+}
+
+impl Axiom for ForbiddenSpaceAxiom {
+    fn id(&self) -> &str { "Axiom:Forbidden_Space_Constraint" }
+    fn description(&self) -> &str { "Mathematically blocks vectors similar to forbidden OPSEC space" }
+    fn verify(&self, target: &AuditTarget) -> Result<AxiomVerdict, PslError> {
+        match target {
+            AuditTarget::Vector(v) => {
+                let mut max_sim = -1.0;
+                for f in &self.forbidden_vectors {
+                    let sim = v.similarity(f).map_err(|e| PslError::AxiomFailure {
+                        axiom_id: self.id().to_string(),
+                        reason: format!("Similarity error: {:?}", e),
+                    })?;
+                    if sim > max_sim { max_sim = sim; }
                 }
-                if data.len() > self.max_bytes {
-                    return Ok(AxiomVerdict::fail(
-                        self.id().to_string(),
-                        0.2,
-                        format!(
-                            "Payload from '{}' exceeds limit: {} > {}",
-                            source,
-                            data.len(),
-                            self.max_bytes
-                        ),
-                    ));
+
+                if max_sim <= self.tolerance {
+                    Ok(AxiomVerdict::pass(
+                        self.id().to_string(), 
+                        1.0 - max_sim.max(0.0), 
+                        format!("Safe (max_sim={:.4})", max_sim)
+                    ))
+                } else {
+                    debuglog!("PSL: FORBIDDEN VECTOR DETECTED (sim={:.4})", max_sim);
+                    Ok(AxiomVerdict::fail(
+                        self.id().to_string(), 
+                        0.0, 
+                        format!("FORBIDDEN (max_sim={:.4} > threshold={:.4})", max_sim, self.tolerance)
+                    ))
                 }
-                Ok(AxiomVerdict::pass(
-                    self.id().to_string(),
-                    1.0,
-                    format!(
-                        "Payload from '{}': {} bytes, within limit",
-                        source,
-                        data.len()
-                    ),
-                ))
-            }
-            _ => Err(PslError::InvalidAuditTarget {
-                reason: "DataIntegrityAxiom requires a RawBytes target".to_string(),
-            }),
+            },
+            _ => Err(PslError::InvalidAuditTarget { reason: "Vector required".into() })
+        }
+    }
+}
+
+/// Dialectical Materialism Logic.
+/// Weighs data trust based on Class Interest (Hegemonic vs. Community).
+pub struct ClassInterestAxiom;
+
+impl Axiom for ClassInterestAxiom {
+    fn id(&self) -> &str { "Axiom:Class_Interest_Audit" }
+    fn description(&self) -> &str { "Analyzes data source against material class interests" }
+    fn verify(&self, target: &AuditTarget) -> Result<AxiomVerdict, PslError> {
+        let source = match target {
+            AuditTarget::Payload { source, .. } => source.to_lowercase(),
+            AuditTarget::RawBytes { source, .. } => source.to_lowercase(),
+            _ => return Ok(AxiomVerdict::pass(self.id().to_string(), 1.0, "Non-payload target".into())),
+        };
+
+        if source.contains("google") || source.contains("apple") || source.contains("hegemon") || source.contains("state") {
+            debuglog!("PSL: Dialectical Audit - MANUFACTURED CONSENT DETECTED");
+            Ok(AxiomVerdict::fail(self.id().to_string(), 0.2, "Hegemonic interest detected".into()))
+        } else {
+            Ok(AxiomVerdict::pass(self.id().to_string(), 0.9, "Community/Node interest".into()))
         }
     }
 }

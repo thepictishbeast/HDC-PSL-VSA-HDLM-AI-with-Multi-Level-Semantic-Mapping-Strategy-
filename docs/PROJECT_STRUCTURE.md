@@ -29,6 +29,8 @@ Exhaustive per-file documentation of the LFI sovereign directory.
 | `TELEMETRY.md` | Complete map of every `debuglog!` / `debuglog_val!` call in the codebase, organized by file. Production stripping guide |
 | `TESTING.md` | Test strategy, coverage breakdown by subsystem, how to run, what each test proves |
 | `SECURITY.md` | Security posture: `forbid(unsafe_code)`, no unwrap, Result everywhere, CARTA model, hostile data treatment |
+| `PD_PROTOCOL.md` | Plausible Deniability Protocol: VSA Superposition, Chaff Injection, ZKP Retrieval |
+| `OPSEC_INTERCEPT.md` | Autonomous OPSEC Protocol: HDLM Intercept, PSL Write-Blocker, Identity Sovereignty |
 
 ## GitHub Configuration (`.github/`)
 

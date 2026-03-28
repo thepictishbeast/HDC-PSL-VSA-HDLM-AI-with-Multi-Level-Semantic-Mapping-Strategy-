@@ -12,6 +12,11 @@ pub enum PslError {
         axiom_id: String,
         detail: String,
     },
+    /// A structural failure occurred during axiom execution.
+    AxiomFailure {
+        axiom_id: String,
+        reason: String,
+    },
     /// The audited data had insufficient dimensionality or format.
     InvalidAuditTarget {
         reason: String,
@@ -35,6 +40,9 @@ impl fmt::Display for PslError {
         match self {
             Self::AxiomViolation { axiom_id, detail } => {
                 write!(f, "PSL AxiomViolation [{}]: {}", axiom_id, detail)
+            }
+            Self::AxiomFailure { axiom_id, reason } => {
+                write!(f, "PSL AxiomFailure [{}]: {}", axiom_id, reason)
             }
             Self::InvalidAuditTarget { reason } => {
                 write!(f, "PSL InvalidAuditTarget: {}", reason)

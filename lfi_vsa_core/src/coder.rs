@@ -110,16 +110,15 @@ mod tests {
     use crate::languages::constructs::Paradigm;
 
     #[test]
-    fn test_coder_synthesize_rust() {
+    fn test_coder_synthesize_rust() -> Result<(), String> {
         let coder = LfiCoder::new();
         let constructs = vec![
             UniversalConstruct::VariableBinding,
             UniversalConstruct::Conditional,
         ];
-        let result = coder.synthesize(LanguageId::Rust, &constructs);
-        assert!(result.is_ok());
-        let ast = result.unwrap();
+        let ast = coder.synthesize(LanguageId::Rust, &constructs)?;
         assert!(ast.node_count() >= 3); // Root + 2 constructs
+        Ok(())
     }
 
     #[test]

@@ -33,15 +33,21 @@ impl SelfImproveEngine {
         Self { supervisor }
     }
 
+    /// Returns a reference to the internal PSL supervisor.
+    pub fn supervisor(&self) -> &PslSupervisor {
+        &self.supervisor
+    }
+
     /// Evaluates an AST and returns a quality score.
     pub fn evaluate_ast(&self, ast: &Ast) -> OptimizationMetrics {
-        debuglog!("SelfImproveEngine::evaluate_ast: nodes={}", ast.node_count());
-        
+        debuglog!("SelfImproveEngine::evaluate_ast: nodes={}, axiom_count={}",
+                 ast.node_count(), self.supervisor.axiom_count());
+
         // In a real implementation, we would project the AST into a hypervector
         // and run PSL axioms against it.
         // For now, we simulate metrics based on node count and depth.
         let complexity = (ast.node_count() as f64 / 100.0).min(1.0);
-        
+
         // Run a simulated PSL audit
         let security_score = if ast.node_count() > 0 {
             0.85 // Default high trust for internal generation
