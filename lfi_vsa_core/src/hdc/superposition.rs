@@ -60,10 +60,16 @@ impl SuperpositionStorage {
     }
 
     /// Commit a real signal into the superposition.
+    /// The first signal is stored directly; subsequent signals are bundled.
     pub fn commit_real(&mut self, signal: &BipolarVector) -> Result<(), HdcError> {
-        debuglog!("SuperpositionStorage: Committing REAL signal");
+        debuglog!("SuperpositionStorage: Committing REAL signal (count={})", self.signal_count);
+        if self.signal_count == 0 {
+            // First signal: store directly to avoid zeros-bias from tie-breaking
+            self.memory = signal.clone();
+        } else {
+            self.memory = BipolarVector::bundle(&[&self.memory, signal])?;
+        }
         self.signal_count += 1;
-        self.memory = BipolarVector::bundle(&[&self.memory, signal])?;
         Ok(())
     }
 

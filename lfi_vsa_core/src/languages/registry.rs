@@ -108,6 +108,131 @@ impl LanguageRegistry {
             primary_constructs: vec![UniversalConstruct::AsyncAwait, UniversalConstruct::PatternMatch, UniversalConstruct::UIComponent],
         });
 
+        // ---- Scripting & Dynamic ----
+        Self::register(&mut languages, LanguageMetadata {
+            id: LanguageId::Python,
+            name: "Python".to_string(),
+            paradigms: vec![Paradigm::ObjectOriented, Paradigm::Functional, Paradigm::Scripting],
+            platforms: vec![PlatformTarget::Linux, PlatformTarget::Windows, PlatformTarget::MacOS, PlatformTarget::Cloud, PlatformTarget::CrossPlatform],
+            primary_constructs: vec![UniversalConstruct::Lambda, UniversalConstruct::HigherOrderFunction, UniversalConstruct::GarbageCollection],
+        });
+
+        Self::register(&mut languages, LanguageMetadata {
+            id: LanguageId::JavaScript,
+            name: "JavaScript".to_string(),
+            paradigms: vec![Paradigm::Functional, Paradigm::ObjectOriented, Paradigm::Reactive, Paradigm::Scripting],
+            platforms: vec![PlatformTarget::Web, PlatformTarget::Cloud, PlatformTarget::CrossPlatform],
+            primary_constructs: vec![UniversalConstruct::AsyncAwait, UniversalConstruct::Lambda, UniversalConstruct::UIComponent],
+        });
+
+        Self::register(&mut languages, LanguageMetadata {
+            id: LanguageId::Ruby,
+            name: "Ruby".to_string(),
+            paradigms: vec![Paradigm::ObjectOriented, Paradigm::Functional, Paradigm::Scripting],
+            platforms: vec![PlatformTarget::Linux, PlatformTarget::MacOS, PlatformTarget::Web, PlatformTarget::Cloud],
+            primary_constructs: vec![UniversalConstruct::Lambda, UniversalConstruct::HigherOrderFunction, UniversalConstruct::GarbageCollection],
+        });
+
+        // ---- JVM & Mobile (additional) ----
+        Self::register(&mut languages, LanguageMetadata {
+            id: LanguageId::Java,
+            name: "Java".to_string(),
+            paradigms: vec![Paradigm::ObjectOriented, Paradigm::Concurrent],
+            platforms: vec![PlatformTarget::Linux, PlatformTarget::Windows, PlatformTarget::MacOS, PlatformTarget::Android, PlatformTarget::Cloud],
+            primary_constructs: vec![UniversalConstruct::ClassDefinition, UniversalConstruct::Inheritance, UniversalConstruct::GarbageCollection],
+        });
+
+        Self::register(&mut languages, LanguageMetadata {
+            id: LanguageId::Swift,
+            name: "Swift".to_string(),
+            paradigms: vec![Paradigm::ObjectOriented, Paradigm::Functional, Paradigm::Concurrent],
+            platforms: vec![PlatformTarget::MacOS, PlatformTarget::IOS, PlatformTarget::Linux],
+            primary_constructs: vec![UniversalConstruct::PatternMatch, UniversalConstruct::ReferenceCounting, UniversalConstruct::AsyncAwait],
+        });
+
+        Self::register(&mut languages, LanguageMetadata {
+            id: LanguageId::Csharp,
+            name: "CSharp".to_string(),
+            paradigms: vec![Paradigm::ObjectOriented, Paradigm::Functional, Paradigm::Concurrent],
+            platforms: vec![PlatformTarget::Windows, PlatformTarget::Linux, PlatformTarget::MacOS, PlatformTarget::Web, PlatformTarget::CrossPlatform],
+            primary_constructs: vec![UniversalConstruct::AsyncAwait, UniversalConstruct::ClassDefinition, UniversalConstruct::GarbageCollection],
+        });
+
+        Self::register(&mut languages, LanguageMetadata {
+            id: LanguageId::Scala,
+            name: "Scala".to_string(),
+            paradigms: vec![Paradigm::ObjectOriented, Paradigm::Functional, Paradigm::Concurrent],
+            platforms: vec![PlatformTarget::Linux, PlatformTarget::Windows, PlatformTarget::MacOS, PlatformTarget::Cloud],
+            primary_constructs: vec![UniversalConstruct::PatternMatch, UniversalConstruct::HigherOrderFunction, UniversalConstruct::Actor],
+        });
+
+        // ---- Systems (additional) ----
+        Self::register(&mut languages, LanguageMetadata {
+            id: LanguageId::C,
+            name: "C".to_string(),
+            paradigms: vec![Paradigm::Procedural, Paradigm::Systems],
+            platforms: vec![PlatformTarget::Linux, PlatformTarget::Windows, PlatformTarget::MacOS, PlatformTarget::Embedded],
+            primary_constructs: vec![UniversalConstruct::PointerReference, UniversalConstruct::ManualMemory, UniversalConstruct::StackAllocation],
+        });
+
+        Self::register(&mut languages, LanguageMetadata {
+            id: LanguageId::Cpp,
+            name: "Cpp".to_string(),
+            paradigms: vec![Paradigm::Systems, Paradigm::ObjectOriented, Paradigm::Functional],
+            platforms: vec![PlatformTarget::Linux, PlatformTarget::Windows, PlatformTarget::MacOS, PlatformTarget::Embedded],
+            primary_constructs: vec![UniversalConstruct::ClassDefinition, UniversalConstruct::GenericType, UniversalConstruct::ManualMemory],
+        });
+
+        // ---- Functional ----
+        Self::register(&mut languages, LanguageMetadata {
+            id: LanguageId::Elixir,
+            name: "Elixir".to_string(),
+            paradigms: vec![Paradigm::Functional, Paradigm::Concurrent],
+            platforms: vec![PlatformTarget::Linux, PlatformTarget::Cloud],
+            primary_constructs: vec![UniversalConstruct::PatternMatch, UniversalConstruct::Actor, UniversalConstruct::Channel],
+        });
+
+        Self::register(&mut languages, LanguageMetadata {
+            id: LanguageId::Haskell,
+            name: "Haskell".to_string(),
+            paradigms: vec![Paradigm::Functional],
+            platforms: vec![PlatformTarget::Linux, PlatformTarget::Windows, PlatformTarget::MacOS],
+            primary_constructs: vec![UniversalConstruct::PatternMatch, UniversalConstruct::HigherOrderFunction, UniversalConstruct::TailCall],
+        });
+
+        Self::register(&mut languages, LanguageMetadata {
+            id: LanguageId::Erlang,
+            name: "Erlang".to_string(),
+            paradigms: vec![Paradigm::Functional, Paradigm::Concurrent],
+            platforms: vec![PlatformTarget::Linux, PlatformTarget::Cloud],
+            primary_constructs: vec![UniversalConstruct::Actor, UniversalConstruct::PatternMatch, UniversalConstruct::Channel],
+        });
+
+        // ---- Query & Markup ----
+        Self::register(&mut languages, LanguageMetadata {
+            id: LanguageId::Sql,
+            name: "SQL".to_string(),
+            paradigms: vec![Paradigm::Declarative],
+            platforms: vec![PlatformTarget::Linux, PlatformTarget::Windows, PlatformTarget::MacOS, PlatformTarget::Cloud],
+            primary_constructs: vec![UniversalConstruct::DatabaseQuery, UniversalConstruct::Conditional, UniversalConstruct::ArrayType],
+        });
+
+        Self::register(&mut languages, LanguageMetadata {
+            id: LanguageId::Shell,
+            name: "Shell".to_string(),
+            paradigms: vec![Paradigm::Scripting, Paradigm::Procedural],
+            platforms: vec![PlatformTarget::Linux, PlatformTarget::MacOS],
+            primary_constructs: vec![UniversalConstruct::SystemCall, UniversalConstruct::FileIO, UniversalConstruct::Conditional],
+        });
+
+        Self::register(&mut languages, LanguageMetadata {
+            id: LanguageId::Dart,
+            name: "Dart".to_string(),
+            paradigms: vec![Paradigm::ObjectOriented, Paradigm::Reactive],
+            platforms: vec![PlatformTarget::Android, PlatformTarget::IOS, PlatformTarget::Web, PlatformTarget::CrossPlatform],
+            primary_constructs: vec![UniversalConstruct::AsyncAwait, UniversalConstruct::UIComponent, UniversalConstruct::StateManagement],
+        });
+
         // ---- Hardware & Low-Level ----
         Self::register(&mut languages, LanguageMetadata {
             id: LanguageId::Verilog,
@@ -171,7 +296,7 @@ mod tests {
     fn test_find_by_paradigm() {
         let registry = LanguageRegistry::new();
         let concurrent = registry.find_by_paradigm(Paradigm::Concurrent);
-        // Rust, Go, Kotlin, Verilog all registered as concurrent above
+        // Rust, Go, Kotlin, Verilog, Java, Swift, Csharp, Scala, Elixir, Erlang
         assert!(concurrent.len() >= 4);
     }
 

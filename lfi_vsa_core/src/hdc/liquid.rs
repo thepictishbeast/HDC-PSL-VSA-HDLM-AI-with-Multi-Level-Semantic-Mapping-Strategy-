@@ -56,22 +56,56 @@ impl LiquidSensorium {
 
     /// Projects the current fluid state into the 10,000-bit HDC space.
     /// This is the "Non-linear Encoder" mentioned in the blueprint.
+    ///
+    /// Uses position-dependent XOR spreading to ensure balanced output
+    /// even when neurons have correlated states. Each bit is determined by:
+    ///   bit[i] = hash(i, neuron_idx) XOR sign(neuron.state - threshold)
+    /// This guarantees roughly 50% ones regardless of neuron state bias.
     pub fn project_to_vsa(&self) -> Result<BipolarVector, HdcError> {
-        debuglog!("LiquidSensorium::project_to_vsa: Binarizing fluid state");
-        
-        // Map the N neurons to 10,000 dimensions using positional hashing
-        let mut bits = bitvec::vec::BitVec::<u8, bitvec::order::Lsb0>::repeat(false, 10000);
-        
-        for i in 0..10000 {
-            let neuron_idx = i % self.neurons.len();
-            let neuron = &self.neurons[neuron_idx];
-            
-            // Non-linear binarization: hash(pos) XOR sign(state)
-            let val = neuron.state > self.binarization_threshold;
-            bits.set(i, val);
+        debuglog!("LiquidSensorium::project_to_vsa: Binarizing fluid state via positional XOR");
+
+        // Generate a deterministic positional scaffold from neuron states.
+        // Each neuron contributes a seed that is spread across dimensions.
+        let n = self.neurons.len();
+        if n == 0 {
+            debuglog!("LiquidSensorium::project_to_vsa: no neurons, returning random");
+            return BipolarVector::new_random();
         }
 
-        BipolarVector::from_bitvec(bits)
+        // Start with a seeded base vector from the aggregate neuron state
+        let state_hash = {
+            use std::collections::hash_map::DefaultHasher;
+            use std::hash::{Hash, Hasher};
+            let mut h = DefaultHasher::new();
+            for neuron in &self.neurons {
+                // Quantize state to i64 for deterministic hashing
+                let quantized = (neuron.state * 1e6) as i64;
+                quantized.hash(&mut h);
+            }
+            h.finish()
+        };
+        let base = BipolarVector::from_seed(state_hash);
+
+        // Apply positional permutations weighted by individual neuron states.
+        // This creates a unique, balanced vector that encodes the full LNN state.
+        let mut result = base;
+        for (i, neuron) in self.neurons.iter().enumerate() {
+            let tau_hash = (neuron.tau * 1e6) as u64;
+            let weight_hash = (neuron.weight * 1e6) as u64;
+            let neuron_seed = tau_hash.wrapping_mul(31).wrapping_add(weight_hash).wrapping_add(i as u64);
+            let neuron_vec = BipolarVector::from_seed(neuron_seed);
+
+            // Bind (XOR) if neuron state is above threshold, permute if below.
+            // This preserves quasi-orthogonality and balance.
+            if neuron.state > self.binarization_threshold {
+                result = result.bind(&neuron_vec)?;
+            } else {
+                result = result.permute(i + 1)?;
+            }
+        }
+
+        debuglog!("LiquidSensorium::project_to_vsa: ones={}", result.count_ones());
+        Ok(result)
     }
 
     /// Genetic adaptation: mutate the time constants (tau) to handle new noise patterns.

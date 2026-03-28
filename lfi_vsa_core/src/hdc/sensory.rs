@@ -15,6 +15,8 @@ pub enum SensorGroup {
     IMU,
     RF,
     Environmental,
+    Visual,
+    Auditory,
 }
 
 /// A multimodal sensor frame.
@@ -40,6 +42,8 @@ impl SensoryCortex {
         cortex.group_base.push((SensorGroup::IMU, BipolarVector::new_random()?));
         cortex.group_base.push((SensorGroup::RF, BipolarVector::new_random()?));
         cortex.group_base.push((SensorGroup::Environmental, BipolarVector::new_random()?));
+        cortex.group_base.push((SensorGroup::Visual, BipolarVector::new_random()?));
+        cortex.group_base.push((SensorGroup::Auditory, BipolarVector::new_random()?));
         
         Ok(cortex)
     }

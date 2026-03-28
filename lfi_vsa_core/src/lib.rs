@@ -16,6 +16,7 @@ pub mod api;
 pub mod transducers;
 pub mod languages;
 pub mod coder;
+pub mod cognition;
 pub mod laws;
 pub mod identity;
 pub mod intelligence;
@@ -43,7 +44,7 @@ pub use hdlm::codebook::HdlmCodebook;
 pub use intelligence::{OsintAnalyzer, OsintSignal};
 
 // V. Laws & Identity (The Sovereign Constraints)
-pub use laws::{PrimaryLaw, ArchonConstraint};
+pub use laws::{PrimaryLaw, SovereignConstraint};
 pub use identity::{IdentityProver, SovereignProof};
 
 // V. Unified Sensorium & Interaction
