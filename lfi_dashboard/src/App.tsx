@@ -11,7 +11,7 @@ const ModernDashboard = () => {
   const [isCreative, setIsCreative] = useState(false);
   const [sensoryStatus, setSensoryStatus] = useState('Idle');
   const [messages, setMessages] = useState([
-    { role: 'assistant', content: "Sovereign LFI v5.6.8 Online. Multimodal transducers active. Web Search skepticism protocol engaged. How shall we proceed?", trust: 'Sovereign' }
+    { role: 'assistant', content: "Sovereign Intelligence v1.0.0 Online. Multimodal transducers active. Web Search skepticism protocol engaged. How shall we proceed?", trust: 'Sovereign' }
   ]);
   const [isSidebarOpen, setSidebarOpen] = useState(true);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -106,7 +106,7 @@ const ModernDashboard = () => {
                   <div className="flex items-center gap-2 mb-2">
                     {msg.role === 'assistant' && <div className="p-1 bg-blue-500 rounded-md"><Cpu size={12} className="text-white" /></div>}
                     <span className="text-[10px] font-bold uppercase tracking-widest text-gray-500">
-                      {msg.role === 'user' ? 'Direct Directive' : 'LFI Alpha'}
+                      {msg.role === 'user' ? 'Direct Directive' : 'Sovereign Core'}
                     </span>
                     {msg.trust === 'Sovereign' && <ShieldAlert size={12} className="text-blue-400" />}
                     {msg.trust === 'Verified' && <CheckCircle2 size={12} className="text-green-500" />}

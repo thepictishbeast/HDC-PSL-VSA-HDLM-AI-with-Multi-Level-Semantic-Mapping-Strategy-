@@ -1,0 +1,66 @@
+#!/usr/bin/expect -f
+set timeout 10
+log_user 1
+
+spawn cargo run --bin chat 2>/dev/null
+expect "Enter Password>"
+send -- "-G;#/,n3Ndif!#9Fua72n\`\[}mbxu!s_GiWMN5w\\~\]\r"
+expect "User>"
+
+# --- Greetings & Self-Knowledge ---
+send "hello\r"
+expect "User>"
+send "what can you help me with?\r"
+expect "User>"
+send "what programming languages do you know?\r"
+expect "User>"
+send "who are you?\r"
+expect "User>"
+
+# --- Math ---
+send "what is 2 + 2?\r"
+expect "User>"
+send "calculate 15 * 7\r"
+expect "User>"
+send "what is 100 / 3?\r"
+expect "User>"
+
+# --- Code Generation ---
+send "write a function in python that reverses a string\r"
+expect "User>"
+send "write rust code to sort a vector\r"
+expect "User>"
+
+# --- Planning ---
+send "plan a strategy to optimize database query performance\r"
+expect "User>"
+
+# --- Explanation (in-domain) ---
+send "explain ownership and borrowing in rust\r"
+expect "User>"
+
+# --- Explanation (out-of-domain) ---
+send "explain how gravity works\r"
+expect "User>"
+send "who was the first person on the moon?\r"
+expect "User>"
+
+# --- Teaching ---
+send "remember that gravity means the force that attracts objects toward each other\r"
+expect "User>"
+send "explain gravity\r"
+expect "User>"
+
+# --- Feedback ---
+send "you need to be smarter than this\r"
+expect "User>"
+
+# --- Analysis ---
+send "analyze my code for security weaknesses\r"
+expect "User>"
+
+# --- Final ---
+send "okay thanks goodbye\r"
+expect "User>"
+send "exit\r"
+expect eof

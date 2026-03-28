@@ -159,6 +159,18 @@ impl LfiAgent {
     pub fn chat(&mut self, input: &str) -> Result<String, HdcError> {
         debuglog!("LfiAgent::chat: input='{}'", input);
 
+        // 0. Check for simple arithmetic before cognitive pipeline
+        if let Some(math_result) = Self::try_evaluate_math(input) {
+            debuglog!("LfiAgent::chat: math expression detected, result={}", math_result);
+            return Ok(math_result);
+        }
+
+        // 0b. Check for teaching commands ("remember that X means Y")
+        if let Some(teach_result) = self.try_learn_from_teaching(input) {
+            debuglog!("LfiAgent::chat: teaching command detected");
+            return Ok(teach_result);
+        }
+
         // 1. Pre-Audit for Injection (Double Gate)
         let is_suspicious = self.reasoner.scan_for_injection(input);
 
@@ -297,6 +309,126 @@ impl LfiAgent {
         }
 
         Ok(final_text)
+    }
+
+    /// Try to evaluate a simple arithmetic expression from natural language.
+    /// Handles: "what is 2 + 2", "calculate 7 * 3", "2+2", "15 / 3", etc.
+    fn try_evaluate_math(input: &str) -> Option<String> {
+        debuglog!("LfiAgent::try_evaluate_math: checking '{}'", &input[..input.len().min(50)]);
+        let text = input.to_lowercase();
+
+        // Extract numbers and operators
+        let cleaned: String = text.chars()
+            .filter(|c| c.is_ascii_digit() || *c == '+' || *c == '-' || *c == '*' || *c == '/' || *c == '.' || *c == ' ')
+            .collect();
+        let cleaned = cleaned.trim();
+
+        // Parse: look for pattern NUMBER OP NUMBER
+        let parts: Vec<&str> = cleaned.split_whitespace().collect();
+
+        // Try "N op N" pattern
+        if parts.len() == 3 {
+            if let (Ok(a), Ok(b)) = (parts[0].parse::<f64>(), parts[2].parse::<f64>()) {
+                let result = match parts[1] {
+                    "+" => Some(a + b),
+                    "-" => Some(a - b),
+                    "*" => Some(a * b),
+                    "/" => if b != 0.0 { Some(a / b) } else { None },
+                    _ => None,
+                };
+                if let Some(r) = result {
+                    if r == r.floor() {
+                        return Some(format!("{} {} {} = {}", a as i64, parts[1], b as i64, r as i64));
+                    }
+                    return Some(format!("{} {} {} = {:.4}", a, parts[1], b, r));
+                }
+            }
+        }
+
+        // Try "N+N" (no spaces) pattern
+        if parts.len() == 1 && cleaned.len() > 2 {
+            for op_char in &['+', '-', '*', '/'] {
+                if let Some(pos) = cleaned.find(*op_char) {
+                    if pos > 0 && pos < cleaned.len() - 1 {
+                        let left = &cleaned[..pos];
+                        let right = &cleaned[pos + 1..];
+                        if let (Ok(a), Ok(b)) = (left.parse::<f64>(), right.parse::<f64>()) {
+                            let result = match op_char {
+                                '+' => Some(a + b),
+                                '-' => Some(a - b),
+                                '*' => Some(a * b),
+                                '/' => if b != 0.0 { Some(a / b) } else { None },
+                                _ => None,
+                            };
+                            if let Some(r) = result {
+                                if r == r.floor() {
+                                    return Some(format!("{} {} {} = {}", a as i64, op_char, b as i64, r as i64));
+                                }
+                                return Some(format!("{} {} {} = {:.4}", a, op_char, b, r));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        None
+    }
+
+    /// Handle teaching commands: "remember that X means Y"
+    fn try_learn_from_teaching(&mut self, input: &str) -> Option<String> {
+        debuglog!("LfiAgent::try_learn_from_teaching: checking '{}'", &input[..input.len().min(50)]);
+        let text_lower = input.to_lowercase();
+
+        // Pattern: "remember that X means Y" or "X means Y" or "learn that X is Y"
+        let patterns = vec![
+            ("remember that ", " means "),
+            ("remember that ", " is "),
+            ("learn that ", " means "),
+            ("learn that ", " is "),
+        ];
+
+        for (prefix, separator) in patterns {
+            if text_lower.starts_with(prefix) {
+                let rest = &input[prefix.len()..];
+                if let Some(sep_pos) = rest.to_lowercase().find(separator) {
+                    let concept = rest[..sep_pos].trim();
+                    let definition = rest[sep_pos + separator.len()..].trim();
+
+                    if !concept.is_empty() && !definition.is_empty() {
+                        if !self.authenticated {
+                            return Some("Teaching requires Sovereign authentication. \
+                                         I cannot learn from unauthenticated sources.".to_string());
+                        }
+
+                        let related: Vec<&str> = definition.split_whitespace()
+                            .filter(|w| w.len() > 3)
+                            .take(5)
+                            .collect();
+
+                        let result = self.reasoner.knowledge.learn(
+                            &concept.to_lowercase().replace(' ', "_"),
+                            &related,
+                            true
+                        );
+                        match result {
+                            Ok(()) => {
+                                return Some(format!(
+                                    "Learned: '{}' — {}. Now stored in holographic memory. \
+                                     {} concepts total.",
+                                    concept, definition, self.reasoner.knowledge.concept_count()
+                                ));
+                            }
+                            Err(e) => {
+                                return Some(format!("Failed to learn: {:?}", e));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        None
     }
 
     /// Toggles the Entropy Governor between Divergent (High) and Convergent (Low).

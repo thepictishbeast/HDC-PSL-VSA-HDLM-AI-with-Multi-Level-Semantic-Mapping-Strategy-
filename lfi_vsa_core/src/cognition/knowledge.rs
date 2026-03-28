@@ -293,15 +293,33 @@ impl KnowledgeEngine {
         debuglog!("KnowledgeEngine::assess_novelty: analyzing '{}'",
                  &input[..input.len().min(60)]);
 
+        // Filter out common English stop words that are never technical concepts.
+        // These add noise to the novelty assessment.
+        let stop_words: &[&str] = &[
+            "the", "and", "for", "are", "but", "not", "you", "all", "can", "had",
+            "her", "was", "one", "our", "out", "has", "his", "how", "its", "let",
+            "may", "new", "now", "old", "see", "way", "who", "did", "get", "got",
+            "him", "hit", "say", "she", "too", "use", "what", "why", "with",
+            "from", "have", "this", "that", "they", "will", "been", "each",
+            "make", "like", "just", "over", "such", "take", "than", "them",
+            "very", "when", "come", "could", "into", "some", "time", "about",
+            "know", "would", "your", "more", "does", "dont", "seem",
+            "explain", "describe", "tell", "show", "give", "help",
+            "need", "want", "think", "works", "work", "using", "used",
+            "understand", "anything", "something", "saying", "should", "there",
+            "write", "read", "look", "find", "keep", "going", "done",
+        ];
+
         let words: Vec<String> = input.to_lowercase()
             .split(|c: char| !c.is_alphanumeric())
-            .filter(|w| !w.is_empty() && w.len() > 2)
+            .filter(|w| !w.is_empty() && w.len() > 2 && !stop_words.contains(w))
             .map(|s| s.to_string())
             .collect();
 
         if words.is_empty() {
-            debuglog!("KnowledgeEngine::assess_novelty: empty input → NOVEL");
-            return Ok(NoveltyLevel::Novel { description: input.to_string() });
+            // All words are stop words → treat as familiar (generic English input)
+            debuglog!("KnowledgeEngine::assess_novelty: all stop words → FAMILIAR");
+            return Ok(NoveltyLevel::Familiar { similarity: 0.5 });
         }
 
         let mut matching_concepts = Vec::new();

@@ -521,12 +521,16 @@ impl CognitiveCore {
     pub fn respond(&mut self, input: &str) -> Result<ConversationResponse, HdcError> {
         debuglog!("CognitiveCore::respond: input='{}'", &input[..input.len().min(60)]);
 
-        // 1. Novelty check — but only for LONG, specific inputs (not greetings or short phrases).
-        // Short conversational inputs should flow through normal intent detection, not trigger novelty.
+        // 1. ALWAYS detect intent first — never let novelty override a clear intent.
+        let thought = self.converse(input)?;
+
+        // 2. Only trigger novelty fallback if intent is Unknown AND input is substantive.
+        let is_unknown_intent = matches!(thought.intent, Some(Intent::Unknown { .. }) | None);
         let word_count = input.split_whitespace().count();
-        if word_count > 5 {
+
+        if is_unknown_intent && word_count > 5 {
             if let Ok(NoveltyLevel::Novel { ref description }) = self.knowledge.assess_novelty(input) {
-                debuglog!("CognitiveCore::respond: Input is novel and substantive. Generating questions.");
+                debuglog!("CognitiveCore::respond: Unknown intent + novel input. Asking questions.");
                 let novelty = NoveltyLevel::Novel { description: description.clone() };
                 let questions = self.knowledge.generate_questions(input, &novelty);
                 if !questions.is_empty() {
@@ -540,21 +544,13 @@ impl CognitiveCore {
                              Give me more context and I can work on it.",
                             questions_text
                         ),
-                        thought: ThoughtResult {
-                            mode: CognitiveMode::Deep,
-                            output: crate::hdc::vector::BipolarVector::from_seed(0),
-                            confidence: 0.3,
-                            explanation: "Novel input — requesting clarification.".to_string(),
-                            reasoning_scratchpad: vec!["Novel concept detected.".into()],
-                            plan: None,
-                            intent: Some(Intent::Search { query: description.to_string() }),
-                        }
+                        thought,
                     });
                 }
             }
         }
 
-        let thought = self.converse(input)?;
+        // 3. Generate response based on detected intent.
         let mut response_text = self.generate_response(input, &thought)?;
 
         // Add reasoning scratchpad only if it contains useful info
@@ -689,25 +685,31 @@ impl CognitiveCore {
         Ok(response)
     }
 
-    /// Generate a conversational response that is context-aware and
-    /// never repeats the same template twice in a row.
+    /// Generate a conversational response that is context-aware.
+    /// Uses word-boundary matching to avoid substring bugs (e.g. "know" matching "no").
     fn generate_conversational_response(&self, input: &str) -> String {
         debuglog!("CognitiveCore::generate_conversational_response");
 
         let text_lower = input.to_lowercase();
-        // context_window.len() is 1 on first turn (think() already pushed this turn's vector)
+        // Split into actual words for boundary-safe matching
+        let words: Vec<String> = text_lower
+            .split(|c: char| !c.is_alphanumeric())
+            .filter(|w| !w.is_empty())
+            .map(|s| s.to_string())
+            .collect();
+        let has_word = |target: &str| -> bool {
+            words.iter().any(|w| w == target)
+        };
+
         let is_first_turn = self.context_window.len() <= 1;
         let turn_count = self.context_window.len();
 
-        // Only give the full introduction on the FIRST turn
-        if is_first_turn && (text_lower.contains("hello") || text_lower.contains("hi ") || text_lower.contains("hey")) {
-            return "Hello. I'm the LFI Sovereign Intelligence. What do you need?".to_string();
-        }
-
-        // After first turn, be direct — but only match standalone greeting words,
-        // not substrings like "hi" inside "this" or "think"
-        if text_lower.starts_with("hello") || text_lower.starts_with("hi ") || text_lower.starts_with("hey") {
-            return format!("I'm here. Turn {} of our session. What do you need?", turn_count);
+        // --- Greetings ---
+        if has_word("hello") || has_word("hey") || (has_word("hi") && words.len() <= 5) {
+            if is_first_turn {
+                return "Hello. I'm the LFI Sovereign Intelligence. What do you need?".to_string();
+            }
+            return format!("I'm here. Turn {}. What do you need?", turn_count);
         }
 
         if text_lower.contains("how are you") {
@@ -717,35 +719,91 @@ impl CognitiveCore {
             );
         }
 
+        // --- Self-knowledge questions ---
         if text_lower.contains("who are you") || text_lower.contains("what are you") {
             return "LFI Sovereign Intelligence. VSA-based cognitive agent. Rust expert. \
                     Built for code synthesis, security auditing, and self-improvement. \
                     What do you need me to do?".to_string();
         }
 
-        if text_lower.contains("thank") {
+        if text_lower.contains("help") || text_lower.contains("what can you") || text_lower.contains("capabilities") {
+            let sk = self.knowledge.self_knowledge();
+            return format!(
+                "I can help with:\n\
+                 - Write code in {} languages (expert: {})\n\
+                 - Fix bugs and debug issues\n\
+                 - Explain technical concepts I know\n\
+                 - Plan and decompose complex tasks\n\
+                 - Analyze code for weaknesses\n\
+                 - Optimize and refactor code\n\
+                 - Security auditing via PSL axioms\n\n\
+                 I'm a code/systems AI. I don't have general trivia or physics knowledge.\n\
+                 Give me a direct instruction and I'll act on it.",
+                sk.expert_languages.len() + sk.proficient_languages.len() + sk.basic_languages.len(),
+                sk.expert_languages.join(", ")
+            );
+        }
+
+        if text_lower.contains("what language") || text_lower.contains("which language") ||
+           (has_word("languages") && (has_word("know") || has_word("support"))) {
+            let sk = self.knowledge.self_knowledge();
+            return format!(
+                "Languages I know:\n\
+                 Expert: {}\n\
+                 Proficient: {}\n\
+                 Basic: {}",
+                sk.expert_languages.join(", "),
+                sk.proficient_languages.join(", "),
+                sk.basic_languages.join(", ")
+            );
+        }
+
+        // --- Teaching / correction ---
+        if has_word("learn") || has_word("smarter") || has_word("better") || has_word("improve") ||
+           text_lower.contains("you need to") || text_lower.contains("you should") {
+            return format!(
+                "Acknowledged. I can learn from you during this session. \
+                 Teach me by saying 'remember that [concept] means [definition]' \
+                 or correct me when I'm wrong. {} concepts in memory so far.",
+                self.knowledge.concept_count()
+            );
+        }
+
+        // --- Acknowledgments ---
+        if has_word("thank") || has_word("thanks") {
             return "Noted. Next task?".to_string();
         }
 
-        if text_lower.contains("bye") || text_lower.contains("goodbye") {
+        if has_word("bye") || has_word("goodbye") {
             return "Session state preserved. Goodbye.".to_string();
         }
 
-        if text_lower.contains("yes") || text_lower.contains("okay") || text_lower.contains("sure") {
+        if has_word("okay") || has_word("sure") || has_word("alright") {
             return "Understood. Give me the specifics.".to_string();
         }
 
-        if text_lower.contains("no") {
-            return "Alright. What else?".to_string();
+        if has_word("yes") {
+            return "Confirmed. Proceeding. What's the task?".to_string();
         }
 
-        // For anything else that matched as "converse" — be honest
-        // about what we understood
+        // --- Questions the AI can't answer ---
+        if has_word("who") || has_word("when") || has_word("where") {
+            if !has_word("code") && !has_word("function") && !has_word("bug") && !has_word("error") {
+                return "I'm a code/systems AI — I don't have general knowledge or trivia. \
+                        I can help with programming, debugging, architecture, and security. \
+                        Ask me something in my domain.".to_string();
+            }
+        }
+
+        // --- Fallback ---
         format!(
-            "I received your message but I'm not sure what action to take. \
-             I work best with direct instructions: write code, fix a bug, \
-             explain a concept, plan a task, or analyze something. \
-             What do you need? (Turn {})",
+            "I hear you but need a clearer instruction. Try:\n\
+             - 'write [language] code that [does X]'\n\
+             - 'fix the bug in [description]'\n\
+             - 'explain [technical concept]'\n\
+             - 'plan [goal]'\n\
+             - 'analyze [target]'\n\
+             (Turn {})",
             turn_count
         )
     }
@@ -824,8 +882,10 @@ impl CognitiveCore {
             }
             NoveltyLevel::Novel { .. } => {
                 response.push_str(
-                    "I don't have knowledge about this topic in my current memory.\n\
-                     I can research it if you give me more context, or you can teach me about it."
+                    "This topic is outside my current knowledge domain. \
+                     I'm a code/systems AI specializing in programming, architecture, and security.\n\
+                     If this is a programming concept, try rephrasing with more technical terms.\n\
+                     Otherwise, you can teach me: say 'remember that [term] means [definition]'."
                 );
             }
         }
