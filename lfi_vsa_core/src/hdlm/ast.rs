@@ -11,7 +11,6 @@
 
 use crate::hdc::vector::BipolarVector;
 use crate::hdlm::error::HdlmError;
-use crate::debuglog;
 
 /// Unique identifier for an AST node within a tree.
 pub type NodeId = usize;

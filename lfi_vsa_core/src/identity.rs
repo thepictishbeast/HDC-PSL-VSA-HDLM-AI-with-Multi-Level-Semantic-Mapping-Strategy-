@@ -4,7 +4,6 @@
 // Prioritize ZKPs... never display or store them in clear text."
 // ============================================================
 
-use crate::debuglog;
 use serde::{Serialize, Deserialize};
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
@@ -39,14 +38,14 @@ pub struct IdentityProver;
 impl IdentityProver {
     /// Commits a identity to memory using one-way hashing.
     /// NEVER stores the raw strings.
-    pub fn commit(name: &str, ssn: &str, license: &str, password: &str, kind: IdentityKind) -> SovereignProof {
+    pub fn commit(name: &str, credential: &str, license: &str, password: &str, kind: IdentityKind) -> SovereignProof {
         debuglog!("IdentityProver::commit: Creating secure identity commitment (Kind={:?})", kind);
-        
+
         let name_hash = Self::hash(name);
         let password_commitment = Self::hash(password);
-        
+
         let mut cred_hasher = DefaultHasher::new();
-        ssn.hash(&mut cred_hasher);
+        credential.hash(&mut cred_hasher);
         license.hash(&mut cred_hasher);
         let credentials_commitment = cred_hasher.finish();
         
@@ -86,8 +85,8 @@ impl IdentityProver {
     }
 
     /// Verifies if a presented identity matches the sovereign commitment.
-    pub fn verify(proof: &SovereignProof, name: &str, ssn: &str, license: &str, password: &str) -> bool {
-        let current = Self::commit(name, ssn, license, password, proof.kind);
+    pub fn verify(proof: &SovereignProof, name: &str, credential: &str, license: &str, password: &str) -> bool {
+        let current = Self::commit(name, credential, license, password, proof.kind);
         let matched = current.name_hash == proof.name_hash 
                    && current.credentials_commitment == proof.credentials_commitment
                    && current.password_commitment == proof.password_commitment;
@@ -120,11 +119,11 @@ mod tests {
 
     #[test]
     fn test_identity_verification() {
-        let proof = IdentityProver::commit("William Armstrong", "647568607", "s23233305", "test_pass", IdentityKind::Sovereign);
-        assert!(IdentityProver::verify(&proof, "William Armstrong", "647568607", "s23233305", "test_pass"));
-        // Fails on incorrect SSN
-        assert!(!IdentityProver::verify(&proof, "William Armstrong", "000000000", "s23233305", "test_pass"));
+        let proof = IdentityProver::commit("Test Sovereign", "555000111", "s99999999", "test_pass", IdentityKind::Sovereign);
+        assert!(IdentityProver::verify(&proof, "Test Sovereign", "555000111", "s99999999", "test_pass"));
+        // Fails on incorrect credential
+        assert!(!IdentityProver::verify(&proof, "Test Sovereign", "000000000", "s99999999", "test_pass"));
         // Fails on incorrect password
-        assert!(!IdentityProver::verify(&proof, "William Armstrong", "647568607", "s23233305", "wrong_pass"));
+        assert!(!IdentityProver::verify(&proof, "Test Sovereign", "555000111", "s99999999", "wrong_pass"));
     }
 }

@@ -12,7 +12,6 @@
 // Uses a shared state protected by Arc<Mutex<>> for thread safety.
 // ============================================================
 
-use crate::debuglog;
 use crate::hdc::error::HdcError;
 use crate::intelligence::web_search::{WebSearchEngine, SearchResponse};
 use crate::intelligence::persistence::{KnowledgeStore, StoredConcept};
@@ -197,8 +196,12 @@ impl BackgroundLearner {
                 // Rate limit: wait between searches
                 std::thread::sleep(Duration::from_secs(30));
             } else {
-                // No topics in queue — discover new ones from existing knowledge
-                Self::discover_new_topics(&shared);
+                // No topics in queue — perform self-examination or discover new topics
+                if cycle_count % 5 == 0 {
+                    Self::perform_self_examination(&shared);
+                } else {
+                    Self::discover_new_topics(&shared);
+                }
 
                 // Longer sleep when idle
                 std::thread::sleep(Duration::from_secs(60));
@@ -215,6 +218,58 @@ impl BackgroundLearner {
         }
 
         debuglog!("BackgroundLearner::learning_loop: STOPPED after {} cycles", cycle_count);
+    }
+
+    /// Examine the project's own source code to learn about its architecture.
+    fn perform_self_examination(shared: &Arc<Mutex<SharedKnowledge>>) {
+        debuglog!("BackgroundLearner::perform_self_examination: Analyzing own source code");
+        
+        // Target key source files
+        let files = [
+            "src/lib.rs",
+            "src/agent.rs",
+            "src/cognition/reasoner.rs",
+            "src/cognition/knowledge.rs",
+            "src/hdc/vector.rs",
+        ];
+
+        let mut findings = Vec::new();
+        for file_path in &files {
+            let full_path = format!("/root/lfi_project/lfi_vsa_core/{}", file_path);
+            if let Ok(content) = std::fs::read_to_string(&full_path) {
+                // Naive extraction of key technical terms (structs, enums, etc.)
+                let lines: Vec<&str> = content.lines().collect();
+                for line in lines {
+                    let line = line.trim();
+                    if line.starts_with("pub struct") || line.starts_with("pub enum") || line.starts_with("pub trait") {
+                        let parts: Vec<&str> = line.split_whitespace().collect();
+                        if parts.len() >= 3 {
+                            findings.push(parts[2].trim_end_matches('{').trim().to_string());
+                        }
+                    }
+                }
+            }
+        }
+
+        if !findings.is_empty() {
+            let mut guard = shared.lock();
+            for finding in findings {
+                let concept_key = format!("internal_{}", finding.to_lowercase());
+                if !guard.store.concepts.iter().any(|c| c.name == concept_key) {
+                    debuglog!("BackgroundLearner: Discovered internal structure: {}", finding);
+                    guard.store.upsert_concept(StoredConcept {
+                        name: concept_key.clone(),
+                        mastery: 0.9, // High mastery for self-source
+                        encounter_count: 1,
+                        trust_score: 1.0, // Absolute trust in source
+                        related_concepts: vec!["architecture".to_string(), "vsa_internal".to_string()],
+                        definition: Some(format!("Internal component of the Sovereign Intelligence identified during self-examination.")),
+                        first_learned: chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true),
+                        last_reinforced: chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true),
+                    });
+                }
+            }
+        }
     }
 
     /// Process search results and ingest verified knowledge.
@@ -250,10 +305,10 @@ impl BackgroundLearner {
 
         // Extract related concepts from the summary
         let related: Vec<String> = summary.split_whitespace()
-            .filter(|w| w.len() > 4)
+            .filter(|w: &&str| w.len() > 4)
             .take(10)
-            .map(|w| w.to_lowercase().trim_matches(|c: char| !c.is_alphanumeric()).to_string())
-            .filter(|w| !w.is_empty())
+            .map(|w: &str| w.to_lowercase().trim_matches(|c: char| !c.is_alphanumeric()).to_string())
+            .filter(|w: &String| !w.is_empty())
             .collect();
 
         let concept_key = topic.to_lowercase().replace(' ', "_");

@@ -3,7 +3,6 @@
 // Section 1.I: "AST parser executes a localized entropy and regex sweep."
 // ============================================================
 
-use crate::debuglog;
 use crate::hdlm::error::HdlmError;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
@@ -39,7 +38,7 @@ impl OpsecIntercept {
             sanitized = sanitized.replace(s, &Self::hash_marker(s));
         }
 
-        // 2. Regex Sweep: License Topology (e.g. s23233305)
+        // 2. Regex Sweep: License Topology (e.g. X12345678)
         let license_regex = r"\b[a-zA-Z]\d{8}\b";
         let re_lic = regex::Regex::new(license_regex).map_err(|e| HdlmError::Tier1GenerationFailed {
             reason: format!("License regex compilation failed: {}", e),
@@ -77,20 +76,22 @@ mod tests {
 
     #[test]
     fn test_ssn_interception() -> Result<(), HdlmError> {
-        let input = "The user with SSN 647568607 is authenticated.";
+        // Synthetic test SSN — never use real PII in tests
+        let input = "The user with SSN 555000111 is authenticated.";
         let result = OpsecIntercept::scan(input)?;
-        assert!(result.matches_found.contains(&"647568607".to_string()));
-        assert!(!result.sanitized.contains("647568607"));
+        assert!(result.matches_found.contains(&"555000111".to_string()));
+        assert!(!result.sanitized.contains("555000111"));
         assert!(result.sanitized.contains("ZKP_REDACTED_"));
         Ok(())
     }
 
     #[test]
     fn test_license_interception() -> Result<(), HdlmError> {
-        let input = "License number: s23233305.";
+        // Synthetic test license — never use real PII in tests
+        let input = "License number: s99999999.";
         let result = OpsecIntercept::scan(input)?;
-        assert!(result.matches_found.contains(&"s23233305".to_string()));
-        assert!(!result.sanitized.contains("s23233305"));
+        assert!(result.matches_found.contains(&"s99999999".to_string()));
+        assert!(!result.sanitized.contains("s99999999"));
         assert!(result.sanitized.contains("ZKP_REDACTED_"));
         Ok(())
     }

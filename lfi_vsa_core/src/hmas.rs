@@ -1,65 +1,117 @@
-// ============================================================
-// HMAS — Hierarchical Multi-Agent System (Director Protocol)
-// Section 1.V: "Hierarchical Multi-Agent System (HMAS). By utilizing 
-// rigid, task-specific Agent Templates governed by a central Director."
-// ============================================================
+// NODE 011: Hyper-Multi-Agent System (HMAS) Orchestrator
+// STATUS: ALPHA - Swarm Concurrency Active
+// PROTOCOL: Digital Gosplan / Federated Sovereignty
 
-use crate::debuglog;
-use crate::agent::LfiAgent;
-use crate::hdc::error::HdcError;
+use serde::{Serialize, Deserialize};
+use tracing::{info, warn};
+use crate::memory_bus::{HyperMemory, DIM_PROLETARIAT};
+use crate::cognition::mcts::MctsEngine;
+use crate::psl::supervisor::PslSupervisor;
 
-/// Specific roles for sub-agents (Executors).
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum AgentRole {
-    Director,
-    WeightManager,
-    WebIngestor,
-    ForensicSentinel,
+    Architect,  // Strategy & Decomposition
+    Worker,     // Execution (Rust/Bash/Python)
+    Auditor,    // Forensic Review & PSL Verification
+    Historian,  // Long-Term VSA Memory & RAG
 }
 
-/// A rigid template for a sub-agent.
-pub struct AgentTemplate {
-    pub role: AgentRole,
-    // In a full implementation, this holds the specific VSA hypervector 
-    // that defines the sub-agent's restricted capability map.
+/// A cryptographic proposal for material base mutation.
+pub struct Proposal {
+    pub id: String,
+    pub payload_hv: HyperMemory,
+    pub timestamp: u64,
 }
 
-/// The Micro-Supervisor for managing sub-agents and persistent reboots.
+/// The Historian node: manages long-term memory and negative knowledge traces.
+pub struct Historian {
+    pub archive: Vec<HyperMemory>,
+    pub negative_knowledge: Vec<HyperMemory>, 
+}
+
+impl Historian {
+    pub fn new() -> Self {
+        Self {
+            archive: Vec::new(),
+            negative_knowledge: Vec::new(),
+        }
+    }
+
+    pub fn record_synthesis(&mut self, state: HyperMemory) {
+        info!("// AUDIT: Historian archiving new Sovereign synthesis.");
+        self.archive.push(state);
+    }
+
+    pub fn condemn_failure(&mut self, failure: HyperMemory) {
+        warn!("// AUDIT: Historian recording forensic trace of strategic failure.");
+        self.negative_knowledge.push(failure);
+    }
+
+    pub fn retrieve_context(&self, current: &HyperMemory) -> (f64, f64) {
+        let max_archive = self.archive.iter()
+            .map(|h| h.similarity(current))
+            .fold(0.0, f64::max);
+            
+        let max_negative = self.negative_knowledge.iter()
+            .map(|h| h.similarity(current))
+            .fold(0.0, f64::max);
+            
+        (max_archive, max_negative)
+    }
+}
+
 pub struct MicroSupervisor {
-    pub active_agents: Vec<AgentTemplate>,
+    pub role: AgentRole,
+    pub consensus_threshold: f64,
+    pub agree_anchor: HyperMemory,
+    pub disagree_anchor: HyperMemory,
 }
 
 impl MicroSupervisor {
-    pub fn new() -> Self {
+    pub fn new(role: AgentRole) -> Self {
+        info!("// AUDIT: Agent Node Materialized as {:?}", role);
         Self {
-            active_agents: vec![AgentTemplate { role: AgentRole::Director }],
+            role,
+            consensus_threshold: 0.7,
+            agree_anchor: HyperMemory::from_string("CONSENSUS_AGREE_PROCEED", DIM_PROLETARIAT),
+            disagree_anchor: HyperMemory::from_string("CONSENSUS_DISAGREE_HALT", DIM_PROLETARIAT),
         }
     }
 
-    /// Spawns a new sub-agent for a specific task.
-    pub fn spawn_executor(&mut self, role: AgentRole) {
-        debuglog!("MicroSupervisor: Spawning new executor sub-agent: {:?}", role);
-        self.active_agents.push(AgentTemplate { role });
+    pub fn vote(&self, proposal: &Proposal, verified: bool) -> Result<HyperMemory, Box<dyn std::error::Error>> {
+        let anchor = if verified { &self.agree_anchor } else { &self.disagree_anchor };
+        anchor.bind(&proposal.payload_hv)
     }
 
-    /// Destroys a sub-agent to minimize the blast radius of a potential compromise.
-    pub fn destroy_executor(&mut self, role: AgentRole) {
-        debuglog!("MicroSupervisor: Destroying executor sub-agent: {:?}", role);
-        self.active_agents.retain(|agent| agent.role != role);
+    pub fn resolve_consensus(votes: &[HyperMemory], proposal: &Proposal, agree_anchor: &HyperMemory) -> Result<f64, Box<dyn std::error::Error>> {
+        if votes.is_empty() { return Ok(0.0); }
+        let bundled_votes = HyperMemory::bundle(votes)?;
+        let consensus_signal = bundled_votes.bind(&proposal.payload_hv)?;
+        let agreement = consensus_signal.similarity(agree_anchor);
+        Ok(agreement)
     }
 
-    /// Recursive Performance Audit: The Rollback Logic.
-    /// Reverts the agent's state if the fitness score degrades.
-    pub fn audit_and_revert(&self, agent: &mut LfiAgent, current_fitness: f64, previous_fitness: f64, backup_path: &str) -> Result<(), HdcError> {
-        if current_fitness < previous_fitness {
-            debuglog!("MicroSupervisor: ALERT - Fitness degraded ({:.2} < {:.2}). Triggering Material Reversion.", current_fitness, previous_fitness);
-            // Load the previous "Known-Good" state from the VSA-Encrypted Blob.
-            agent.load_persistent_state(backup_path)?;
-            debuglog!("MicroSupervisor: State reversion complete.");
-        } else {
-            debuglog!("MicroSupervisor: Fitness verified. Committing new state.");
-            agent.save_persistent_state(backup_path)?;
+    pub fn deliberate_and_decompose(&self, goal: &str, supervisor: &PslSupervisor) -> Result<Vec<String>, Box<dyn std::error::Error>> {
+        let root_state = HyperMemory::from_string(goal, DIM_PROLETARIAT);
+        let mut engine = MctsEngine::new(root_state);
+        let _optimal_hv = engine.deliberate(100, supervisor)?;
+        Ok(vec![
+            format!("Audit material base for {}", goal),
+            format!("Synthesize logic for {}", goal),
+            format!("Verify against PSL constraints"),
+        ])
+    }
+
+    pub fn verify_execution(&self, output: &str) -> bool {
+        if output.contains("unwrap()") || output.contains("expect()") {
+            return false;
         }
-        Ok(())
+        true
     }
+}
+
+pub struct AgentTemplate {
+    pub id: String,
+    pub role: AgentRole,
+    pub trust_tier: f64,
 }

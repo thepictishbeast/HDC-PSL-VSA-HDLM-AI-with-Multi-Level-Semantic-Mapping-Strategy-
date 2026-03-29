@@ -1,0 +1,47 @@
+#!/usr/bin/expect -f
+set timeout 30
+log_user 1
+
+spawn cargo run --bin chat 2>/dev/null
+expect "Enter Password>"
+send -- "$env(LFI_SOVEREIGN_KEY)"
+expect "User>"
+
+# --- Questions that previously failed ---
+send "who was the first person on the moon?\r"
+expect "User>"
+
+send "what is quantum entanglement?\r"
+expect "User>"
+
+send "how does TCP/IP work?\r"
+expect "User>"
+
+send "what is the capital of France?\r"
+expect "User>"
+
+send "how many people live in Tokyo?\r"
+expect "User>"
+
+# --- Complex knowledge ---
+send "what is the theory of relativity?\r"
+expect "User>"
+
+send "what is a neural network?\r"
+expect "User>"
+
+send "what is blockchain?\r"
+expect "User>"
+
+# --- Still works: math, names, teaching ---
+send "what is 2048 / 16?\r"
+expect "User>"
+
+send "my name is Paul\r"
+expect "User>"
+
+send "what is my name?\r"
+expect "User>"
+
+send "exit\r"
+expect eof

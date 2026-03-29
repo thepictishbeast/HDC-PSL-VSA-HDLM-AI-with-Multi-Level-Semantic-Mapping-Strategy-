@@ -19,7 +19,6 @@ use crate::hdlm::ast::{Ast, NodeKind, NodeId};
 use crate::hdc::vector::BipolarVector;
 use crate::hdc::error::HdcError;
 use crate::psl::supervisor::PslSupervisor;
-use crate::debuglog;
 use serde::{Serialize, Deserialize};
 
 /// Comprehensive code quality metrics.

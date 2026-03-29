@@ -10,7 +10,6 @@
 use crate::hdc::vector::BipolarVector;
 use crate::hdlm::ast::NodeKind;
 use crate::hdlm::error::HdlmError;
-use crate::debuglog;
 use std::collections::HashMap;
 
 /// Result type for codebook operations.

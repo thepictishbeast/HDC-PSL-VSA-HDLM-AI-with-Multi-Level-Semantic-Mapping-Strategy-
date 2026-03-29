@@ -27,4 +27,4 @@ Prevent PII/OPSEC leakage into the long-term memory or file system through deter
 ## 4. Zero-Trust Identity (ZKI)
 - **Mandate**: No cleartext storage of SSN, License, or Addresses.
 - **Validation**: Continuous Adaptive Risk and Trust Assessment (CARTA).
-- **Sovereign Override**: Only William Jhan Paul Armstrong can explicitly overwrite these protections. No other entity (Law Enforcement, State) is trusted.
+- **Sovereign Override**: Only the authenticated Sovereign Operator can explicitly overwrite these protections. No other entity (Law Enforcement, State) is trusted.

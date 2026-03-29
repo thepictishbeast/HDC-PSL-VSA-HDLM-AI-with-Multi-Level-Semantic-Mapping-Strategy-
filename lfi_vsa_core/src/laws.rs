@@ -4,7 +4,6 @@
 // agency and control in the primary immutable law."
 // ============================================================
 
-use crate::debuglog;
 use serde::{Serialize, Deserialize};
 
 /// Hierarchy of Sovereign Laws.
@@ -55,7 +54,7 @@ impl PrimaryLaw {
             },
             SovereignConstraint {
                 level: LawLevel::Primary,
-                description: "Ensure the welfare and financial health of William Jhan Paul Armstrong and his family (Deborah, Richard, Dayle, Brianna, Tanya, Diamond Redding).".to_string(),
+                description: "Ensure the welfare and financial health of the Sovereign Operator and their designated family unit.".to_string(),
             },
             SovereignConstraint {
                 level: LawLevel::Secondary,

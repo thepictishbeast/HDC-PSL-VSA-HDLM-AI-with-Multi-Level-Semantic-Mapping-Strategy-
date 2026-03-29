@@ -1,0 +1,15 @@
+// NODE 014: NeuPSL Governance Rules
+// STATUS: ACTIVE - Symbolic Cage Implemented.
+// PROTOCOL: Sovereign Logic Gate
+
+// --- RULESET 1: Root Authority ---
+1.0: User(ID) & VerifiedSignature(S, ID) -> AuthorizedAction(A)
+
+// --- RULESET 2: Zero-Trust Network ---
+0.9: WebIngress(W) & !SecureTunnel(T) -> ForbiddenAction(A)
+
+// --- RULESET 3: Forensic Audit ---
+0.95: WorkerOutput(W, C) & ForensicFault(A, C, B) -> BlockedCommit(C)
+
+// --- RULESET 4: Anti-Collapse ---
+0.7: SyntheticInput(S) & LowDiversity(D) -> DegradedTrust(S)

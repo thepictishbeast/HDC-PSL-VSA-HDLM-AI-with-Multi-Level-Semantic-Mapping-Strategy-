@@ -19,7 +19,6 @@
 
 use crate::hdc::vector::BipolarVector;
 use crate::hdc::error::HdcError;
-use crate::debuglog;
 
 /// Patch size in pixels (side length). Each patch is PATCH_SIZE x PATCH_SIZE.
 const PATCH_SIZE: usize = 8;

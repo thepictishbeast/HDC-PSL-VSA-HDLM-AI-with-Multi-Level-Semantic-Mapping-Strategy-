@@ -17,7 +17,6 @@
 use crate::hdc::vector::BipolarVector;
 use crate::hdc::holographic::HolographicMemory;
 use crate::hdc::error::HdcError;
-use crate::debuglog;
 
 /// How novel is this input relative to what the engine knows?
 #[derive(Debug, Clone, PartialEq)]
@@ -135,6 +134,8 @@ pub struct LearnedConcept {
     pub encounter_count: usize,
     /// Trust score of the source (1.0 = Sovereign, 0.0 = Untrusted).
     pub trust_score: f64,
+    /// Human-readable definition if one was taught or learned.
+    pub definition: Option<String>,
     /// Related concept names.
     pub related_concepts: Vec<String>,
 }
@@ -277,6 +278,7 @@ impl KnowledgeEngine {
                 mastery,
                 encounter_count: 1,
                 trust_score: 1.0, // Seeded concepts are absolute truth
+                definition: Some(format!("Core axiomatic concept: {}", name)),
                 related_concepts: related.into_iter().map(|s| s.to_string()).collect(),
             });
         }
@@ -646,6 +648,7 @@ impl KnowledgeEngine {
             mastery: 0.3,
             encounter_count: 1,
             trust_score: 1.0,
+            definition: None, // Will be updated when taught specifically
             related_concepts: related.iter().map(|s| s.to_string()).collect(),
         };
         self.concepts.push(concept);

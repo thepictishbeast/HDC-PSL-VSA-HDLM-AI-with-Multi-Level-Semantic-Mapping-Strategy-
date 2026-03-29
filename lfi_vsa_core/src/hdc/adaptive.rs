@@ -6,7 +6,6 @@
 
 use crate::hdc::vector::BipolarVector;
 use crate::hdc::error::HdcError;
-use crate::debuglog;
 use serde::{Serialize, Deserialize};
 
 /// Visual attributes of a UI element for vector folding.

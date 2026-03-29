@@ -3,7 +3,6 @@
 // Section 1.IV: "Implement Intelligence/OSINT modules for analysis."
 // ============================================================
 
-use crate::debuglog;
 use crate::hdc::vector::BipolarVector;
 use crate::psl::supervisor::PslSupervisor;
 use crate::psl::axiom::AuditTarget;

@@ -3,26 +3,37 @@ use lfi_vsa_core::hdc::error::HdcError;
 
 #[test]
 fn test_opsec_intercept_and_block() -> Result<(), Box<dyn std::error::Error>> {
+    // Set sovereign credentials via env so the ForbiddenSpaceAxiom is populated
+    // Synthetic test credentials — never use real PII
+    let test_credential = "555000111";
+    let test_id = "s99999999";
+    std::env::set_var("LFI_SOVEREIGN_CREDENTIAL", test_credential);
+    std::env::set_var("LFI_SOVEREIGN_ID", test_id);
+
     let mut agent = LfiAgent::new()?;
 
     // 1. Test HDLM Intercept (Pre-Vectorization Sanitization)
-    let raw_input = "My SSN is 647568607 and my license is s23233305.";
+    let raw_input = "My SSN is 555000111 and my license is s99999999.";
     let sanitized = agent.ingest_text(raw_input)?;
 
     assert!(sanitized.contains("ZKP_REDACTED_"));
-    assert!(!sanitized.contains("647568607"));
-    assert!(!sanitized.contains("s23233305"));
+    assert!(!sanitized.contains("555000111"));
+    assert!(!sanitized.contains("s99999999"));
 
     // 2. Test PSL Write-Blocker (Forbidden Space Similarity)
     // We bypass the intercept manually to test the PSL firewall.
-    let ssn_only = "647568607";
-    let text_hash = lfi_vsa_core::identity::IdentityProver::hash(ssn_only);
+    let cred_only = test_credential;
+    let text_hash = lfi_vsa_core::identity::IdentityProver::hash(cred_only);
     let text_vector = lfi_vsa_core::hdc::vector::BipolarVector::from_seed(text_hash);
 
     let target = lfi_vsa_core::psl::axiom::AuditTarget::Vector(text_vector);
     let assessment = agent.supervisor.audit(&target)?;
 
     assert!(!assessment.level.permits_execution(), "PSL should have blocked the forbidden SSN vector");
+
+    // Cleanup env
+    std::env::remove_var("LFI_SOVEREIGN_CREDENTIAL");
+    std::env::remove_var("LFI_SOVEREIGN_ID");
     Ok(())
 }
 

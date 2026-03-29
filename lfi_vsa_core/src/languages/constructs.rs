@@ -12,7 +12,6 @@
 // (Tier 2), while the control flow semantics are forensic (Tier 1).
 // ============================================================
 
-use crate::debuglog;
 use serde::{Serialize, Deserialize};
 
 /// Programming paradigm classification.

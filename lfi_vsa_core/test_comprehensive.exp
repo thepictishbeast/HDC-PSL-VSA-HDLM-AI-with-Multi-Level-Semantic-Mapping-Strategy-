@@ -1,0 +1,85 @@
+#!/usr/bin/expect -f
+set timeout 15
+log_user 1
+
+spawn cargo run --bin chat 2>/dev/null
+expect "Enter Password>"
+send -- "$env(LFI_SOVEREIGN_KEY)"
+expect "User>"
+
+# --- 1. Auto-Learn Name ---
+send "my name is Paul\r"
+expect "User>"
+
+# --- 2. Auto-Learn Definition ---
+send "entropy is a measure of disorder or randomness in a system\r"
+expect "User>"
+
+# --- 3. Recall Name ---
+send "what is my name?\r"
+expect "User>"
+
+# --- 4. Recall Learned Concept ---
+send "what is entropy?\r"
+expect "User>"
+
+# --- 5. Explain Learned Concept (via explain intent) ---
+send "explain entropy\r"
+expect "User>"
+
+# --- 6. Teach via remember ---
+send "remember that DNS means Domain Name System which translates domain names to IP addresses\r"
+expect "User>"
+
+# --- 7. Math operations ---
+send "what is 256 * 4?\r"
+expect "User>"
+send "calculate 999 / 7\r"
+expect "User>"
+send "what is 17 + 83?\r"
+expect "User>"
+
+# --- 8. Know about X ---
+send "what do you know about rust?\r"
+expect "User>"
+
+# --- 9. Know about something taught ---
+send "tell me about DNS\r"
+expect "User>"
+
+# --- 10. Auto-learn another definition ---
+send "TCP is a connection-oriented protocol that provides reliable data transmission\r"
+expect "User>"
+
+# --- 11. Query back ---
+send "what is TCP?\r"
+expect "User>"
+
+# --- 12. Self-knowledge ---
+send "who are you?\r"
+expect "User>"
+send "what can you help me with?\r"
+expect "User>"
+
+# --- 13. Domain boundary ---
+send "who was the first person on the moon?\r"
+expect "User>"
+
+# --- 14. Greeting ---
+send "hello\r"
+expect "User>"
+
+# --- 15. Code request ---
+send "write python code to sort a list\r"
+expect "User>"
+
+# --- 16. Plan request ---
+send "plan a strategy to optimize database query performance\r"
+expect "User>"
+
+# --- 17. Goodbye ---
+send "thanks bye\r"
+expect "User>"
+
+send "exit\r"
+expect eof

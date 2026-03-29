@@ -6,7 +6,6 @@
 
 use crate::hdc::vector::BipolarVector;
 use crate::hdc::error::HdcError;
-use crate::debuglog;
 
 /// Transducer for projecting raw binary data into the VSA space.
 /// Ingests arbitrary byte sequences and maps them to 10,000-dim

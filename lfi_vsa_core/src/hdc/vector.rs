@@ -9,7 +9,6 @@
 use bitvec::prelude::*;
 use rand::RngCore;
 use crate::hdc::error::HdcError;
-use crate::debuglog;
 use serde::{Serialize, Deserialize};
 
 /// Dimensionality of the hyperdimensional space.

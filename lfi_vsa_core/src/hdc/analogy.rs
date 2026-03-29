@@ -6,7 +6,6 @@
 
 use crate::hdc::vector::BipolarVector;
 use crate::hdc::error::HdcError;
-use crate::debuglog;
 
 /// A pair representing a known structural solution.
 pub struct AnalogyPair {

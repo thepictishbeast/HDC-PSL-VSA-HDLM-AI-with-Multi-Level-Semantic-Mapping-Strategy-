@@ -4,7 +4,6 @@
 // based on Pixel battery thermal limits and threat telemetry."
 // ============================================================
 
-use crate::debuglog;
 use rand::Rng;
 
 /// A chromosome representing a set of hyper-parameters

@@ -1,0 +1,58 @@
+#!/usr/bin/expect -f
+set timeout 30
+log_user 1
+
+spawn cargo run --bin chat 2>/dev/null
+expect "Enter Password>"
+send -- "$env(LFI_SOVEREIGN_KEY)"
+expect "User>"
+
+# --- Trivia that requires web search ---
+send "who was the first person on the moon?\r"
+expect "User>"
+
+send "what is the capital of Japan?\r"
+expect "User>"
+
+send "what is quantum entanglement?\r"
+expect "User>"
+
+# --- Complex question ---
+send "how does TCP/IP work?\r"
+expect "User>"
+
+# --- Math ---
+send "what is 1337 * 42?\r"
+expect "User>"
+
+# --- Auto-learning ---
+send "my name is Paul\r"
+expect "User>"
+send "what is my name?\r"
+expect "User>"
+
+# --- Teaching ---
+send "remember that a buffer overflow is when a program writes data beyond the allocated memory boundary\r"
+expect "User>"
+
+# --- Recall taught concept ---
+send "what is a buffer overflow?\r"
+expect "User>"
+
+# --- Knowledge lookup ---
+send "tell me about buffer overflow\r"
+expect "User>"
+
+# --- Background learning toggle ---
+send "/learn on\r"
+expect "User>"
+send "/status\r"
+expect "User>"
+send "/learn off\r"
+expect "User>"
+
+# --- Save and exit ---
+send "/save\r"
+expect "User>"
+send "exit\r"
+expect eof

@@ -4,7 +4,7 @@ log_user 1
 
 spawn cargo run --bin chat 2>/dev/null
 expect "Enter Password>"
-send -- "-G;#/,n3Ndif!#9Fua72n\`\[}mbxu!s_GiWMN5w\\~\]\r"
+send -- "$env(LFI_SOVEREIGN_KEY)"
 expect "User>"
 
 # --- Greetings & Self-Knowledge ---

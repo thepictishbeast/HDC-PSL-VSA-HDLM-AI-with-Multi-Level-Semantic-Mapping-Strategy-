@@ -7,7 +7,6 @@
 
 use crate::hdc::error::HdcError;
 use crate::hdc::vector::BipolarVector;
-use crate::debuglog;
 
 /// Trait defining the compute dispatch interface for HDC operations.
 /// Implementors handle the actual arithmetic — locally or remotely.

@@ -6,7 +6,6 @@
 
 use crate::hdc::vector::BipolarVector;
 use crate::hdc::error::HdcError;
-use crate::debuglog;
 use std::collections::HashMap;
 
 /// A Holographic Memory unit using VSA.

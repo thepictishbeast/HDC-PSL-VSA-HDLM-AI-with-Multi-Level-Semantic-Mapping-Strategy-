@@ -10,7 +10,6 @@
 
 use crate::hdlm::ast::{Ast, NodeKind, NodeId};
 use crate::hdlm::error::HdlmError;
-use crate::debuglog;
 
 /// Trait for Tier 2 decorative expanders.
 /// Takes an immutable AST reference and produces a rendered output.

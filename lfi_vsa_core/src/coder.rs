@@ -20,7 +20,6 @@ use crate::languages::registry::{LanguageId, LanguageRegistry};
 use crate::languages::self_improve::SelfImproveEngine;
 use crate::hdlm::ast::{Ast, NodeKind};
 use crate::psl::supervisor::PslSupervisor;
-use crate::debuglog;
 
 /// Resource constraints for code generation.
 #[derive(Debug, Clone)]

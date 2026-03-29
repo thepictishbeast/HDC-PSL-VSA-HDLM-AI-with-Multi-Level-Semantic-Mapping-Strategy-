@@ -11,7 +11,6 @@ use crate::hdlm::ast::{Ast, NodeKind, NodeId};
 use crate::hdlm::codebook::HdlmCodebook;
 use crate::hdlm::error::HdlmError;
 use crate::hdc::vector::BipolarVector;
-use crate::debuglog;
 
 /// Trait for Tier 1 forensic generators.
 /// Implementations produce ASTs from various input modalities.

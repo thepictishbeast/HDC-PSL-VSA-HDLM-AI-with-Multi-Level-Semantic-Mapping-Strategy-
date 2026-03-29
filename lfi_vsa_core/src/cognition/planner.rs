@@ -11,7 +11,6 @@
 
 use crate::hdc::vector::BipolarVector;
 use crate::hdc::error::HdcError;
-use crate::debuglog;
 
 /// Status of a plan step.
 #[derive(Debug, Clone, PartialEq)]

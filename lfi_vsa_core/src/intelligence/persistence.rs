@@ -12,7 +12,6 @@
 // session count, learning history.
 // ============================================================
 
-use crate::debuglog;
 use crate::hdc::error::HdcError;
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
@@ -45,6 +44,8 @@ pub struct StoredFact {
     pub key: String,
     /// Value (e.g., "Paul", "force that attracts objects").
     pub value: String,
+    /// Global session ID where this was first learned.
+    pub session_id: String,
 }
 
 /// The full persistent knowledge store.
@@ -54,6 +55,8 @@ pub struct KnowledgeStore {
     pub version: u32,
     /// When the store was last saved.
     pub last_saved: String,
+    /// Current session ID.
+    pub current_session_id: String,
     /// How many sessions have used this store.
     pub session_count: u64,
     /// All learned concepts.
@@ -70,9 +73,11 @@ impl KnowledgeStore {
     /// Create a new empty store.
     pub fn new() -> Self {
         debuglog!("KnowledgeStore::new: creating empty persistent store");
+        let session_id = format!("SESSION_{}", chrono::Utc::now().timestamp());
         Self {
             version: 1,
             last_saved: Self::now_timestamp(),
+            current_session_id: session_id,
             session_count: 0,
             concepts: Vec::new(),
             facts: Vec::new(),
@@ -107,6 +112,7 @@ impl KnowledgeStore {
         })?;
 
         store.session_count += 1;
+        store.current_session_id = format!("SESSION_{}", chrono::Utc::now().timestamp());
         debuglog!(
             "KnowledgeStore::load: loaded {} concepts, {} facts, session #{}",
             store.concepts.len(), store.facts.len(), store.session_count
@@ -174,6 +180,7 @@ impl KnowledgeStore {
         self.facts.push(StoredFact {
             key: key.to_string(),
             value: value.to_string(),
+            session_id: self.current_session_id.clone(),
         });
     }
 
@@ -219,7 +226,6 @@ impl KnowledgeStore {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::io::Write;
 
     #[test]
     fn test_knowledge_store_new() {
@@ -280,7 +286,11 @@ mod tests {
         let path = dir.join("test_knowledge.json");
 
         let mut store = KnowledgeStore::new();
-        store.upsert_fact("test_key", "test_value");
+        store.facts.push(StoredFact {
+            key: "test_key".to_string(),
+            value: "test_value".to_string(),
+            session_id: "test_session".to_string(),
+        });
         store.upsert_concept(StoredConcept {
             name: "test_concept".to_string(),
             mastery: 0.5,

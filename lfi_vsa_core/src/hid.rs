@@ -4,7 +4,6 @@
 // ============================================================
 
 use crate::hdc::error::HdcError;
-use crate::debuglog;
 use std::fs::OpenOptions;
 use std::io::Write;
 

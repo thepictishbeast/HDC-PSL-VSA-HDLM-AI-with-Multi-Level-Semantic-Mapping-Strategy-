@@ -16,7 +16,6 @@
 
 use crate::hdc::vector::BipolarVector;
 use crate::hdc::error::HdcError;
-use crate::debuglog;
 
 /// Frame size in bytes for audio chunking.
 /// 256 bytes @ 16-bit mono 16kHz = ~8ms per frame.

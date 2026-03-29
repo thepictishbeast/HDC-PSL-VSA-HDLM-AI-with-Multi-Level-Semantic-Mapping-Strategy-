@@ -25,10 +25,11 @@ fn test_full_agent_pipeline() -> Result<(), Box<dyn std::error::Error>> {
     assert_eq!(sanitized, safe_text, "Safe text should pass unchanged");
 
     // ---- 3. OPSEC Interception ----
-    let dangerous = "Contact 647568607 at address s23233305 immediately.";
+    // Synthetic test PII — never use real credentials
+    let dangerous = "Contact 555000111 at address s99999999 immediately.";
     let cleaned = agent.ingest_text(dangerous)?;
     assert!(cleaned.contains("ZKP_REDACTED_"), "OPSEC must redact identity markers");
-    assert!(!cleaned.contains("647568607"), "SSN must be scrubbed");
+    assert!(!cleaned.contains("555000111"), "SSN must be scrubbed");
 
     // ---- 4. Noise Ingestion (LNN -> VSA) ----
     // Feed varied signals to build diverse neuron states before projection.

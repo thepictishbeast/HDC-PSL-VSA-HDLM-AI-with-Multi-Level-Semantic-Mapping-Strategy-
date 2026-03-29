@@ -10,7 +10,6 @@
 // All results pass through PSL skepticism gates before ingestion.
 // ============================================================
 
-use crate::debuglog;
 use crate::hdc::error::HdcError;
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
@@ -217,14 +216,30 @@ impl WebSearchEngine {
         }
         let source_count = backends_seen.len();
 
-        // Cross-reference trust: more sources = higher trust
+        // Cross-reference trust: more sources = higher trust.
+        // Consensus logic: if snippets from different backends share key technical terms, trust increases.
         let cross_reference_trust = if source_count == 0 {
             0.0
         } else {
-            1.0 - (1.0 / (1.0 + source_count as f64))
+            let mut base_trust = 1.0 - (1.0 / (1.0 + source_count as f64));
+            
+            // Refine trust based on overlapping content
+            if source_count > 1 {
+                let mut agreement_bonus = 0.0;
+                for i in 0..all_results.len() {
+                    for j in i+1..all_results.len() {
+                        if all_results[i].backend != all_results[j].backend {
+                            let overlap = Self::calculate_snippet_overlap(&all_results[i].snippet, &all_results[j].snippet);
+                            agreement_bonus += overlap * 0.1;
+                        }
+                    }
+                }
+                base_trust = (base_trust + agreement_bonus).min(0.95); // Never 100% trust
+            }
+            base_trust
         };
 
-        // Extract the best summary (prefer DuckDuckGo abstract, then Wikipedia, then first snippet)
+        // Extract the best summary (prefer Wikipedia extracts, then DuckDuckGo, then first snippet)
         let best_summary = self.extract_best_summary(&all_results);
 
         debuglog!(
@@ -239,6 +254,27 @@ impl WebSearchEngine {
             cross_reference_trust,
             best_summary,
         })
+    }
+
+    /// Calculate the overlap between two snippets (naive keyword intersection).
+    fn calculate_snippet_overlap(s1: &str, s2: &str) -> f64 {
+        let s1_low = s1.to_lowercase();
+        let s2_low = s2.to_lowercase();
+        let w1: std::collections::HashSet<_> = s1_low
+            .split(|c: char| !c.is_alphanumeric())
+            .filter(|w| w.len() > 4)
+            .collect();
+        let w2: std::collections::HashSet<_> = s2_low
+            .split(|c: char| !c.is_alphanumeric())
+            .filter(|w| w.len() > 4)
+            .collect();
+        
+        if w1.is_empty() || w2.is_empty() { return 0.0; }
+        
+        let intersection = w1.intersection(&w2).count();
+        let union = w1.union(&w2).count();
+        
+        intersection as f64 / union as f64
     }
 
     /// Query DuckDuckGo Instant Answer API (no API key required).
