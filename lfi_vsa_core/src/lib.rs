@@ -31,6 +31,7 @@ pub mod telemetry;
 pub mod memory_bus;
 pub mod inference_engine;
 pub mod data_ingestor;
+pub mod qos;
 
 // Re-export core public types
 pub use hdc::vector::BipolarVector;

@@ -280,6 +280,17 @@ async fn search_handler(
 }
 
 // ============================================================
+// REST: QoS Compliance Report
+// ============================================================
+
+async fn qos_handler() -> impl IntoResponse {
+    info!("// AUDIT: QoS compliance report requested.");
+    let auditor = crate::qos::QosAuditor::new();
+    let report = auditor.audit(1.0); // TODO: wire to real axiom history
+    Json(serde_json::to_value(&report).unwrap_or(json!({ "error": "serialization failed" })))
+}
+
+// ============================================================
 // Router Construction
 // ============================================================
 
@@ -302,6 +313,7 @@ pub fn create_router() -> Router {
         .route("/api/status", get(status_handler))
         .route("/api/facts", get(facts_handler))
         .route("/api/search", post(search_handler))
+        .route("/api/qos", get(qos_handler))
         .layer(cors)
         .with_state(state)
 }
