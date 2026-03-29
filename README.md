@@ -35,15 +35,15 @@ LFI is composed of four tightly integrated subsystems:
 |  +-------------------+    +-------------------+                   |
 |           |                        |                              |
 |           v                        v                              |
-|  +---------------------------------------------------+           |
+|  +---------------------------------------------------+            |
 |  |              HDLM (Language/Generation)            |           |
 |  |                                                    |           |
-|  |  Tier 1 (Forensic):  Token -> AST (verified)      |           |
+|  |  Tier 1 (Forensic):  Token -> AST (verified)       |           |
 |  |  Tier 2 (Decorative): AST -> Code/Prose (render)   |           |
 |  |                                                    |           |
 |  |  AST arena with optional HV fingerprints           |           |
 |  |  InfixRenderer | SExprRenderer                     |           |
-|  +---------------------------------------------------+           |
+|  +---------------------------------------------------+            |
 +-------------------------------------------------------------------+
          |                    |                    |
     LocalBackend         Remote GPU           IPC Bus
