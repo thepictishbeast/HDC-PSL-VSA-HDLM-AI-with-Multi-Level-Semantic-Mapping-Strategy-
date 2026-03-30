@@ -51,6 +51,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     info!("// AUDIT: Ingesting Research Contexts...");
                     trainer.train_on_intents(path.to_str().unwrap())?;
                 }
+                f if f.starts_with("lean") && f.ends_with(".json") => {
+                    info!("// AUDIT: Ingesting Lean4/Mathlib Formal Proofs...");
+                    trainer.train_on_lean(path.to_str().unwrap())?;
+                }
                 _ => {
                     warn!("// AUDIT: Unrecognized domain for {}. Defaulting to generic binding.", file_name);
                     trainer.train_on_intents(path.to_str().unwrap())?;

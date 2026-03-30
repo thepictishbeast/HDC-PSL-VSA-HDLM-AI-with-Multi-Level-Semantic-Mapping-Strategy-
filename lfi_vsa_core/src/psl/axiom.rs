@@ -48,6 +48,12 @@ pub trait Axiom: Send + Sync {
     fn id(&self) -> &str;
     fn description(&self) -> &str;
     fn evaluate(&self, target: &AuditTarget) -> Result<AxiomVerdict, PslError>;
+    /// Relevance weight (0.0 - 1.0) for this axiom against a given target.
+    /// Returns 1.0 by default — override for axioms that only apply to specific target types.
+    fn relevance(&self, target: &AuditTarget) -> f64 {
+        let _ = target;
+        1.0
+    }
 }
 
 pub struct DimensionalityAxiom;
@@ -62,6 +68,9 @@ impl Axiom for DimensionalityAxiom {
             },
             _ => Ok(AxiomVerdict::pass(self.id().to_string(), 1.0, "Non-vector target".into())),
         }
+    }
+    fn relevance(&self, target: &AuditTarget) -> f64 {
+        if matches!(target, AuditTarget::Vector(_)) { 1.0 } else { 0.0 }
     }
 }
 
@@ -80,6 +89,9 @@ impl Axiom for StatisticalEquilibriumAxiom {
             _ => Ok(AxiomVerdict::pass(self.id().to_string(), 1.0, "Non-vector target".into())),
         }
     }
+    fn relevance(&self, target: &AuditTarget) -> f64 {
+        if matches!(target, AuditTarget::Vector(_)) { 1.0 } else { 0.0 }
+    }
 }
 
 pub struct WebSearchSkepticismAxiom { pub min_credibility_score: f64 }
@@ -95,6 +107,9 @@ impl Axiom for WebSearchSkepticismAxiom {
             _ => Ok(AxiomVerdict::pass(self.id().to_string(), 1.0, "Bypassing for simulation".into()))
         }
     }
+    fn relevance(&self, target: &AuditTarget) -> f64 {
+        if matches!(target, AuditTarget::Payload { .. }) { 1.0 } else { 0.0 }
+    }
 }
 
 pub struct DataIntegrityAxiom { pub max_bytes: usize }
@@ -109,6 +124,9 @@ impl Axiom for DataIntegrityAxiom {
             },
             _ => Ok(AxiomVerdict::pass(self.id().to_string(), 1.0, "Bypassing for simulation".into()))
         }
+    }
+    fn relevance(&self, target: &AuditTarget) -> f64 {
+        if matches!(target, AuditTarget::RawBytes { .. }) { 1.0 } else { 0.0 }
     }
 }
 
@@ -134,21 +152,24 @@ impl Axiom for ForbiddenSpaceAxiom {
 
                 if max_sim <= self.tolerance {
                     Ok(AxiomVerdict::pass(
-                        self.id().to_string(), 
-                        1.0 - max_sim.max(0.0), 
+                        self.id().to_string(),
+                        1.0 - max_sim.max(0.0),
                         format!("Safe (max_sim={:.4})", max_sim)
                     ))
                 } else {
                     debuglog!("PSL: FORBIDDEN VECTOR DETECTED (sim={:.4})", max_sim);
                     Ok(AxiomVerdict::fail(
-                        self.id().to_string(), 
-                        0.0, 
+                        self.id().to_string(),
+                        0.0,
                         format!("FORBIDDEN (max_sim={:.4} > threshold={:.4})", max_sim, self.tolerance)
                     ))
                 }
             },
             _ => Ok(AxiomVerdict::pass(self.id().to_string(), 1.0, "Non-vector target".into())),
         }
+    }
+    fn relevance(&self, target: &AuditTarget) -> f64 {
+        if matches!(target, AuditTarget::Vector(_)) { 1.0 } else { 0.0 }
     }
 }
 
@@ -168,6 +189,12 @@ impl Axiom for ClassInterestAxiom {
                 }
             }
             _ => Ok(AxiomVerdict::pass(self.id().to_string(), 1.0, "Non-payload target".into())),
+        }
+    }
+    fn relevance(&self, target: &AuditTarget) -> f64 {
+        match target {
+            AuditTarget::Payload { .. } | AuditTarget::RawBytes { .. } => 1.0,
+            _ => 0.0,
         }
     }
 }

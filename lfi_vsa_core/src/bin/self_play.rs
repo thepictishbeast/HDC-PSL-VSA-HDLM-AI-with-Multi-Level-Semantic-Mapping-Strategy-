@@ -30,7 +30,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         // 1. THE THESIS: The Strategist proposes a move via MCTS
         let goal_text = format!("STRATEGIC_MOVE_GEN_{}", i);
         let root_state = HyperMemory::from_string(&goal_text, DIM_PROLETARIAT);
-        let mut mcts = MctsEngine::new(root_state);
+        let mut mcts = MctsEngine::new_exploratory(root_state);
         
         let thesis_hv = mcts.deliberate(20, &agent.supervisor)?;
 

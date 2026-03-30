@@ -65,6 +65,27 @@ struct ReasoningPayload {
     answer: String,
 }
 
+/// Lean4/Mathlib formal proof record.
+/// Expected JSON schema:
+///   { "name": "Nat.add_comm", "statement": "∀ n m : Nat, n + m = m + n",
+///     "proof": "by induction n with ...", "imports": ["Mathlib.Data.Nat.Basic"],
+///     "tags": ["commutativity", "natural_numbers"] }
+#[derive(Deserialize, Debug)]
+struct LeanProofPayload {
+    /// Fully qualified theorem name (e.g., "Nat.add_comm")
+    name: String,
+    /// Formal statement in Lean4 syntax
+    statement: String,
+    /// Proof body (tactic mode or term mode)
+    proof: String,
+    /// Imported modules (optional — for dependency tracking)
+    #[serde(default)]
+    imports: Vec<String>,
+    /// Semantic tags (optional — for retrieval)
+    #[serde(default)]
+    tags: Vec<String>,
+}
+
 #[derive(Deserialize, Debug)]
 struct CodeForensics {
     issue: String,
@@ -182,6 +203,73 @@ impl VsaTrainer {
         Ok(())
     }
 
+    /// Ingests Lean4/Mathlib formal proofs into VSA memory.
+    ///
+    /// Encoding strategy (multi-slot binding):
+    ///   1. name → statement   (what does this theorem say?)
+    ///   2. statement → proof   (how do we prove this?)
+    ///   3. For each tag: tag → name (semantic retrieval index)
+    ///   4. For each import: import → name (dependency graph)
+    ///
+    /// This creates a rich associative network where:
+    ///   - Given a statement, unbinding retrieves the proof
+    ///   - Given a tag, unbinding retrieves relevant theorem names
+    ///   - Given an import, unbinding retrieves theorems that use it
+    pub fn train_on_lean(&mut self, path: &str) -> Result<(), Box<dyn std::error::Error>> {
+        info!("// AUDIT: Stream-Ingesting Lean4/Mathlib Proofs: {}", path);
+        let file = File::open(path)?;
+        let reader = BufReader::new(file);
+
+        let stream = Deserializer::from_reader(reader).into_iter::<Vec<LeanProofPayload>>();
+
+        let mut count = 0;
+        let mut binding_count = 0;
+        for batch_result in stream {
+            if let Ok(batch) = batch_result {
+                let total = batch.len();
+                for p in batch {
+                    let name_hv = HyperMemory::from_string(&p.name, DIM_PROLETARIAT);
+                    let stmt_hv = HyperMemory::from_string(&p.statement, DIM_PROLETARIAT);
+                    let proof_hv = HyperMemory::from_string(&p.proof, DIM_PROLETARIAT);
+
+                    // Binding 1: name → statement
+                    let name_stmt = name_hv.bind(&stmt_hv)?;
+                    self.memory = HyperMemory::bundle(&[self.memory.clone(), name_stmt])?;
+                    binding_count += 1;
+
+                    // Binding 2: statement → proof
+                    let stmt_proof = stmt_hv.bind(&proof_hv)?;
+                    self.memory = HyperMemory::bundle(&[self.memory.clone(), stmt_proof])?;
+                    binding_count += 1;
+
+                    // Binding 3: tags → name (semantic index)
+                    for tag in &p.tags {
+                        let tag_hv = HyperMemory::from_string(tag, DIM_PROLETARIAT);
+                        let tag_name = tag_hv.bind(&name_hv)?;
+                        self.memory = HyperMemory::bundle(&[self.memory.clone(), tag_name])?;
+                        binding_count += 1;
+                    }
+
+                    // Binding 4: imports → name (dependency graph)
+                    for imp in &p.imports {
+                        let imp_hv = HyperMemory::from_string(imp, DIM_PROLETARIAT);
+                        let imp_name = imp_hv.bind(&name_hv)?;
+                        self.memory = HyperMemory::bundle(&[self.memory.clone(), imp_name])?;
+                        binding_count += 1;
+                    }
+
+                    count += 1;
+                    if count % 50 == 0 {
+                        info!("// AUDIT: Processed {}/{} Lean proofs ({} bindings) from {}", count, total, binding_count, path);
+                    }
+                }
+            }
+        }
+        info!("// AUDIT: Completed Lean ingestion — {} proofs, {} total bindings from {}.", count, binding_count, path);
+        self.memory.commit_to_disk(".vsa_core_memory.bin")?;
+        Ok(())
+    }
+
     /// Ingests Spider SQL dataset: question → query associations.
     pub fn train_on_spider(&mut self, path: &str) -> Result<(), Box<dyn std::error::Error>> {
         info!("// AUDIT: Stream-Ingesting Spider SQL Logic: {}", path);
@@ -209,5 +297,64 @@ impl VsaTrainer {
         info!("// AUDIT: Completed ingestion of {} Spider queries from {}.", count, path);
         self.memory.commit_to_disk(".vsa_core_memory.bin")?;
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::Write;
+
+    #[test]
+    fn test_lean_proof_ingestion() {
+        let lean_data = r#"[
+            {
+                "name": "Nat.add_comm",
+                "statement": "∀ n m : Nat, n + m = m + n",
+                "proof": "by induction n with | zero => simp | succ n ih => simp [ih]",
+                "imports": ["Mathlib.Data.Nat.Basic"],
+                "tags": ["commutativity", "arithmetic"]
+            },
+            {
+                "name": "Bool.not_not",
+                "statement": "∀ b : Bool, !!b = b",
+                "proof": "by cases b <;> rfl",
+                "imports": [],
+                "tags": ["boolean"]
+            }
+        ]"#;
+
+        // Write test data to temp file
+        let path = "/tmp/test_lean_ingest.json";
+        let mut f = File::create(path).expect("create temp file");
+        f.write_all(lean_data.as_bytes()).expect("write test data");
+
+        let mut trainer = VsaTrainer::new();
+        let result = trainer.train_on_lean(path);
+        assert!(result.is_ok(), "Lean ingestion should succeed: {:?}", result.err());
+
+        // Clean up
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn test_lean_proof_deserialization() {
+        let json = r#"{"name":"test","statement":"P → P","proof":"by intro h; exact h","imports":["X"],"tags":["logic"]}"#;
+        let parsed: Result<LeanProofPayload, _> = serde_json::from_str(json);
+        assert!(parsed.is_ok(), "Should deserialize Lean proof payload");
+        let p = parsed.unwrap();
+        assert_eq!(p.name, "test");
+        assert_eq!(p.tags, vec!["logic"]);
+    }
+
+    #[test]
+    fn test_lean_proof_optional_fields() {
+        // imports and tags should be optional (default to empty)
+        let json = r#"{"name":"minimal","statement":"True","proof":"trivial"}"#;
+        let parsed: Result<LeanProofPayload, _> = serde_json::from_str(json);
+        assert!(parsed.is_ok(), "Should deserialize with missing optional fields");
+        let p = parsed.unwrap();
+        assert!(p.imports.is_empty());
+        assert!(p.tags.is_empty());
     }
 }

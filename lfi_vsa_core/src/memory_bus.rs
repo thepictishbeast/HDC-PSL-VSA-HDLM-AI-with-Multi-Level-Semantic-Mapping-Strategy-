@@ -107,6 +107,30 @@ impl HyperMemory {
         total_sim / probe_count as f64
     }
 
+    /// Cyclic permutation — shifts the vector by `amount` positions.
+    /// This is the standard VSA "role" operator for structured representations.
+    pub fn permute(&self, amount: usize) -> Result<Self, Box<dyn std::error::Error>> {
+        let dim = self.dimensions;
+        if dim == 0 { return Err("Cannot permute zero-dimensional vector".into()); }
+        let shift = amount % dim;
+        let mut permuted = Array1::<i8>::zeros(dim);
+        for i in 0..dim {
+            permuted[(i + shift) % dim] = self.vector[i];
+        }
+        Ok(Self { vector: permuted, dimensions: dim })
+    }
+
+    /// Export as a bitvec-compatible raw vector: true = +1, false = -1.
+    /// Used for bridging to BipolarVector (bitvec) for PSL audit targets.
+    /// Returns BitVec<u8, Lsb0> to match BipolarVector's internal representation.
+    pub fn export_raw_bitvec(&self) -> bitvec::vec::BitVec<u8, bitvec::order::Lsb0> {
+        let mut bv = bitvec::vec::BitVec::<u8, bitvec::order::Lsb0>::with_capacity(self.dimensions);
+        for &v in self.vector.iter() {
+            bv.push(v > 0);
+        }
+        bv
+    }
+
     pub fn similarity(&self, other: &Self) -> f64 {
         let mut matches = 0;
         let limit = self.dimensions.min(other.dimensions);

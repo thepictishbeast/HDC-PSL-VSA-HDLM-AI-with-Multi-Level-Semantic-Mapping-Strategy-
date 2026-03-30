@@ -93,7 +93,7 @@ impl MicroSupervisor {
 
     pub fn deliberate_and_decompose(&self, goal: &str, supervisor: &PslSupervisor) -> Result<Vec<String>, Box<dyn std::error::Error>> {
         let root_state = HyperMemory::from_string(goal, DIM_PROLETARIAT);
-        let mut engine = MctsEngine::new(root_state);
+        let mut engine = MctsEngine::new_exploratory(root_state);
         let _optimal_hv = engine.deliberate(100, supervisor)?;
         Ok(vec![
             format!("Audit material base for {}", goal),
