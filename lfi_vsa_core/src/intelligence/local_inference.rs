@@ -504,7 +504,7 @@ impl InferenceTrainer {
         difficulty: Option<f64>,
     ) -> Result<InferenceResult, HdcError> {
         debuglog!("InferenceTrainer::ask: '{}' (diff={:?})",
-            &question[..question.len().min(60)], difficulty);
+            crate::truncate_str(question, 60), difficulty);
 
         // Check cache first.
         if self.config.cache_enabled {

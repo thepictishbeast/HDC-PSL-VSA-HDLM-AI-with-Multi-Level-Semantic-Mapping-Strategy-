@@ -293,7 +293,7 @@ impl KnowledgeEngine {
     /// concepts are "understood"; words that don't are "unknown aspects."
     pub fn assess_novelty(&self, input: &str) -> Result<NoveltyLevel, HdcError> {
         debuglog!("KnowledgeEngine::assess_novelty: analyzing '{}'",
-                 &input[..input.len().min(60)]);
+                 crate::truncate_str(input, 60));
 
         // Filter out common English stop words that are never technical concepts.
         // These add noise to the novelty assessment.
@@ -396,7 +396,7 @@ impl KnowledgeEngine {
     /// Generate clarifying questions when the AI is uncertain.
     pub fn generate_questions(&self, input: &str, novelty: &NoveltyLevel) -> Vec<ClarifyingQuestion> {
         debuglog!("KnowledgeEngine::generate_questions: for '{}'",
-                 &input[..input.len().min(60)]);
+                 crate::truncate_str(input, 60));
 
         let mut questions = Vec::new();
         let text_lower = input.to_lowercase();
@@ -477,7 +477,7 @@ impl KnowledgeEngine {
     /// Identify what research is needed for a given problem.
     pub fn identify_research_needs(&self, input: &str, novelty: &NoveltyLevel) -> Vec<ResearchNeed> {
         debuglog!("KnowledgeEngine::identify_research_needs: for '{}'",
-                 &input[..input.len().min(60)]);
+                 crate::truncate_str(input, 60));
 
         let mut needs = Vec::new();
         let text_lower = input.to_lowercase();

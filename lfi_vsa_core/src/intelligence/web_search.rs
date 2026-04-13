@@ -155,7 +155,7 @@ impl WebSearchEngine {
 
     /// Search across all backends and cross-reference results.
     pub fn search(&self, query: &str) -> Result<SearchResponse, HdcError> {
-        debuglog!("WebSearchEngine::search: query='{}'", &query[..query.len().min(80)]);
+        debuglog!("WebSearchEngine::search: query='{}'", crate::truncate_str(query, 80));
 
         let (topic, queries) = Self::generate_queries(query);
         debuglog!("WebSearchEngine::search: topic='{}', queries={:?}", topic, queries);
@@ -523,7 +523,7 @@ impl WebSearchEngine {
 
     /// Perform an HTTP GET request.
     fn http_get(&self, url: &str) -> Result<String, HdcError> {
-        debuglog!("WebSearchEngine::http_get: {}", &url[..url.len().min(120)]);
+        debuglog!("WebSearchEngine::http_get: {}", crate::truncate_str(url, 120));
 
         let response = ureq::get(url)
             .timeout(self.timeout)

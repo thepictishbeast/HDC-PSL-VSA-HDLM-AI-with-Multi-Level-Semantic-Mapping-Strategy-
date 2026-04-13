@@ -131,7 +131,7 @@ impl KnowledgeCompiler {
     ) -> Result<bool, HdcError> {
         debuglog!(
             "KnowledgeCompiler::compile: mode={:?}, conf={:.3}, desc='{}'",
-            mode, confidence, &description[..description.len().min(50)]
+            mode, confidence, crate::truncate_str(description, 50)
         );
 
         // Only compile System 2 results

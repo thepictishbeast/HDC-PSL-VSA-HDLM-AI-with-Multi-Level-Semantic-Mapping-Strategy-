@@ -186,7 +186,7 @@ impl FormalLogicIngestor {
 
     /// Ingest a raw axiom string — a standalone true statement.
     pub fn ingest_axiom(&mut self, axiom: &str) -> Result<(), Box<dyn std::error::Error>> {
-        debuglog!("FormalLogicIngestor::ingest_axiom: '{}'", &axiom[..axiom.len().min(60)]);
+        debuglog!("FormalLogicIngestor::ingest_axiom: '{}'", crate::truncate_str(axiom, 60));
 
         let axiom_hv = HyperMemory::from_string(axiom, DIM_PROLETARIAT);
         self.memory = HyperMemory::bundle(&[self.memory.clone(), axiom_hv])?;
@@ -197,7 +197,7 @@ impl FormalLogicIngestor {
 
     /// Query the logic memory: find the closest stored knowledge to a query.
     pub fn query(&self, query: &str) -> LogicQueryResult {
-        debuglog!("FormalLogicIngestor::query: '{}'", &query[..query.len().min(60)]);
+        debuglog!("FormalLogicIngestor::query: '{}'", crate::truncate_str(query, 60));
 
         let query_hv = HyperMemory::from_string(query, DIM_PROLETARIAT);
         let similarity = self.memory.similarity(&query_hv);

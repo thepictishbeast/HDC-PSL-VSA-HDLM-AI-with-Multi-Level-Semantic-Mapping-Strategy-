@@ -168,7 +168,7 @@ impl CognitiveCore {
     /// Each word is hashed to a seed vector, then all words are bundled.
     fn vectorize_text(&self, text: &str) -> Result<BipolarVector, HdcError> {
         debuglog!("CognitiveCore::vectorize_text: encoding '{}'",
-                 &text[..text.len().min(50)]);
+                 crate::truncate_str(text, 50));
 
         let words: Vec<&str> = text.split_whitespace()
             .map(|w| w.trim_matches(|c: char| !c.is_alphanumeric()))
@@ -201,7 +201,7 @@ impl CognitiveCore {
     /// only keyword presence.
     fn vectorize_bag_of_words(&self, text: &str) -> Result<BipolarVector, HdcError> {
         debuglog!("CognitiveCore::vectorize_bag_of_words: encoding '{}'",
-                 &text[..text.len().min(50)]);
+                 crate::truncate_str(text, 50));
 
         let words: Vec<&str> = text.split_whitespace()
             .map(|w| w.trim_matches(|c: char| !c.is_alphanumeric()))
@@ -255,7 +255,7 @@ impl CognitiveCore {
     /// String-matching for intent resolution is strictly forbidden.
     pub fn detect_intent(&self, text: &str) -> Result<Intent, HdcError> {
         debuglog!("CognitiveCore::detect_intent: mathematically analyzing '{}'",
-                 &text[..text.len().min(60)]);
+                 crate::truncate_str(text, 60));
 
         // 0. Pre-Audit for Injection via Structural Signature
         // (Currently uses string scan, but logically should use vector distance to known hostile seeds)
@@ -477,7 +477,7 @@ impl CognitiveCore {
                     InferenceSource::System1FastPath {
                         similarity_score: result.confidence,
                     },
-                    vec![format!("input:\"{}\"", &input[..input.len().min(40)])],
+                    vec![format!("input:\"{}\"", crate::truncate_str(input, 40))],
                     result.confidence,
                     conclusion_id,
                     format!("System 1 fast recall: {} (conf={:.4})",
@@ -492,7 +492,7 @@ impl CognitiveCore {
                     InferenceSource::System2Deliberation {
                         iterations: result.plan.as_ref().map(|p| p.steps.len()).unwrap_or(0),
                     },
-                    vec![format!("input:\"{}\"", &input[..input.len().min(40)])],
+                    vec![format!("input:\"{}\"", crate::truncate_str(input, 40))],
                     result.confidence,
                     conclusion_id,
                     format!("System 2 deliberation: {} (conf={:.4})",
@@ -541,7 +541,7 @@ impl CognitiveCore {
 
     /// Process a conversational exchange: understand, respond, learn.
     pub fn converse(&mut self, input: &str) -> Result<ThoughtResult, HdcError> {
-        debuglog!("CognitiveCore::converse: input='{}'", &input[..input.len().min(60)]);
+        debuglog!("CognitiveCore::converse: input='{}'", crate::truncate_str(input, 60));
 
         let thought = self.think(input)?;
 
@@ -625,7 +625,7 @@ impl CognitiveCore {
     /// 2. Generates an appropriate response based on intent and context.
     /// 3. Returns both the response text and the cognitive analysis.
     pub fn respond(&mut self, input: &str) -> Result<ConversationResponse, HdcError> {
-        debuglog!("CognitiveCore::respond: input='{}'", &input[..input.len().min(60)]);
+        debuglog!("CognitiveCore::respond: input='{}'", crate::truncate_str(input, 60));
 
         // 1. ALWAYS detect intent first — never let novelty override a clear intent.
         let thought = self.converse(input)?;
@@ -734,7 +734,7 @@ impl CognitiveCore {
                     "I'll search for that information.\n\
                      Query: {}\n\
                      Mode: {:?}",
-                    &query[..query.len().min(80)], thought.mode
+                    crate::truncate_str(query, 80), thought.mode
                 )
             }
             Some(Intent::PlanTask { goal }) => {
@@ -742,7 +742,7 @@ impl CognitiveCore {
                     "I'll create a plan for that.\n\
                      Goal: {}\n\
                      {}",
-                    &goal[..goal.len().min(80)],
+                    crate::truncate_str(goal, 80),
                     if let Some(ref plan) = thought.plan {
                         format!("Plan ({} steps, complexity={:.2}):\n{}",
                             plan.steps.len(), plan.total_complexity,
@@ -759,7 +759,7 @@ impl CognitiveCore {
                     "I'll analyze that for you.\n\
                      Target: {}\n\
                      Mode: {:?} | Confidence: {:.0}%",
-                    &target[..target.len().min(80)],
+                    crate::truncate_str(target, 80),
                     thought.mode, thought.confidence * 100.0
                 )
             }
@@ -769,7 +769,7 @@ impl CognitiveCore {
                      Target: {}\n\
                      Mode: {:?} | Confidence: {:.0}%\n\
                      Running self-improvement analysis...",
-                    &target[..target.len().min(80)],
+                    crate::truncate_str(target, 80),
                     thought.mode, thought.confidence * 100.0
                 )
             }
@@ -783,7 +783,7 @@ impl CognitiveCore {
                      What I heard: {}\n\
                      I can help with: coding, debugging, explaining, searching, planning, \
                      analyzing, optimizing, or just chatting.",
-                    &raw[..raw.len().min(80)]
+                    crate::truncate_str(raw, 80)
                 )
             }
             None => {
@@ -935,7 +935,7 @@ impl CognitiveCore {
             return format!(
                 "\"{}\" — not enough context for me to act on. Can you elaborate? \
                  I work best with clear directives: what do you need built, fixed, or explained?",
-                &input[..input.len().min(40)]
+                crate::truncate_str(input, 40)
             );
         }
 
@@ -959,7 +959,7 @@ impl CognitiveCore {
     /// No fabricated mastery percentages, no fake treatises, no hollow expansion.
     /// Generate an honest explanation based on what the knowledge engine actually knows.
     fn derive_explanation(&self, topic: &str, _thought: Option<&ThoughtResult>) -> Result<String, HdcError> {
-        debuglog!("CognitiveCore::derive_explanation: '{}'", &topic[..topic.len().min(60)]);
+        debuglog!("CognitiveCore::derive_explanation: '{}'", crate::truncate_str(topic, 60));
 
         let mut response = String::new();
         let novelty = self.knowledge.assess_novelty(topic)?;
