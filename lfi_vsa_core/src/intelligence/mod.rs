@@ -11,6 +11,7 @@ pub mod serial_streamer;
 pub mod weight_manager;
 pub mod training;
 pub mod training_data;
+pub mod benchmark;
 
 pub use osint::{OsintAnalyzer, OsintSignal};
 pub use web_audit::ConnectivityAxiom;
