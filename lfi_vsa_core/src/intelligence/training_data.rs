@@ -523,6 +523,48 @@ impl TrainingDataGenerator {
         ]
     }
 
+    // ================================================================
+    // DISTRIBUTED SYSTEMS & BLOCKCHAIN
+    // ================================================================
+    pub fn distributed_examples() -> Vec<TrainingExample> {
+        vec![
+            TrainingExample::new("distributed", "What is consensus?", "agreement among distributed nodes on a single value despite failures", 0.3, &["fundamentals"]),
+            TrainingExample::new("distributed", "What is the CAP theorem?", "distributed system can guarantee at most 2 of: Consistency, Availability, Partition tolerance", 0.35, &["theorems"]),
+            TrainingExample::new("distributed", "What is Byzantine fault tolerance?", "system operates correctly even if some nodes are malicious or faulty", 0.4, &["consensus"]),
+            TrainingExample::new("distributed", "What is a Merkle tree?", "hash tree where each leaf is data hash and each node is hash of children — efficient verification", 0.35, &["data_structures"]),
+            TrainingExample::new("distributed", "What is eventual consistency?", "all replicas converge to the same value given enough time without new writes", 0.3, &["consistency"]),
+            TrainingExample::new("distributed", "What is a CRDT?", "Conflict-free Replicated Data Type — merges without coordination, always converges", 0.35, &["data_structures"]),
+        ]
+    }
+
+    // ================================================================
+    // DATA SCIENCE & ANALYSIS
+    // ================================================================
+    pub fn data_science_examples() -> Vec<TrainingExample> {
+        vec![
+            TrainingExample::new("data_science", "What is overfitting vs underfitting?", "overfitting: model memorizes noise. underfitting: model too simple to capture patterns", 0.25, &["fundamentals"]),
+            TrainingExample::new("data_science", "What is cross-validation?", "split data into k folds, train on k-1, test on 1, rotate — reduces overfitting", 0.3, &["methodology"]),
+            TrainingExample::new("data_science", "What is feature engineering?", "creating new features from raw data to improve model performance", 0.25, &["methodology"]),
+            TrainingExample::new("data_science", "What is a confusion matrix?", "table of true positives, false positives, true negatives, false negatives", 0.3, &["evaluation"]),
+            TrainingExample::new("data_science", "What is precision vs recall?", "precision: TP/(TP+FP). recall: TP/(TP+FN). tradeoff between them.", 0.3, &["evaluation"]),
+            TrainingExample::new("data_science", "What is the F1 score?", "harmonic mean of precision and recall: 2*P*R/(P+R)", 0.3, &["evaluation"]),
+        ]
+    }
+
+    // ================================================================
+    // DIGITAL FORENSICS & INVESTIGATION
+    // ================================================================
+    pub fn forensics_examples() -> Vec<TrainingExample> {
+        vec![
+            TrainingExample::new("forensics", "What is chain of custody?", "documented trail showing who handled evidence, when, and how — ensures admissibility", 0.2, &["legal"]),
+            TrainingExample::new("forensics", "What is disk imaging?", "bit-for-bit copy of storage media for analysis without modifying the original", 0.25, &["methodology"]),
+            TrainingExample::new("forensics", "What is metadata analysis?", "examining file creation dates, GPS coordinates, camera info embedded in files", 0.25, &["techniques"]),
+            TrainingExample::new("forensics", "What is log analysis?", "examining system/application/network logs for evidence of compromise or activity", 0.2, &["techniques"]),
+            TrainingExample::new("forensics", "What is memory forensics?", "analyzing RAM dumps for running processes, network connections, encryption keys", 0.35, &["techniques"]),
+            TrainingExample::new("forensics", "What is steganography detection?", "finding hidden data within images, audio, or other files", 0.35, &["techniques"]),
+        ]
+    }
+
     pub fn all_examples() -> Vec<TrainingExample> {
         let mut all = Vec::new();
         all.extend(Self::math_examples());
@@ -553,6 +595,9 @@ impl TrainingDataGenerator {
         all.extend(Self::common_sense_examples());
         all.extend(Self::plausiden_examples());
         all.extend(Self::analogy_examples());
+        all.extend(Self::distributed_examples());
+        all.extend(Self::data_science_examples());
+        all.extend(Self::forensics_examples());
         all
     }
 
