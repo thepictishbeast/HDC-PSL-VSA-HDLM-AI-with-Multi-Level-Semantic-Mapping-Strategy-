@@ -238,6 +238,18 @@ impl Trainer {
                 knowledge, &curriculum,
             )?;
 
+            // Apply knowledge transfer between related domains.
+            let domains: Vec<String> = curriculum.iter()
+                .map(|e| e.domain.clone())
+                .collect::<std::collections::HashSet<_>>()
+                .into_iter()
+                .collect();
+            for domain in &domains {
+                let _ = crate::intelligence::training_data::TrainingDataGenerator::apply_transfer(
+                    knowledge, domain, 0.05,
+                );
+            }
+
             // Self-play.
             let sp_result = self.run_epoch(epoch)?;
 

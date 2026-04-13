@@ -556,6 +556,48 @@ impl TrainingDataGenerator {
         all
     }
 
+    /// Cross-domain relationships — when learning one domain, related domains get a boost.
+    /// Returns (domain, related_domains_with_transfer_weight).
+    pub fn domain_relationships() -> Vec<(&'static str, Vec<(&'static str, f64)>)> {
+        vec![
+            ("security", vec![("crypto", 0.7), ("networking", 0.5), ("code", 0.3), ("social_eng", 0.6), ("psa", 0.8)]),
+            ("crypto", vec![("security", 0.7), ("math", 0.5), ("math_advanced", 0.6), ("psa", 0.6)]),
+            ("code", vec![("logic", 0.5), ("math", 0.3), ("os", 0.4), ("security", 0.3)]),
+            ("math", vec![("math_advanced", 0.9), ("physics", 0.6), ("code", 0.3)]),
+            ("math_advanced", vec![("math", 0.9), ("physics", 0.5), ("ai_ml", 0.6)]),
+            ("physics", vec![("math", 0.6), ("chemistry", 0.4), ("environment", 0.3)]),
+            ("biology", vec![("medicine", 0.7), ("chemistry", 0.5), ("environment", 0.4)]),
+            ("medicine", vec![("biology", 0.7), ("chemistry", 0.4)]),
+            ("ai_ml", vec![("math_advanced", 0.6), ("code", 0.4), ("logic", 0.5)]),
+            ("psa", vec![("security", 0.8), ("crypto", 0.6), ("voting", 0.5), ("law", 0.5)]),
+            ("voting", vec![("psa", 0.5), ("crypto", 0.6), ("law", 0.4)]),
+            ("law", vec![("psa", 0.5), ("philosophy", 0.3), ("voting", 0.4)]),
+            ("reasoning", vec![("logic", 0.8), ("philosophy", 0.5), ("math", 0.4)]),
+            ("plausiden", vec![("psa", 0.9), ("security", 0.5), ("self", 0.8)]),
+            ("networking", vec![("security", 0.5), ("os", 0.4), ("code", 0.3)]),
+        ]
+    }
+
+    /// Apply knowledge transfer: boost related domains when one domain is learned.
+    pub fn apply_transfer(
+        knowledge: &mut KnowledgeEngine,
+        learned_domain: &str,
+        boost: f64,
+    ) -> Result<(), HdcError> {
+        let relationships = Self::domain_relationships();
+        for (domain, related) in &relationships {
+            if *domain == learned_domain {
+                for (related_domain, weight) in related {
+                    let transfer_boost = boost * weight;
+                    knowledge.reinforce(related_domain);
+                    debuglog!("Transfer: {} -> {} (boost={:.3})", domain, related_domain, transfer_boost);
+                }
+                break;
+            }
+        }
+        Ok(())
+    }
+
     /// Get examples sorted by difficulty (curriculum learning — easy first).
     pub fn curriculum_ordered() -> Vec<TrainingExample> {
         let mut all = Self::all_examples();
