@@ -322,18 +322,18 @@ impl BackgroundLearner {
             encounter_count: response.results.len(),
             trust_score: response.cross_reference_trust,
             related_concepts: related,
-            definition: Some(summary[..summary.len().min(500)].to_string()),
+            definition: Some(crate::truncate_str(&summary, 500).to_string()),
             first_learned: chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true),
             last_reinforced: chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true),
         });
 
         // Also store as a fact for quick retrieval
-        guard.store.upsert_fact(&concept_key, &summary[..summary.len().min(500)]);
+        guard.store.upsert_fact(&concept_key, crate::truncate_str(&summary, 500));
 
         // Add to recent learnings for the main agent
         guard.recent_learnings.push(RecentLearning {
             topic: topic.to_string(),
-            summary: summary[..summary.len().min(200)].to_string(),
+            summary: crate::truncate_str(&summary, 200).to_string(),
             trust: response.cross_reference_trust,
             source_count: response.source_count,
         });
@@ -341,7 +341,7 @@ impl BackgroundLearner {
         guard.store.log_learning(&format!(
             "Learned '{}' from {} sources (trust={:.2}): {}",
             topic, response.source_count, response.cross_reference_trust,
-            &summary[..summary.len().min(100)]
+            crate::truncate_str(&summary, 100)
         ));
 
         debuglog!(

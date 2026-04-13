@@ -228,21 +228,18 @@ impl AnalogyDatabase {
         ]
     }
 
-    /// Find analogies relevant to a problem domain.
-    pub fn analogies_for_domain(domain: &str) -> Vec<&'static str> {
-        // Return domains that have structural analogies to the query domain
+    /// Find domains that have structural analogies to the query domain.
+    /// Returns owned Strings to avoid memory leaks from Box::leak().
+    /// SUPERSOCIETY: Never leak memory for convenience — own the data.
+    pub fn analogies_for_domain(domain: &str) -> Vec<String> {
         let all = Self::all_analogies();
         let mut related = Vec::new();
         for analogy in &all {
-            if analogy.target_domain == domain {
-                if !related.contains(&analogy.source_domain.as_str()) {
-                    related.push(Box::leak(analogy.source_domain.clone().into_boxed_str()));
-                }
+            if analogy.target_domain == domain && !related.contains(&analogy.source_domain) {
+                related.push(analogy.source_domain.clone());
             }
-            if analogy.source_domain == domain {
-                if !related.contains(&analogy.target_domain.as_str()) {
-                    related.push(Box::leak(analogy.target_domain.clone().into_boxed_str()));
-                }
+            if analogy.source_domain == domain && !related.contains(&analogy.target_domain) {
+                related.push(analogy.target_domain.clone());
             }
         }
         related

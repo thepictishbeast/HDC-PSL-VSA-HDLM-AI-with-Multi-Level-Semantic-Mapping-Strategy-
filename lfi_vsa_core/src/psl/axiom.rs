@@ -303,7 +303,7 @@ impl Axiom for OutputBoundsAxiom {
                         return Ok(AxiomVerdict::fail(
                             self.id().into(), 0.1,
                             format!("Field '{}' too large: {} bytes > {} limit",
-                                &key[..key.len().min(30)], field_size, self.max_field_bytes),
+                                crate::truncate_str(key, 30), field_size, self.max_field_bytes),
                         ));
                     }
                     total += field_size;

@@ -356,7 +356,7 @@ impl WebSearchEngine {
                             .unwrap_or("")
                             .to_string();
                         results.push(SearchResult {
-                            title: text[..text.len().min(80)].to_string(),
+                            title: crate::truncate_str(&text, 80).to_string(),
                             snippet: text.to_string(),
                             source_url: first_url,
                             backend: SearchBackend::DuckDuckGo,

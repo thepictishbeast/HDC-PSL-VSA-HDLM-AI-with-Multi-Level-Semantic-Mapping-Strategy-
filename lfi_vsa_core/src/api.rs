@@ -180,7 +180,7 @@ async fn handle_chat_socket(mut socket: WebSocket, state: Arc<AppState>) {
                             let web_payload = json!({
                                 "type": "web_result",
                                 "query": input,
-                                "summary": &search_response.best_summary[..search_response.best_summary.len().min(500)],
+                                "summary": crate::truncate_str(&search_response.best_summary, 500),
                                 "source_count": search_response.source_count,
                                 "trust": search_response.cross_reference_trust,
                             });
@@ -262,7 +262,7 @@ async fn search_handler(
     State(state): State<Arc<AppState>>,
     Json(req): Json<SearchRequest>,
 ) -> impl IntoResponse {
-    info!("// AUDIT: Web search requested via REST: '{}'", &req.query[..req.query.len().min(80)]);
+    info!("// AUDIT: Web search requested via REST: '{}'", crate::truncate_str(&req.query, 80));
     match state.search_engine.search(&req.query) {
         Ok(response) => {
             Json(json!({

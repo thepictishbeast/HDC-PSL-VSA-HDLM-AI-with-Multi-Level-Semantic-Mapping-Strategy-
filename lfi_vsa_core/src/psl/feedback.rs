@@ -138,7 +138,7 @@ impl PslFeedbackLoop {
         debuglog!(
             "PslFeedbackLoop::process_verdict: Rejection #{} recorded — axiom={}, reason='{}'",
             self.total_rejections, verdict.axiom_id,
-            &verdict.detail[..verdict.detail.len().min(80)]
+            crate::truncate_str(&verdict.detail, 80)
         );
 
         Ok(true)

@@ -14,6 +14,16 @@ macro_rules! debuglog {
     };
 }
 
+/// UTF-8 safe string truncation. Truncates at a char boundary, never panics.
+/// SUPERSOCIETY: Every string slice in the codebase must use this instead of
+/// byte-level `&s[..n]` which panics on multi-byte UTF-8 characters.
+pub fn truncate_str(s: &str, max_chars: usize) -> &str {
+    match s.char_indices().nth(max_chars) {
+        Some((byte_idx, _)) => &s[..byte_idx],
+        None => s,
+    }
+}
+
 pub mod api;
 pub mod coder;
 pub mod cognition;
