@@ -442,6 +442,52 @@ impl TrainingDataGenerator {
     }
 
     /// Get ALL training examples across ALL domains.
+    // ================================================================
+    // COMMON SENSE & WORLD KNOWLEDGE
+    // ================================================================
+    pub fn common_sense_examples() -> Vec<TrainingExample> {
+        vec![
+            TrainingExample::new("common_sense", "Can a fish climb a tree?", "no — fish have fins, not limbs adapted for climbing", 0.1, &["biology"]),
+            TrainingExample::new("common_sense", "Is ice heavier than water?", "no — ice is less dense, which is why it floats", 0.15, &["physics"]),
+            TrainingExample::new("common_sense", "Can you see in complete darkness?", "no — vision requires photons (light)", 0.1, &["physics"]),
+            TrainingExample::new("common_sense", "Does hot air rise or sink?", "rises — hot air is less dense than cold air", 0.1, &["physics"]),
+            TrainingExample::new("common_sense", "Why does the moon have phases?", "we see different amounts of its sunlit half as it orbits Earth", 0.2, &["astronomy"]),
+            TrainingExample::new("common_sense", "Why do we have seasons?", "Earth's axial tilt (23.5 degrees) causes varying sunlight angles throughout the year", 0.2, &["astronomy"]),
+        ]
+    }
+
+    // ================================================================
+    // PLAUSIDEN ECOSYSTEM KNOWLEDGE
+    // ================================================================
+    pub fn plausiden_examples() -> Vec<TrainingExample> {
+        vec![
+            TrainingExample::new("plausiden", "What is PlausiDen?", "PLAUSIbly DENiable — civil rights toolkit for plausible deniability, privacy, and security", 0.15, &["ecosystem"]),
+            TrainingExample::new("plausiden", "What is Sacred.Vote?", "zero-trust cryptographic polling platform — voter identity decoupled from ballot records", 0.2, &["ecosystem"]),
+            TrainingExample::new("plausiden", "What is PlausiDen-Engine?", "core data pollution library — generates forensically indistinguishable synthetic artifacts", 0.25, &["ecosystem"]),
+            TrainingExample::new("plausiden", "What is PlausiDen-Shield?", "AI control plane for the PlausiDen ecosystem — orchestrates all components via neurosymbolic AI", 0.25, &["ecosystem"]),
+            TrainingExample::new("plausiden", "What is PlausiDen-PDFS?", "Plausibly Deniable File System — hidden encrypted volumes indistinguishable from random noise", 0.3, &["ecosystem"]),
+            TrainingExample::new("plausiden", "What is PlausiDen-Shard?", "cryptographic sharding engine — post-quantum fragment lifecycle with ML-KEM and Shamir SSS", 0.35, &["ecosystem"]),
+            TrainingExample::new("plausiden", "What is PlausiDen-Swarm?", "P2P data pollution network — any data on any device could belong to anyone", 0.3, &["ecosystem"]),
+            TrainingExample::new("plausiden", "What is the Neurosymbolic Toolkit?", "6-crate Rust workspace: hdc-core, neupsl, lnn, vsa, hdlm — foundation for LFI", 0.2, &["ecosystem"]),
+            TrainingExample::new("plausiden", "What is LFI?", "Localized Forensic Intelligence — neurosymbolic AI engine using HDC, PSL, active inference, MCTS", 0.2, &["ecosystem"]),
+            TrainingExample::new("plausiden", "What is the Super Society goal?", "PSA — Privacy, Security, Anonymity for everyone. Build tools that protect human agency.", 0.15, &["mission"]),
+        ]
+    }
+
+    // ================================================================
+    // ANALOGY-BASED REASONING
+    // ================================================================
+    pub fn analogy_examples() -> Vec<TrainingExample> {
+        vec![
+            TrainingExample::new("analogy", "Hand is to glove as foot is to?", "shoe", 0.15, &["pattern"]),
+            TrainingExample::new("analogy", "Hot is to cold as light is to?", "dark", 0.1, &["opposites"]),
+            TrainingExample::new("analogy", "CPU is to computer as brain is to?", "human body", 0.2, &["function"]),
+            TrainingExample::new("analogy", "Encryption is to privacy as lock is to?", "physical security", 0.25, &["security"]),
+            TrainingExample::new("analogy", "HDC bind is to XOR as HDC bundle is to?", "majority vote (sum + clip)", 0.35, &["hdc"]),
+            TrainingExample::new("analogy", "System 1 is to fast as System 2 is to?", "slow but deliberate (deep reasoning)", 0.25, &["cognition"]),
+        ]
+    }
+
     pub fn all_examples() -> Vec<TrainingExample> {
         let mut all = Vec::new();
         all.extend(Self::math_examples());
@@ -469,6 +515,9 @@ impl TrainingDataGenerator {
         all.extend(Self::law_examples());
         all.extend(Self::self_knowledge_examples());
         all.extend(Self::environment_examples());
+        all.extend(Self::common_sense_examples());
+        all.extend(Self::plausiden_examples());
+        all.extend(Self::analogy_examples());
         all
     }
 
