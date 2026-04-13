@@ -8,8 +8,9 @@
 #[macro_export]
 macro_rules! debuglog {
     ($($arg:tt)*) => {
-        #[cfg(debug_assertions)]
-        println!($($arg)*);
+        if cfg!(debug_assertions) {
+            println!($($arg)*);
+        }
     };
 }
 
