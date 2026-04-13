@@ -565,6 +565,49 @@ impl TrainingDataGenerator {
         ]
     }
 
+    // ================================================================
+    // SYSTEMS DESIGN & ARCHITECTURE
+    // ================================================================
+    pub fn systems_design_examples() -> Vec<TrainingExample> {
+        vec![
+            TrainingExample::new("systems", "What is horizontal scaling?", "add more machines to handle load (vs vertical: bigger machine)", 0.25, &["scaling"]),
+            TrainingExample::new("systems", "What is a load balancer?", "distributes incoming requests across multiple servers", 0.2, &["infrastructure"]),
+            TrainingExample::new("systems", "What is a message queue?", "async communication between services — producer puts, consumer takes", 0.25, &["architecture"]),
+            TrainingExample::new("systems", "What is microservices vs monolith?", "microservices: small independent services. monolith: one large application", 0.2, &["architecture"]),
+            TrainingExample::new("systems", "What is a CDN?", "Content Delivery Network — geographically distributed cache for static assets", 0.2, &["infrastructure"]),
+            TrainingExample::new("systems", "What is database sharding?", "splitting data across multiple databases based on a partition key", 0.3, &["databases"]),
+            TrainingExample::new("systems", "What is the 12-factor app?", "methodology for building SaaS: codebase, dependencies, config, backing services, etc.", 0.35, &["methodology"]),
+        ]
+    }
+
+    // ================================================================
+    // THREAT INTELLIGENCE
+    // ================================================================
+    pub fn threat_intel_examples() -> Vec<TrainingExample> {
+        vec![
+            TrainingExample::new("threat_intel", "What is a CVE?", "Common Vulnerabilities and Exposures — standardized vulnerability identifier", 0.2, &["standards"]),
+            TrainingExample::new("threat_intel", "What is MITRE ATT&CK?", "knowledge base of adversary tactics, techniques, and procedures (TTPs)", 0.3, &["frameworks"]),
+            TrainingExample::new("threat_intel", "What is an IOC?", "Indicator of Compromise — IP, hash, domain, or other artifact of attack", 0.25, &["indicators"]),
+            TrainingExample::new("threat_intel", "What is YARA?", "pattern matching tool for malware classification using rules", 0.3, &["tools"]),
+            TrainingExample::new("threat_intel", "What is a TTPs?", "Tactics, Techniques, and Procedures — how adversaries operate", 0.25, &["methodology"]),
+            TrainingExample::new("threat_intel", "What is threat hunting?", "proactively searching for threats that evade automated detection", 0.3, &["methodology"]),
+        ]
+    }
+
+    // ================================================================
+    // ETHICAL HACKING & PENTESTING
+    // ================================================================
+    pub fn ethical_hacking_examples() -> Vec<TrainingExample> {
+        vec![
+            TrainingExample::new("ethical_hacking", "What is reconnaissance?", "gathering information about target: OSINT, DNS, whois, port scanning", 0.2, &["methodology"]),
+            TrainingExample::new("ethical_hacking", "What is enumeration?", "actively probing target for services, usernames, shares, vulnerabilities", 0.25, &["methodology"]),
+            TrainingExample::new("ethical_hacking", "What is privilege escalation?", "gaining higher access after initial compromise — vertical or horizontal", 0.3, &["techniques"]),
+            TrainingExample::new("ethical_hacking", "What is a reverse shell?", "target connects back to attacker's listener — bypasses inbound firewall rules", 0.35, &["techniques"]),
+            TrainingExample::new("ethical_hacking", "What is the difference between black/white/grey box testing?", "black: no info. white: full info. grey: partial info about the target", 0.2, &["methodology"]),
+            TrainingExample::new("ethical_hacking", "What is responsible disclosure?", "reporting vulnerabilities to vendor before public disclosure — gives time to patch", 0.2, &["ethics"]),
+        ]
+    }
+
     pub fn all_examples() -> Vec<TrainingExample> {
         let mut all = Vec::new();
         all.extend(Self::math_examples());
@@ -598,6 +641,9 @@ impl TrainingDataGenerator {
         all.extend(Self::distributed_examples());
         all.extend(Self::data_science_examples());
         all.extend(Self::forensics_examples());
+        all.extend(Self::systems_design_examples());
+        all.extend(Self::threat_intel_examples());
+        all.extend(Self::ethical_hacking_examples());
         all
     }
 
