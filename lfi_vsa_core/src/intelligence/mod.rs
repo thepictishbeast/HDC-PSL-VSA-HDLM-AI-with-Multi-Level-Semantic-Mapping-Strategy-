@@ -17,6 +17,7 @@ pub mod code_eval;
 pub mod self_improvement;
 pub mod cross_domain;
 pub mod math_engine;
+pub mod daemon;
 
 pub use osint::{OsintAnalyzer, OsintSignal};
 pub use web_audit::ConnectivityAxiom;
