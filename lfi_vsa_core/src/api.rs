@@ -438,6 +438,62 @@ async fn provenance_explain_handler(
     }))
 }
 
+/// GET /api/provenance/export — the entire arena as JSON (audit download).
+/// SECURITY: requires the agent to be authenticated — provenance can contain
+/// derivation details an attacker could use to reverse-engineer reasoning.
+async fn provenance_export_handler(
+    State(state): State<Arc<AppState>>,
+) -> impl IntoResponse {
+    let agent = state.agent.lock();
+    if !agent.authenticated {
+        warn!("// AUDIT: /api/provenance/export rejected — not authenticated.");
+        return Json(json!({
+            "status": "rejected",
+            "reason": "authentication required"
+        }));
+    }
+    let engine = agent.provenance.lock();
+    match engine.arena.to_json() {
+        Ok(json) => {
+            info!("// AUDIT: provenance arena exported ({} bytes)", json.len());
+            Json(json!({
+                "status": "ok",
+                "trace_count": engine.trace_count(),
+                "arena_json_size_bytes": json.len(),
+                "arena": serde_json::from_str::<serde_json::Value>(&json)
+                    .unwrap_or(json!(null)),
+            }))
+        }
+        Err(e) => Json(json!({
+            "status": "error",
+            "reason": format!("serialize failed: {}", e),
+        })),
+    }
+}
+
+/// POST /api/provenance/reset — wipe the arena and start fresh.
+/// SECURITY: requires authentication; destructive and irreversible.
+async fn provenance_reset_handler(
+    State(state): State<Arc<AppState>>,
+) -> impl IntoResponse {
+    let agent = state.agent.lock();
+    if !agent.authenticated {
+        warn!("// AUDIT: /api/provenance/reset rejected — not authenticated.");
+        return Json(json!({
+            "status": "rejected",
+            "reason": "authentication required"
+        }));
+    }
+    let mut engine = agent.provenance.lock();
+    let old_count = engine.trace_count();
+    *engine = crate::reasoning_provenance::ProvenanceEngine::new();
+    info!("// AUDIT: provenance engine reset ({} traces cleared)", old_count);
+    Json(json!({
+        "status": "ok",
+        "traces_cleared": old_count,
+    }))
+}
+
 /// GET /api/provenance/:conclusion_id/chain — the full TraceEntry list for a conclusion.
 async fn provenance_chain_handler(
     State(state): State<Arc<AppState>>,
@@ -494,6 +550,8 @@ pub fn create_router() -> Result<Router, Box<dyn std::error::Error>> {
         .route("/api/qos", get(qos_handler))
         .route("/api/think", post(think_handler))
         .route("/api/provenance/stats", get(provenance_stats_handler))
+        .route("/api/provenance/export", get(provenance_export_handler))
+        .route("/api/provenance/reset", post(provenance_reset_handler))
         .route("/api/provenance/:conclusion_id", get(provenance_explain_handler))
         .route("/api/provenance/:conclusion_id/chain", get(provenance_chain_handler))
         .layer(cors)
