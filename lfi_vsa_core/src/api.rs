@@ -56,6 +56,12 @@ pub struct TierRequest {
     pub tier: String,
 }
 
+/// POST /api/think body — thinks with provenance tracking.
+#[derive(Deserialize)]
+pub struct ThinkRequest {
+    pub input: String,
+}
+
 // ============================================================
 // WebSocket: Telemetry Stream
 // ============================================================
@@ -345,6 +351,42 @@ async fn qos_handler() -> impl IntoResponse {
 }
 
 // ============================================================
+// REST: Think with Provenance
+// ============================================================
+
+/// POST /api/think — think with provenance tracking.
+/// Response: { answer, confidence, mode, conclusion_id }.
+/// SECURITY: rejects inputs > 16 KiB to prevent resource exhaustion.
+async fn think_handler(
+    State(state): State<Arc<AppState>>,
+    Json(req): Json<ThinkRequest>,
+) -> impl IntoResponse {
+    if req.input.len() > 16 * 1024 {
+        warn!("// AUDIT: /api/think rejected oversize input ({} bytes)", req.input.len());
+        return Json(json!({
+            "status": "rejected",
+            "reason": "input exceeds 16 KiB"
+        }));
+    }
+
+    debug!("// AUDIT: /api/think input_len={}", req.input.len());
+    let mut agent = state.agent.lock();
+    match agent.think_traced(&req.input) {
+        Ok((result, cid)) => Json(json!({
+            "status": "ok",
+            "answer": result.explanation,
+            "confidence": result.confidence,
+            "mode": format!("{:?}", result.mode),
+            "conclusion_id": cid,
+        })),
+        Err(e) => Json(json!({
+            "status": "error",
+            "reason": format!("think failed: {}", e),
+        })),
+    }
+}
+
+// ============================================================
 // REST: Reasoning Provenance
 // ============================================================
 
@@ -448,6 +490,7 @@ pub fn create_router() -> Result<Router, Box<dyn std::error::Error>> {
         .route("/api/search", post(search_handler))
         .route("/api/tier", post(tier_handler))
         .route("/api/qos", get(qos_handler))
+        .route("/api/think", post(think_handler))
         .route("/api/provenance/stats", get(provenance_stats_handler))
         .route("/api/provenance/:conclusion_id", get(provenance_explain_handler))
         .route("/api/provenance/:conclusion_id/chain", get(provenance_chain_handler))

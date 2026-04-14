@@ -134,6 +134,52 @@ impl LfiAgent {
         self.authenticated
     }
 
+    /// Deterministic conclusion ID for a given input string.
+    ///
+    /// Uses a simple FNV-1a 64-bit hash so the same question always maps to
+    /// the same ID — clients can retrieve the trace of a prior answer by
+    /// re-hashing the original input. Not a cryptographic hash; collisions
+    /// are acceptable since the trace arena still distinguishes entries
+    /// by TraceId and confidence.
+    pub fn conclusion_id_for_input(input: &str) -> u64 {
+        // FNV-1a 64-bit
+        let mut hash: u64 = 0xcbf29ce484222325;
+        for b in input.as_bytes() {
+            hash ^= *b as u64;
+            hash = hash.wrapping_mul(0x100000001b3);
+        }
+        hash
+    }
+
+    /// Think with reasoning provenance — records a traced derivation into the
+    /// agent's own ProvenanceEngine. Returns the ThoughtResult plus the
+    /// conclusion_id the caller can use to query the `/api/provenance/:id`
+    /// endpoint.
+    ///
+    /// BUG ASSUMPTION: `input` is already validated at the API surface.
+    /// This method trusts its caller.
+    pub fn think_traced(
+        &mut self,
+        input: &str,
+    ) -> Result<(crate::cognition::reasoner::ThoughtResult, u64), HdcError> {
+        let cid = Self::conclusion_id_for_input(input);
+        debuglog!("LfiAgent::think_traced: cid={}, input={}",
+            cid, crate::truncate_str(input, 60));
+
+        // Scope the provenance lock around only the trace-recording call.
+        let (result, _trace_id) = {
+            let mut engine = self.provenance.lock();
+            self.reasoner.think_with_provenance(
+                input,
+                &mut engine.arena,
+                None,
+                Some(cid),
+            )?
+        };
+
+        Ok((result, cid))
+    }
+
     /// SWAP: Manages the material residency of models in RAM/NPU.
     fn swap_model_tier(&mut self, target: IntelligenceTier) {
         if self.current_tier == target { return; }
@@ -290,6 +336,46 @@ mod tests {
             matches!(explanation.kind, ProvenanceKind::ReconstructedRationalization { .. }),
             "Empty engine must return Reconstructed, never Traced"
         );
+    }
+
+    #[test]
+    fn test_conclusion_id_is_deterministic() {
+        // Same input → same ID, always.
+        let a = LfiAgent::conclusion_id_for_input("hello world");
+        let b = LfiAgent::conclusion_id_for_input("hello world");
+        assert_eq!(a, b);
+        // Different inputs → different IDs.
+        let c = LfiAgent::conclusion_id_for_input("different");
+        assert_ne!(a, c);
+    }
+
+    #[test]
+    fn test_think_traced_records_into_engine_and_returns_same_cid() {
+        use crate::reasoning_provenance::ProvenanceKind;
+        let mut agent = LfiAgent::new().expect("agent init");
+        let input = "What is sovereignty?";
+        let expected_cid = LfiAgent::conclusion_id_for_input(input);
+
+        // Before: no trace for this cid.
+        {
+            let engine = agent.provenance.lock();
+            let kind = engine.explain_conclusion(expected_cid).kind;
+            assert!(
+                matches!(kind, ProvenanceKind::ReconstructedRationalization { .. }),
+                "no trace recorded yet — must be Reconstructed"
+            );
+        }
+
+        // Think — records trace.
+        let (_result, cid) = agent.think_traced(input).expect("think_traced ok");
+        assert_eq!(cid, expected_cid);
+
+        // After: trace exists for the returned cid.
+        let engine = agent.provenance.lock();
+        assert!(engine.trace_count() >= 1, "at least one trace recorded");
+        let kind = engine.explain_conclusion(cid).kind;
+        assert_eq!(kind, ProvenanceKind::TracedDerivation,
+            "think_traced must produce a TracedDerivation for the returned cid");
     }
 
     #[test]
