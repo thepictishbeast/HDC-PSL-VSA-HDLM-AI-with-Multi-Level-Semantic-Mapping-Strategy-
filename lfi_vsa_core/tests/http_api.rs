@@ -210,6 +210,34 @@ async fn test_metrics_endpoint_returns_200_and_text_plain() {
     let _text = std::str::from_utf8(&bytes).expect("utf8");
 }
 
+/// GET /api/knowledge/concepts returns a list with mastery + relations.
+#[tokio::test]
+async fn test_knowledge_concepts_endpoint_lists_seeded_concepts() {
+    let app = lfi_vsa_core::api::create_router().expect("router");
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/api/knowledge/concepts")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .expect("request");
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let bytes = response.into_body().collect().await.unwrap().to_bytes();
+    let json: Value = serde_json::from_slice(&bytes).expect("valid JSON");
+    let concepts = json["concepts"].as_array().expect("concepts is array");
+    // KnowledgeEngine seeds core concepts on init — there must be > 5.
+    assert!(concepts.len() > 5,
+        "must have seeded concepts (got {})", concepts.len());
+    // Each entry must have name, mastery, encounter_count.
+    let first = &concepts[0];
+    assert!(first.get("name").is_some());
+    assert!(first.get("mastery").is_some());
+    assert!(first.get("encounter_count").is_some());
+}
+
 /// /api/think → /api/metrics should show the counter has incremented.
 #[tokio::test]
 async fn test_think_increments_think_counter() {

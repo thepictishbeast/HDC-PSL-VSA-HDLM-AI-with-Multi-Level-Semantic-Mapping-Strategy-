@@ -142,6 +142,7 @@ async fn handle_chat_socket(mut socket: WebSocket, state: Arc<AppState>) {
                 if input.is_empty() {
                     continue;
                 }
+                state.metrics.inc_counter("lfi_chat_total", &[], 1);
 
                 // Route through CognitiveCore
                 let response_payload = {
@@ -476,6 +477,27 @@ async fn knowledge_review_handler(
     }))
 }
 
+/// GET /api/knowledge/concepts — list every known concept with mastery.
+async fn knowledge_concepts_handler(
+    State(state): State<Arc<AppState>>,
+) -> impl IntoResponse {
+    let agent = state.agent.lock();
+    let concepts: Vec<serde_json::Value> = agent.reasoner.knowledge.concepts().iter()
+        .map(|c| json!({
+            "name": c.name,
+            "mastery": c.mastery,
+            "encounter_count": c.encounter_count,
+            "trust_score": c.trust_score,
+            "related": c.related_concepts,
+        }))
+        .collect();
+    Json(json!({
+        "status": "ok",
+        "count": concepts.len(),
+        "concepts": concepts,
+    }))
+}
+
 /// GET /api/knowledge/due — concepts currently due for review (most overdue first).
 async fn knowledge_due_handler(
     State(state): State<Arc<AppState>>,
@@ -697,6 +719,7 @@ pub fn create_router() -> Result<Router, Box<dyn std::error::Error>> {
         .route("/api/think", post(think_handler))
         .route("/api/knowledge/review", post(knowledge_review_handler))
         .route("/api/knowledge/due", get(knowledge_due_handler))
+        .route("/api/knowledge/concepts", get(knowledge_concepts_handler))
         .route("/api/provenance/stats", get(provenance_stats_handler))
         .route("/api/provenance/export", get(provenance_export_handler))
         .route("/api/provenance/compact", post(provenance_compact_handler))
