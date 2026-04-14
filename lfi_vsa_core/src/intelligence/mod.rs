@@ -23,6 +23,8 @@ pub mod epistemic_filter;
 pub mod generalization;
 pub mod continuous_intel;
 pub mod concurrent;
+pub mod answer_verifier;
+pub mod phd_tests;
 
 pub use osint::{OsintAnalyzer, OsintSignal};
 pub use web_audit::ConnectivityAxiom;

@@ -600,15 +600,18 @@ impl InferenceTrainer {
         let mut result = self.ask_with_difficulty(&example.input, Some(example.difficulty))?;
 
         if self.config.verify_answers {
-            // Normalize for whitespace-insensitive comparison — LLMs often
-            // add extra spaces that cause false negatives (e.g., "(x + 3)" vs "(x+3)").
-            let normalize = |s: &str| -> String {
-                s.to_lowercase().chars().filter(|c| !c.is_whitespace()).collect()
-            };
-            let answer_norm = normalize(&result.answer);
-            let expected_norm = normalize(&example.expected_output);
-            let is_correct = answer_norm.contains(&expected_norm)
-                || Self::fuzzy_match(&result.answer, &example.expected_output);
+            // Use the robust AnswerVerifier: handles whitespace, unicode,
+            // LaTeX, units, equation forms, commentary, numeric equivalence,
+            // word-number, and fuzzy keyword overlap. Returns detailed
+            // matched_mode for debugging.
+            let verify_result = crate::intelligence::answer_verifier::AnswerVerifier::verify(
+                &result.answer, &example.expected_output,
+            );
+            let is_correct = verify_result.is_correct;
+            if is_correct {
+                debuglog!("InferenceTrainer::verify: CORRECT via {:?} (conf={:.2})",
+                    verify_result.matched_mode, verify_result.confidence);
+            }
 
             result.correct = Some(is_correct);
 
