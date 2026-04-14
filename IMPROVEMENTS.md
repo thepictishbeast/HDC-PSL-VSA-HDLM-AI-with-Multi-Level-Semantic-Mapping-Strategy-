@@ -328,7 +328,9 @@ Auto-generate question variations from existing 300 examples. Rephrasings, harde
 - [x] `GET /api/provenance/stats` → `{ trace_count, has_traces, note }`
 - [x] `GET /api/provenance/:conclusion_id` → kind (Traced vs Reconstructed) + explanation + chain IDs + per-step confidence
 - [x] `GET /api/provenance/:conclusion_id/chain` → full `Vec<TraceEntry>` materialized from the arena
-- [x] 2 new agent tests verify engine accessibility + core TracedDerivation invariant
+- [x] `POST /api/think` — runs `think_traced` and returns `{ answer, confidence, mode, conclusion_id }`. The cid can be fed directly into the provenance endpoints.
+- [x] `LfiAgent::think_traced(input)` — wires the reasoner's `think_with_provenance` into the agent's own engine using a deterministic FNV-1a hash as conclusion_id.
+- [x] 4 agent tests: engine access, record, conclusion-id determinism, think-traced end-to-end.
 
 ### Planned — Medium Priority
 
