@@ -149,8 +149,8 @@ async fn handle_chat_socket(mut socket: WebSocket, state: Arc<AppState>) {
                         }
                     }
 
-                    match agent.chat(input) {
-                        Ok(response) => {
+                    match agent.chat_traced(input) {
+                        Ok((response, conclusion_id)) => {
                             let thought = &response.thought;
                             json!({
                                 "type": "chat_response",
@@ -165,6 +165,8 @@ async fn handle_chat_socket(mut socket: WebSocket, state: Arc<AppState>) {
                                     "complexity": p.total_complexity,
                                     "goal": p.goal,
                                 })),
+                                // Provenance: client can query /api/provenance/:id with this
+                                "conclusion_id": conclusion_id,
                             })
                         }
                         Err(e) => {

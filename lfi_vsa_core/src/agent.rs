@@ -231,9 +231,57 @@ impl LfiAgent {
     pub fn chat(&mut self, input: &str) -> Result<crate::cognition::reasoner::ConversationResponse, HdcError> {
         let input_hv = HyperMemory::from_string(input, DIM_PROLETARIAT);
         let _active_tier = self.govern_substrate(&input_hv);
-        
+
         // Execute reasoning via the tiered governor
         self.reasoner.respond(input)
+    }
+
+    /// Chat with provenance tracking — records a trace entry capturing the
+    /// input, mode, and confidence for each exchange.
+    ///
+    /// Returns the ConversationResponse plus a deterministic conclusion_id
+    /// (FNV-1a hash of input) the caller can use to query the
+    /// `/api/provenance/:id` endpoint.
+    pub fn chat_traced(
+        &mut self,
+        input: &str,
+    ) -> Result<(crate::cognition::reasoner::ConversationResponse, u64), HdcError> {
+        let cid = Self::conclusion_id_for_input(input);
+        debuglog!("LfiAgent::chat_traced: cid={}", cid);
+
+        let response = self.chat(input)?;
+
+        // Record a single-entry trace documenting the conversation turn.
+        // System 1 vs System 2 is inferred from the ThoughtResult's mode.
+        use crate::reasoning_provenance::InferenceSource;
+        let source = match response.thought.mode {
+            crate::cognition::reasoner::CognitiveMode::Fast =>
+                InferenceSource::System1FastPath {
+                    similarity_score: response.thought.confidence,
+                },
+            crate::cognition::reasoner::CognitiveMode::Deep =>
+                InferenceSource::System2Deliberation {
+                    iterations: response.thought.plan.as_ref()
+                        .map(|p| p.steps.len()).unwrap_or(0),
+                },
+        };
+
+        {
+            let mut engine = self.provenance.lock();
+            engine.arena.record_step(
+                None,
+                source,
+                vec![format!("chat:\"{}\"", crate::truncate_str(input, 40))],
+                response.thought.confidence,
+                Some(cid),
+                format!("Chat: {} (mode={:?}, conf={:.4})",
+                    crate::truncate_str(&response.text, 60),
+                    response.thought.mode,
+                    response.thought.confidence),
+                0,
+            );
+        }
+        Ok((response, cid))
     }
 
     pub fn execute_task(&self, task_name: &str, level: crate::laws::LawLevel, signature: &SovereignSignature) -> Result<(), HdcError> {
@@ -376,6 +424,32 @@ mod tests {
         let kind = engine.explain_conclusion(cid).kind;
         assert_eq!(kind, ProvenanceKind::TracedDerivation,
             "think_traced must produce a TracedDerivation for the returned cid");
+    }
+
+    #[test]
+    fn test_chat_traced_records_trace_and_returns_cid() {
+        use crate::reasoning_provenance::ProvenanceKind;
+        let mut agent = LfiAgent::new().expect("agent init");
+        let input = "Hello, who are you?";
+        let expected_cid = LfiAgent::conclusion_id_for_input(input);
+
+        let (_response, cid) = agent.chat_traced(input).expect("chat_traced ok");
+        assert_eq!(cid, expected_cid, "cid must be deterministic");
+
+        // Trace for this cid must now exist and be TracedDerivation.
+        let engine = agent.provenance.lock();
+        let explanation = engine.explain_conclusion(cid);
+        assert_eq!(explanation.kind, ProvenanceKind::TracedDerivation,
+            "chat_traced must produce a TracedDerivation");
+        assert!(engine.trace_count() >= 1);
+    }
+
+    #[test]
+    fn test_chat_traced_different_inputs_get_different_cids() {
+        let mut agent = LfiAgent::new().expect("agent init");
+        let (_, cid_a) = agent.chat_traced("what is rust").expect("chat a");
+        let (_, cid_b) = agent.chat_traced("what is python").expect("chat b");
+        assert_ne!(cid_a, cid_b, "different inputs must produce different cids");
     }
 
     #[test]
