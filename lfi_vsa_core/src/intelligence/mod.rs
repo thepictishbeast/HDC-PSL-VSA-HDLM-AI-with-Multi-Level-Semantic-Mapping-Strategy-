@@ -21,6 +21,7 @@ pub mod daemon;
 pub mod defensive_ai;
 pub mod epistemic_filter;
 pub mod generalization;
+pub mod continuous_intel;
 
 pub use osint::{OsintAnalyzer, OsintSignal};
 pub use web_audit::ConnectivityAxiom;
