@@ -352,4 +352,126 @@ mod tests {
         assert_eq!(c.review_count, 5);
         assert_eq!(c.failure_count, 2); // q<3 failures: 1 and 0
     }
+
+    // ============================================================
+    // Stress / property-style invariant tests
+    // ============================================================
+
+    /// INVARIANT: For any sequence of arbitrary reviews, the ease factor
+    /// must always stay within [MIN_EASE_FACTOR, MAX_EASE_FACTOR].
+    #[test]
+    fn invariant_ease_factor_always_in_bounds() {
+        let mut sched = SpacedRepetitionScheduler::new();
+        sched.register("ef");
+        // 256 reviews across the full quality range.
+        for i in 0..256u32 {
+            let q = (i % 6) as u8;
+            sched.review("ef", q);
+            let card = sched.get("ef").expect("card");
+            assert!(card.ease_factor >= MIN_EASE_FACTOR,
+                "EF below floor at iter {} (q={}): {}", i, q, card.ease_factor);
+            assert!(card.ease_factor <= MAX_EASE_FACTOR,
+                "EF above ceiling at iter {} (q={}): {}", i, q, card.ease_factor);
+        }
+    }
+
+    /// INVARIANT: failure_count is monotonically non-decreasing.
+    #[test]
+    fn invariant_failure_count_monotonic() {
+        let mut sched = SpacedRepetitionScheduler::new();
+        sched.register("m");
+        let mut last = 0u32;
+        for i in 0..128u32 {
+            let q = (i % 6) as u8;
+            sched.review("m", q);
+            let card = sched.get("m").expect("card");
+            assert!(card.failure_count >= last,
+                "failure_count went backwards at iter {}: {} → {}",
+                i, last, card.failure_count);
+            last = card.failure_count;
+        }
+    }
+
+    /// INVARIANT: review_count must equal total calls to review().
+    #[test]
+    fn invariant_review_count_equals_call_count() {
+        let mut sched = SpacedRepetitionScheduler::new();
+        sched.register("rc");
+        let n = 50u32;
+        for i in 0..n {
+            sched.review("rc", (i % 6) as u8);
+        }
+        let card = sched.get("rc").expect("card");
+        assert_eq!(card.review_count, n);
+    }
+
+    /// INVARIANT: After only successful reviews (q >= 3), streak grows
+    /// monotonically and equals the number of successful calls.
+    #[test]
+    fn invariant_streak_grows_under_successes() {
+        let mut sched = SpacedRepetitionScheduler::new();
+        sched.register("s");
+        for _ in 0..20 {
+            sched.review("s", 5);
+        }
+        let card = sched.get("s").expect("card");
+        assert_eq!(card.streak, 20);
+        assert_eq!(card.failure_count, 0);
+    }
+
+    /// INVARIANT: A failure (q < 3) always resets streak to 0 immediately.
+    #[test]
+    fn invariant_failure_resets_streak_immediately() {
+        let mut sched = SpacedRepetitionScheduler::new();
+        sched.register("r");
+        // Build a streak.
+        for _ in 0..10 { sched.review("r", 5); }
+        assert_eq!(sched.get("r").expect("card").streak, 10);
+        // One failure obliterates it.
+        sched.review("r", 0);
+        assert_eq!(sched.get("r").expect("card").streak, 0);
+    }
+
+    /// INVARIANT: Scheduler scales — registering a large number of cards
+    /// must not crash, and `top_due` must respect the requested limit.
+    #[test]
+    fn invariant_scales_to_thousands_and_top_due_respects_limit() {
+        let mut sched = SpacedRepetitionScheduler::new();
+        for i in 0..5000 {
+            sched.register(&format!("concept_{:05}", i));
+        }
+        assert_eq!(sched.card_count(), 5000);
+        // All cards are due immediately after register.
+        let top = sched.top_due(50);
+        assert_eq!(top.len(), 50, "top_due must cap at requested limit");
+    }
+
+    /// INVARIANT: JSON roundtrip preserves card_count and per-card streak/EF
+    /// across an arbitrary sequence of reviews.
+    #[test]
+    fn invariant_json_roundtrip_preserves_state_under_load() {
+        let mut sched = SpacedRepetitionScheduler::new();
+        for i in 0..50 {
+            let name = format!("c{}", i);
+            sched.register(&name);
+            for j in 0..10 {
+                sched.review(&name, ((i + j) % 6) as u8);
+            }
+        }
+
+        let json = sched.to_json().expect("serialize");
+        let restored = SpacedRepetitionScheduler::from_json(&json).expect("deserialize");
+        assert_eq!(restored.card_count(), sched.card_count());
+
+        for i in 0..50 {
+            let name = format!("c{}", i);
+            let orig = sched.get(&name).expect("orig");
+            let new = restored.get(&name).expect("restored");
+            assert_eq!(orig.streak, new.streak,
+                "streak mismatch for {}: {} vs {}", name, orig.streak, new.streak);
+            assert!((orig.ease_factor - new.ease_factor).abs() < 1e-9,
+                "ease_factor mismatch for {}", name);
+            assert_eq!(orig.review_count, new.review_count);
+        }
+    }
 }
