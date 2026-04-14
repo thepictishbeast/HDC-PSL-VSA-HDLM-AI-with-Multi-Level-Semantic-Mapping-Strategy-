@@ -1432,7 +1432,7 @@ impl CorrectionLoop {
         }
 
         let mut weak: Vec<(String, f64)> = domain_errors.iter()
-            .filter(|(_, (errors, total))| *total > 0)
+            .filter(|(_, (_errors, total))| *total > 0)
             .map(|(domain, (errors, total))| (domain.clone(), *errors as f64 / *total as f64))
             .collect();
         weak.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));

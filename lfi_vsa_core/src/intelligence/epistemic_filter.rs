@@ -371,7 +371,7 @@ impl EpistemicFilter {
     fn tier_for_evidence(
         supporters: &[String],
         sources: &HashMap<String, Source>,
-        latest_source_category: &SourceCategory,
+        _latest_source_category: &SourceCategory,
     ) -> KnowledgeTier {
         // Count source categories.
         let categories: Vec<SourceCategory> = supporters.iter()

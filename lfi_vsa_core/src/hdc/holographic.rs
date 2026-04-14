@@ -72,7 +72,7 @@ impl HolographicMemory {
     ///
     /// Returns (estimated_quality, theoretical_max_capacity).
     pub fn capacity_estimate(&self) -> (f64, usize) {
-        let dim = crate::hdc::vector::HD_DIMENSIONS as f64;
+        let _dim = crate::hdc::vector::HD_DIMENSIONS as f64;
         let n = self.capacity.max(1) as f64;
 
         // Theoretical retrieval quality degrades as 1/sqrt(N).

@@ -35,10 +35,9 @@
 
 use crate::hdc::error::HdcError;
 use crate::cognition::knowledge::KnowledgeEngine;
-use crate::intelligence::code_eval::{CodeEvaluator, ChallengeLibrary, StaticAnalyzer, CodeIssue};
-use crate::intelligence::training_data::{TrainingDataGenerator, TrainingAugmenter, AdversarialExamples};
-use crate::intelligence::local_inference::{InferenceTrainer, InferenceTrainingConfig, InferenceBackend};
-use crate::intelligence::benchmark::IntelligenceBenchmark;
+use crate::intelligence::code_eval::{CodeEvaluator, ChallengeLibrary};
+use crate::intelligence::training_data::{TrainingDataGenerator, AdversarialExamples};
+use crate::intelligence::local_inference::{InferenceTrainer, InferenceTrainingConfig};
 use std::collections::HashMap;
 
 // ============================================================

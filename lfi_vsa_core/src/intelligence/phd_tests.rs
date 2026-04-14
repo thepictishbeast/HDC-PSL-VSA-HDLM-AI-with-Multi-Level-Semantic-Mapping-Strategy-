@@ -27,9 +27,6 @@
 
 use crate::intelligence::training_data::TrainingExample;
 use crate::intelligence::answer_verifier::AnswerVerifier;
-use crate::intelligence::generalization::{
-    GeneralizationTester, GeneralizationResult, LearningVerdict,
-};
 use std::collections::HashMap;
 
 // ============================================================

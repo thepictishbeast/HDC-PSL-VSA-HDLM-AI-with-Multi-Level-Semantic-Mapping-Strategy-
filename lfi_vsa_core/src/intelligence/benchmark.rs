@@ -7,7 +7,6 @@
 // ============================================================
 
 use crate::cognition::knowledge::KnowledgeEngine;
-use crate::cognition::reasoner::CognitiveCore;
 use crate::hdc::error::HdcError;
 use crate::intelligence::training_data::{TrainingDataGenerator, TrainingExample, CorrectionLoop};
 

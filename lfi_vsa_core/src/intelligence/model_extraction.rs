@@ -89,6 +89,10 @@ pub enum ExtractionSeverity {
 #[derive(Debug, Clone, Default)]
 struct IdentityStats {
     pub queries: Vec<QueryRecord>,
+    /// Unix epoch ms when this identity first appeared. Reserved for
+    /// session-window tracking; currently not consumed but kept on the
+    /// struct so future analysers don't have to backfill it.
+    #[allow(dead_code)]
     pub first_seen_ms: u64,
 }
 

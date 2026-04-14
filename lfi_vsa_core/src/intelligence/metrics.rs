@@ -44,6 +44,7 @@ impl LabelSet {
         Self(v)
     }
 
+    #[allow(dead_code)]
     fn is_empty(&self) -> bool { self.0.is_empty() }
 
     fn render(&self) -> String {

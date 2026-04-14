@@ -25,7 +25,6 @@
 //   squaring. Results are cross-checked against bounds.
 // ============================================================
 
-use crate::hdc::error::HdcError;
 use std::collections::HashMap;
 
 // ============================================================
@@ -468,7 +467,7 @@ impl MathChallengeRunner {
     pub fn category_report(&self) -> String {
         let mut out = "=== Math Performance ===\n".to_string();
         let mut cats: Vec<_> = self.category_scores.iter().collect();
-        cats.sort_by_key(|(k, _)| k.clone());
+        cats.sort_by_key(|(k, _)| k.to_string());
         for (cat, (correct, total)) in cats {
             let pct = if *total > 0 { *correct as f64 / *total as f64 * 100.0 } else { 0.0 };
             out.push_str(&format!("  {:20} {}/{} ({:.0}%)\n", cat, correct, total, pct));

@@ -18,7 +18,6 @@ use crate::hdc::error::HdcError;
 use crate::psl::supervisor::PslSupervisor;
 use crate::psl::axiom::DimensionalityAxiom;
 use crate::cognition::mcts::MctsEngine;
-use crate::cognition::knowledge::KnowledgeEngine;
 use crate::intelligence::weight_manager::IntelligenceCheckpoint;
 use crate::intelligence::persistence::KnowledgeStore;
 use tracing::info;
@@ -421,7 +420,7 @@ impl Trainer {
             knowledge.apply_mastery_decay(0.02); // 2% decay per epoch
 
             // 3. Correction loop — evaluate and teach.
-            let eval_results = correction_loop.evaluate_and_correct(knowledge, examples)?;
+            let _eval_results = correction_loop.evaluate_and_correct(knowledge, examples)?;
             let accuracy = correction_loop.overall_accuracy();
             let corrections = correction_loop.total_corrections();
 

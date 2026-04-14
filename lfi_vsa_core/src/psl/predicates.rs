@@ -4,7 +4,6 @@
 
 use crate::psl::axiom::{Axiom, AuditTarget, AxiomVerdict};
 use crate::psl::error::PslError;
-use tracing::{info, debug};
 
 /// Predicate: Strategic Material Gain (Sovereign Reward)
 /// IF Action(A) results in AssetIncrease(X) AND Risk(R) is Low THEN Reward is High.

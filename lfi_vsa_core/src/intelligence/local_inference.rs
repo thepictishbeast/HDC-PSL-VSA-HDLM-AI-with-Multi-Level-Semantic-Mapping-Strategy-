@@ -214,10 +214,12 @@ pub struct InferenceCache {
 }
 
 #[derive(Debug, Clone)]
-struct CacheEntry {
-    answer: String,
-    backend: String,
-    timestamp_ms: u64,
+pub struct CacheEntry {
+    pub answer: String,
+    pub backend: String,
+    /// Unix epoch ms when the entry was created. Reserved for TTL eviction.
+    #[allow(dead_code)]
+    pub timestamp_ms: u64,
 }
 
 impl InferenceCache {

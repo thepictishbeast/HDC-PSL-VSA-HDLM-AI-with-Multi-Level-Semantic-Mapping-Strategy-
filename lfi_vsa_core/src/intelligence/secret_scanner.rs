@@ -553,7 +553,7 @@ impl SecretScanner {
             let stripped: String = candidate.chars().filter(|c| c.is_ascii_digit()).collect();
             if stripped.len() == 10 {
                 // Check format looks like a phone
-                let is_phone = candidate.chars().enumerate().all(|(j, c)| {
+                let is_phone = candidate.chars().enumerate().all(|(_j, c)| {
                     c.is_ascii_digit() || matches!(c, '-' | '.' | ' ' | '(' | ')')
                 });
                 if is_phone && candidate.chars().filter(|c| !c.is_ascii_digit()).count() >= 2 {

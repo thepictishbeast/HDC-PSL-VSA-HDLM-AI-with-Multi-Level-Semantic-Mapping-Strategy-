@@ -20,7 +20,6 @@
 //   Delivery state is observable via metrics.
 // ============================================================
 
-use sha2::Sha256;
 use std::collections::VecDeque;
 use std::sync::Mutex;
 

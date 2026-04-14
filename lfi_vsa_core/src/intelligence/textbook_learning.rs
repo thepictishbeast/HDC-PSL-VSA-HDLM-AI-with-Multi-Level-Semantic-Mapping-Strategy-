@@ -34,7 +34,7 @@
 
 use crate::hdc::error::HdcError;
 use crate::cognition::knowledge::KnowledgeEngine;
-use crate::intelligence::answer_verifier::{AnswerVerifier, VerifyResult};
+use crate::intelligence::answer_verifier::AnswerVerifier;
 use std::collections::HashMap;
 
 // ============================================================

@@ -25,7 +25,6 @@
 //   - Evidence collection for provenance (forensic value)
 // ============================================================
 
-use crate::hdc::error::HdcError;
 
 // ============================================================
 // Threat Detection Types

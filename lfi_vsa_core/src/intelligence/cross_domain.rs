@@ -30,7 +30,6 @@
 //   - Kanerva's Sparse Distributed Memory (1988) — the VSA foundation
 // ============================================================
 
-use crate::hdc::error::HdcError;
 use crate::cognition::knowledge::KnowledgeEngine;
 use crate::intelligence::training_data::TrainingDataGenerator;
 use std::collections::HashMap;

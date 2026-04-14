@@ -56,7 +56,7 @@
 
 use crate::intelligence::secret_scanner::{SecretScanner, Severity as SecretSev};
 use crate::intelligence::defensive_ai::{
-    DefensiveAIAnalyzer, ThreatSeverity as DefenseSev, ThreatCategory, PhishingContext,
+    ThreatSeverity as DefenseSev, PhishingContext,
     PromptInjectionDefender, LLMTextDetector, PhishingDetector,
 };
 use crate::intelligence::model_extraction::{

@@ -21,7 +21,7 @@
 //   The binding operation preserves structure — if two actions are
 //   similar, their predicted outcomes are similar.
 
-use crate::memory_bus::{HyperMemory, DIM_PROLETARIAT};
+use crate::memory_bus::HyperMemory;
 use tracing::{info, debug};
 
 /// A snapshot of the world at a point in time.
@@ -303,6 +303,7 @@ impl WorldModel {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::memory_bus::DIM_PROLETARIAT;
 
     #[test]
     fn test_predict_next_state() -> Result<(), Box<dyn std::error::Error>> {
