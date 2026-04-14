@@ -28,6 +28,7 @@ pub mod phd_tests;
 pub mod textbook_learning;
 pub mod anti_memorization;
 pub mod info_retrieval;
+pub mod benchmark_harness;
 
 pub use osint::{OsintAnalyzer, OsintSignal};
 pub use web_audit::ConnectivityAxiom;
