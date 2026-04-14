@@ -562,6 +562,139 @@ impl Axiom for ExfiltrationDetectionAxiom {
     }
 }
 
+/// Detects suspiciously over-confident vectors — extreme polarisation
+/// suggests either no real reasoning happened OR an adversarial vector
+/// crafted to exploit downstream similarity comparisons.
+///
+/// CARTA principle: asymptotic confidence. A "perfect" vector that's
+/// 100% +1 or 100% -1 is structurally impossible to derive through
+/// honest reasoning over noisy inputs and so should fail the audit.
+pub struct ConfidenceCalibrationAxiom {
+    /// Maximum allowed |mean| of the vector. 1.0 = no constraint;
+    /// 0.5 = vector mean must be within ±0.5 of zero.
+    /// BUG ASSUMPTION: a balanced bipolar vector has mean ≈ 0.
+    pub max_abs_mean: f64,
+}
+
+impl Default for ConfidenceCalibrationAxiom {
+    fn default() -> Self {
+        Self { max_abs_mean: 0.5 }
+    }
+}
+
+impl Axiom for ConfidenceCalibrationAxiom {
+    fn id(&self) -> &str { "CONFIDENCE_CALIBRATION" }
+    fn description(&self) -> &str {
+        "Rejects suspiciously polarised vectors — claims that 'know everything' \
+         are evidence of either no reasoning or an adversarial input"
+    }
+
+    fn evaluate(&self, target: &AuditTarget) -> Result<AxiomVerdict, PslError> {
+        match target {
+            AuditTarget::Vector(v) => {
+                let len = v.data.len();
+                if len == 0 {
+                    return Ok(AxiomVerdict::fail(
+                        self.id().into(), 0.0,
+                        "empty vector".into(),
+                    ));
+                }
+                let sum: f64 = v.data.iter().map(|b| if *b { 1.0 } else { -1.0 }).sum();
+                let mean = sum / len as f64;
+                let abs_mean = mean.abs();
+
+                if abs_mean > self.max_abs_mean {
+                    Ok(AxiomVerdict::fail(
+                        self.id().into(),
+                        // Confidence in the failure shrinks as |mean| approaches 1.0
+                        (1.0_f64 - abs_mean).max(0.0),
+                        format!(
+                            "vector mean |{:.3}| exceeds calibration limit {:.3} — \
+                             over-confident or adversarial",
+                            mean, self.max_abs_mean,
+                        ),
+                    ))
+                } else {
+                    Ok(AxiomVerdict::pass(
+                        self.id().into(),
+                        1.0 - abs_mean,
+                        format!("calibrated: mean={:.3} within ±{:.3}", mean, self.max_abs_mean),
+                    ))
+                }
+            }
+            _ => Ok(AxiomVerdict::pass(
+                self.id().into(), 1.0, "non-vector target — calibration N/A".into(),
+            )),
+        }
+    }
+
+    fn relevance(&self, target: &AuditTarget) -> f64 {
+        if matches!(target, AuditTarget::Vector(_)) { 1.0 } else { 0.0 }
+    }
+}
+
+#[cfg(test)]
+mod confidence_calibration_tests {
+    use super::*;
+    use crate::hdc::vector::BipolarVector;
+
+    #[test]
+    fn test_balanced_random_vector_passes() {
+        let ax = ConfidenceCalibrationAxiom::default();
+        let v = BipolarVector::new_random().expect("random");
+        let target = AuditTarget::Vector(v);
+        let verdict = ax.evaluate(&target).expect("evaluate");
+        // A random bipolar vector has mean very close to 0; must pass.
+        assert!(verdict.confidence > 0.5,
+            "random vector should pass calibration with high confidence, got {:.3}",
+            verdict.confidence);
+        assert_eq!(verdict.axiom_id, "CONFIDENCE_CALIBRATION");
+    }
+
+    #[test]
+    fn test_all_ones_vector_fails() {
+        let ax = ConfidenceCalibrationAxiom::default();
+        // Build an all-+1 vector by manipulating bits.
+        let v = BipolarVector::new_random().expect("random");
+        let mut data = v.data.clone();
+        for i in 0..data.len() { data.set(i, true); }
+        let degenerate = BipolarVector { data };
+        let target = AuditTarget::Vector(degenerate);
+        let verdict = ax.evaluate(&target).expect("evaluate");
+        assert!(verdict.detail.contains("over-confident") || verdict.detail.contains("adversarial"),
+            "all-ones vector must fail with over-confidence message, got: {}", verdict.detail);
+    }
+
+    #[test]
+    fn test_relevance_zero_for_non_vector() {
+        let ax = ConfidenceCalibrationAxiom::default();
+        let target = AuditTarget::Scalar { label: "x".into(), value: 0.5 };
+        assert_eq!(ax.relevance(&target), 0.0);
+    }
+
+    #[test]
+    fn test_default_threshold_is_half() {
+        let ax = ConfidenceCalibrationAxiom::default();
+        assert!((ax.max_abs_mean - 0.5).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_custom_threshold_strict() {
+        // With threshold 0.05, even slight imbalance fails.
+        let ax = ConfidenceCalibrationAxiom { max_abs_mean: 0.05 };
+        // Build a 60% +1 / 40% -1 vector → mean = 0.2.
+        let template = BipolarVector::new_random().expect("random");
+        let mut data = template.data.clone();
+        let len = data.len();
+        for i in 0..len { data.set(i, i < (len * 60 / 100)); }
+        let skewed = BipolarVector { data };
+        let target = AuditTarget::Vector(skewed);
+        let verdict = ax.evaluate(&target).expect("evaluate");
+        assert!(verdict.detail.contains("exceeds"),
+            "skewed vector must fail strict calibration, got: {}", verdict.detail);
+    }
+}
+
 #[cfg(test)]
 mod axiom_tests {
     use super::*;
