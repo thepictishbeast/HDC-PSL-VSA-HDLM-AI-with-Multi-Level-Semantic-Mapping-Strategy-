@@ -672,6 +672,84 @@ impl TrainingDataGenerator {
     }
 
     // ================================================================
+    // CALCULUS PROOFS — Both Power Rule & First Principles
+    // ================================================================
+    pub fn calculus_proof_examples() -> Vec<TrainingExample> {
+        vec![
+            // Power rule (the shortcut)
+            TrainingExample::new("calculus", "What is d/dx(3x^4) using the power rule?", "12x^3", 0.2,
+                &["calculus", "power_rule", "derivative"]),
+            TrainingExample::new("calculus", "State the power rule for derivatives.", "d/dx(x^n) = nx^(n-1)", 0.15,
+                &["calculus", "power_rule"]),
+            TrainingExample::new("calculus", "What is d/dx(ax^b) using the power rule?", "a*b*x^(b-1)", 0.2,
+                &["calculus", "power_rule"]),
+            TrainingExample::new("calculus", "d/dx(7x^5)", "35x^4", 0.2,
+                &["calculus", "power_rule"]),
+            TrainingExample::new("calculus", "d/dx(x^2)", "2x", 0.1,
+                &["calculus", "power_rule"]),
+
+            // First principles (limit definition)
+            TrainingExample::new("calculus", "What is the formal limit definition of the derivative?",
+                "f'(x) = lim h->0 [f(x+h) - f(x)] / h", 0.35,
+                &["calculus", "limits", "first_principles"]),
+            TrainingExample::new("calculus",
+                "Using the limit definition, what is the derivative of x^2?",
+                "lim h->0 [(x+h)^2 - x^2]/h = lim [2xh + h^2]/h = lim (2x + h) = 2x", 0.45,
+                &["calculus", "limits", "first_principles", "proof"]),
+            TrainingExample::new("calculus",
+                "Using the limit definition, what is the derivative of 3x^4?",
+                "lim h->0 [3(x+h)^4 - 3x^4]/h = lim [12x^3 h + O(h^2)]/h = 12x^3", 0.6,
+                &["calculus", "limits", "first_principles", "proof"]),
+
+            // Epsilon-delta
+            TrainingExample::new("calculus", "What is the epsilon-delta definition of a limit?",
+                "for every epsilon > 0, there exists delta > 0 such that if 0 < |x - c| < delta then |f(x) - L| < epsilon",
+                0.5, &["calculus", "limits", "epsilon_delta", "proof"]),
+            TrainingExample::new("calculus",
+                "Prove using epsilon-delta that lim(x->2) (3x+1) = 7.",
+                "Given epsilon > 0, choose delta = epsilon/3. If |x-2| < delta then |3x+1 - 7| = 3|x-2| < 3*delta = epsilon",
+                0.7, &["calculus", "limits", "epsilon_delta", "proof"]),
+
+            // Chain rule
+            TrainingExample::new("calculus", "State the chain rule.",
+                "d/dx[f(g(x))] = f'(g(x)) * g'(x)", 0.3,
+                &["calculus", "chain_rule"]),
+            TrainingExample::new("calculus", "d/dx(sin(3x))", "3cos(3x)", 0.35,
+                &["calculus", "chain_rule"]),
+            TrainingExample::new("calculus", "d/dx((x^2+1)^3)", "6x(x^2+1)^2", 0.4,
+                &["calculus", "chain_rule", "power_rule"]),
+
+            // Product rule
+            TrainingExample::new("calculus", "State the product rule for derivatives.",
+                "d/dx[f(x)g(x)] = f'(x)g(x) + f(x)g'(x)", 0.3,
+                &["calculus", "product_rule"]),
+            TrainingExample::new("calculus", "d/dx(x^2 * sin(x))", "2x*sin(x) + x^2*cos(x)", 0.4,
+                &["calculus", "product_rule"]),
+
+            // Quotient rule
+            TrainingExample::new("calculus", "State the quotient rule.",
+                "d/dx[f(x)/g(x)] = [f'(x)g(x) - f(x)g'(x)] / g(x)^2", 0.4,
+                &["calculus", "quotient_rule"]),
+
+            // Integration as inverse
+            TrainingExample::new("calculus", "What is the relationship between integration and differentiation?",
+                "Fundamental Theorem of Calculus — integration is the inverse of differentiation",
+                0.3, &["calculus", "integration", "fundamental_theorem"]),
+            TrainingExample::new("calculus", "State the Fundamental Theorem of Calculus (Part 1).",
+                "If F(x) = integral from a to x of f(t)dt, then F'(x) = f(x)",
+                0.5, &["calculus", "integration", "fundamental_theorem", "proof"]),
+
+            // Limits of continuity
+            TrainingExample::new("calculus", "What makes a function continuous at a point c?",
+                "lim(x->c) f(x) = f(c) — limit exists, function value exists, and they are equal",
+                0.35, &["calculus", "continuity", "limits"]),
+            TrainingExample::new("calculus", "Is differentiability stronger than continuity?",
+                "yes — differentiable functions are continuous, but continuous functions need not be differentiable (e.g., |x| at x=0)",
+                0.45, &["calculus", "continuity", "differentiability"]),
+        ]
+    }
+
+    // ================================================================
     // RECONNAISSANCE — Information Gathering
     // ================================================================
     pub fn recon_examples() -> Vec<TrainingExample> {
@@ -938,6 +1016,7 @@ impl TrainingDataGenerator {
         all.extend(Self::linux_sysadmin_examples());
         all.extend(Self::defensive_ai_examples());
         all.extend(Self::anti_surveillance_examples());
+        all.extend(Self::calculus_proof_examples());
         all
     }
 
