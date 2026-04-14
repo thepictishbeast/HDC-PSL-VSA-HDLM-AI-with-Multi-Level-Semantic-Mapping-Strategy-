@@ -320,11 +320,12 @@ Deliberately tricky, misleading, and edge-case questions across all 38 domains. 
 - [x] `TraceArena::save_to_path()` / `load_from_path()` for disk persistence
 - [x] 4 new tests: roundtrip JSON, roundtrip file, oversize rejection, InferenceSource variants survive
 
-#### Provenance Query API
-REST endpoints via `api.rs`:
-- `GET /provenance/:conclusion_id` → ProvenancedExplanation
-- `GET /provenance/:conclusion_id/chain` → Vec<TraceEntry>
-- `GET /provenance/stats` → total traces, traced vs reconstructed ratio
+#### Provenance Query API — ✅ DONE (2026-04-14)
+- [x] `LfiAgent.provenance: Arc<Mutex<ProvenanceEngine>>` field added
+- [x] `GET /api/provenance/stats` → `{ trace_count, has_traces, note }`
+- [x] `GET /api/provenance/:conclusion_id` → kind (Traced vs Reconstructed) + explanation + chain IDs + per-step confidence
+- [x] `GET /api/provenance/:conclusion_id/chain` → full `Vec<TraceEntry>` materialized from the arena
+- [x] 2 new agent tests verify engine accessibility + core TracedDerivation invariant
 
 ### Planned — Medium Priority
 

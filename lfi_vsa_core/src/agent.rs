@@ -24,6 +24,7 @@ use crate::telemetry::MaterialAuditor;
 use crate::intelligence::persistence::KnowledgeStore;
 use crate::intelligence::background::{BackgroundLearner, SharedKnowledge};
 use crate::memory_bus::{HyperMemory, DIM_PROLETARIAT};
+use crate::reasoning_provenance::ProvenanceEngine;
 
 /// The Sovereign Agent. Orchestrates the Trimodal Neuro-Symbolic Swarm (TNSS).
 pub struct LfiAgent {
@@ -42,6 +43,8 @@ pub struct LfiAgent {
     pub background_learner: BackgroundLearner,
     /// PSL rejection feedback loop — learns from audit failures.
     pub psl_feedback: PslFeedbackLoop,
+    /// Reasoning provenance engine — derivation traces for every conclusion.
+    pub provenance: Arc<Mutex<ProvenanceEngine>>,
 }
 
 impl LfiAgent {
@@ -122,6 +125,7 @@ impl LfiAgent {
             shared_knowledge,
             background_learner,
             psl_feedback: PslFeedbackLoop::new(),
+            provenance: Arc::new(Mutex::new(ProvenanceEngine::new())),
         })
     }
 
@@ -270,6 +274,44 @@ mod tests {
     fn test_agent_creation() {
         let agent = LfiAgent::new();
         assert!(agent.is_ok(), "Agent should initialize without error");
+    }
+
+    #[test]
+    fn test_agent_has_empty_provenance_engine() {
+        use crate::reasoning_provenance::ProvenanceKind;
+        let agent = LfiAgent::new().expect("agent init");
+        let engine = agent.provenance.lock();
+        // A fresh agent's engine has no traces yet.
+        assert_eq!(engine.trace_count(), 0);
+        // Queries for unknown conclusions must return ReconstructedRationalization —
+        // the core architectural invariant of the provenance system.
+        let explanation = engine.explain_conclusion(42);
+        assert!(
+            matches!(explanation.kind, ProvenanceKind::ReconstructedRationalization { .. }),
+            "Empty engine must return Reconstructed, never Traced"
+        );
+    }
+
+    #[test]
+    fn test_agent_provenance_engine_records_traces() {
+        use crate::reasoning_provenance::{InferenceSource, ProvenanceKind};
+        let agent = LfiAgent::new().expect("agent init");
+        {
+            let mut engine = agent.provenance.lock();
+            engine.arena.record_step(
+                None,
+                InferenceSource::ExternalAssertion { source: "test".into() },
+                vec!["premise".into()],
+                0.9,
+                Some(7),
+                "test trace".into(),
+                100,
+            );
+        }
+        // After recording, the trace is retrievable.
+        let engine = agent.provenance.lock();
+        assert_eq!(engine.trace_count(), 1);
+        assert_eq!(engine.explain_conclusion(7).kind, ProvenanceKind::TracedDerivation);
     }
 
     #[test]

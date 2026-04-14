@@ -14,7 +14,7 @@
 
 use axum::{
     extract::ws::{Message, WebSocket, WebSocketUpgrade},
-    extract::State,
+    extract::{Path, State},
     response::IntoResponse,
     routing::{get, post},
     Json, Router,
@@ -345,6 +345,82 @@ async fn qos_handler() -> impl IntoResponse {
 }
 
 // ============================================================
+// REST: Reasoning Provenance
+// ============================================================
+
+/// GET /api/provenance/stats — total traces, traced vs reconstructed ratio.
+async fn provenance_stats_handler(
+    State(state): State<Arc<AppState>>,
+) -> impl IntoResponse {
+    debug!("// AUDIT: Provenance stats requested.");
+    let agent = state.agent.lock();
+    let engine = agent.provenance.lock();
+    let trace_count = engine.trace_count();
+    let is_empty = trace_count == 0;
+    drop(engine);
+    Json(json!({
+        "trace_count": trace_count,
+        "has_traces": !is_empty,
+        "note": if is_empty {
+            "No traces recorded yet. Reasoning paths are recorded when \
+             subsystems call the *_with_provenance variants."
+        } else {
+            "Traces available. Query /api/provenance/:conclusion_id for a specific derivation."
+        }
+    }))
+}
+
+/// GET /api/provenance/:conclusion_id — explanation (traced or reconstructed).
+async fn provenance_explain_handler(
+    State(state): State<Arc<AppState>>,
+    Path(conclusion_id): Path<u64>,
+) -> impl IntoResponse {
+    debug!("// AUDIT: Provenance explanation for cid={}", conclusion_id);
+    let agent = state.agent.lock();
+    let engine = agent.provenance.lock();
+    let explanation = engine.explain_conclusion(conclusion_id);
+    Json(json!({
+        "conclusion_id": conclusion_id,
+        "kind": match explanation.kind {
+            crate::reasoning_provenance::ProvenanceKind::TracedDerivation =>
+                json!({ "kind": "TracedDerivation" }),
+            crate::reasoning_provenance::ProvenanceKind::ReconstructedRationalization { ref reason } =>
+                json!({ "kind": "ReconstructedRationalization", "reason": reason }),
+        },
+        "explanation": explanation.explanation,
+        "depth": explanation.depth,
+        "trace_chain_ids": explanation.trace_chain,
+        "confidence_chain": explanation.confidence_chain,
+    }))
+}
+
+/// GET /api/provenance/:conclusion_id/chain — the full TraceEntry list for a conclusion.
+async fn provenance_chain_handler(
+    State(state): State<Arc<AppState>>,
+    Path(conclusion_id): Path<u64>,
+) -> impl IntoResponse {
+    debug!("// AUDIT: Provenance chain for cid={}", conclusion_id);
+    let agent = state.agent.lock();
+    let engine = agent.provenance.lock();
+    let explanation = engine.explain_conclusion(conclusion_id);
+
+    // Materialize each TraceEntry (clone under lock, then release).
+    let entries: Vec<serde_json::Value> = explanation.trace_chain.iter()
+        .filter_map(|&id| engine.arena.get(id).cloned())
+        .map(|e| serde_json::to_value(&e).unwrap_or_else(|_| json!({
+            "error": "serialize failed",
+            "id": e.id,
+        })))
+        .collect();
+
+    Json(json!({
+        "conclusion_id": conclusion_id,
+        "chain_length": entries.len(),
+        "entries": entries,
+    }))
+}
+
+// ============================================================
 // Router Construction
 // ============================================================
 
@@ -372,6 +448,9 @@ pub fn create_router() -> Result<Router, Box<dyn std::error::Error>> {
         .route("/api/search", post(search_handler))
         .route("/api/tier", post(tier_handler))
         .route("/api/qos", get(qos_handler))
+        .route("/api/provenance/stats", get(provenance_stats_handler))
+        .route("/api/provenance/:conclusion_id", get(provenance_explain_handler))
+        .route("/api/provenance/:conclusion_id/chain", get(provenance_chain_handler))
         .layer(cors)
         .with_state(state))
 }
