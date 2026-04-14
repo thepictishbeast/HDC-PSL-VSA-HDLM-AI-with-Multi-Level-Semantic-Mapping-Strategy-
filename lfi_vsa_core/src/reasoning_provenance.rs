@@ -1056,4 +1056,142 @@ mod tests {
         assert_eq!(engine.explain_conclusion(cid).kind, ProvenanceKind::TracedDerivation);
         assert!(engine.explain_conclusion(cid - 1).trace_chain.is_empty());
     }
+
+    // ============================================================
+    // Stress / property-style invariant tests for TraceArena
+    // ============================================================
+
+    /// INVARIANT: arena.len() equals the number of record_step calls.
+    #[test]
+    fn invariant_len_equals_recorded_count() {
+        let mut arena = TraceArena::new();
+        let n = 1000;
+        for i in 0..n {
+            arena.record_step(
+                None,
+                InferenceSource::MctsExpansion {
+                    action: "Decompose".into(),
+                    node_depth: i,
+                },
+                vec![], 0.5, None, format!("step {}", i), 0,
+            );
+        }
+        assert_eq!(arena.len(), n);
+    }
+
+    /// INVARIANT: For any chain, every TraceId returned by trace_chain
+    /// must resolve to a live entry in the arena.
+    #[test]
+    fn invariant_chain_ids_always_resolve() {
+        let mut arena = TraceArena::new();
+        // Build a 50-deep chain.
+        let mut last: Option<TraceId> = None;
+        for i in 0..50 {
+            let id = arena.record_step(
+                last,
+                InferenceSource::System2Deliberation { iterations: i },
+                vec![], 0.9, None, format!("step {}", i), 0,
+            );
+            last = Some(id);
+        }
+        let leaf = last.expect("non-empty");
+        let chain = arena.trace_chain(leaf);
+        assert_eq!(chain.len(), 50);
+        for &tid in &chain {
+            assert!(arena.get(tid).is_some(),
+                "chain contains unresolvable TraceId {} in arena of {}",
+                tid, arena.len());
+        }
+    }
+
+    /// INVARIANT: derivation_depth equals chain.len() - 1 for any non-empty
+    /// chain rooted at a TraceId.
+    #[test]
+    fn invariant_depth_matches_chain_length() {
+        let mut arena = TraceArena::new();
+        let mut last: Option<TraceId> = None;
+        for i in 0..30 {
+            let id = arena.record_step(
+                last,
+                InferenceSource::PslAxiomEvaluation {
+                    axiom_id: format!("ax_{}", i),
+                    relevance: 0.5,
+                },
+                vec![], 0.7, None, format!("step {}", i), 0,
+            );
+            last = Some(id);
+            let depth = arena.derivation_depth(id);
+            let chain = arena.trace_chain(id);
+            assert_eq!(depth, chain.len() - 1,
+                "depth {} must equal chain.len-1 {} at step {}",
+                depth, chain.len() - 1, i);
+        }
+    }
+
+    /// INVARIANT: best_trace_for_conclusion always returns the
+    /// highest-confidence trace for a given conclusion ID.
+    #[test]
+    fn invariant_best_trace_is_highest_confidence() {
+        let mut engine = ProvenanceEngine::new();
+        let cid: ConclusionId = 1234;
+        let confidences = [0.1, 0.5, 0.99, 0.3, 0.95, 0.0, 0.7];
+        let mut max = 0.0f64;
+        for &c in &confidences {
+            engine.arena.record_step(
+                None,
+                InferenceSource::System1FastPath { similarity_score: c },
+                vec![], c, Some(cid), format!("conf {}", c), 0,
+            );
+            if c > max { max = c; }
+        }
+        let best = engine.trace_for_conclusion(cid).expect("non-empty");
+        assert!((best.confidence - max).abs() < 1e-9,
+            "best_trace must have max confidence {}, got {}", max, best.confidence);
+    }
+
+    /// INVARIANT: After any number of release+compact cycles, queries for
+    /// reclaimed conclusions return ReconstructedRationalization (never
+    /// fake a Traced result).
+    #[test]
+    fn invariant_compaction_preserves_traced_vs_reconstructed_truth() {
+        let mut engine = ProvenanceEngine::new();
+        // Record traces for cids 0..20.
+        let mut ids = Vec::new();
+        for cid in 0..20 {
+            let id = engine.arena.record_step(
+                None,
+                InferenceSource::ExternalAssertion { source: format!("c{}", cid) },
+                vec![], 0.9, Some(cid as u64), "trace".into(), 0,
+            );
+            ids.push((cid as u64, id));
+        }
+        // Release the first 10.
+        for &(_, id) in ids.iter().take(10) {
+            engine.arena.release(id);
+        }
+        engine.arena.compact();
+        // The first 10 cids must now report Reconstructed; the remaining
+        // 10 must still report Traced.
+        for cid in 0..10u64 {
+            assert!(
+                matches!(engine.explain_conclusion(cid).kind,
+                    ProvenanceKind::ReconstructedRationalization { .. }),
+                "cid {} was reclaimed — must report Reconstructed", cid);
+        }
+        for cid in 10..20u64 {
+            assert_eq!(engine.explain_conclusion(cid).kind,
+                ProvenanceKind::TracedDerivation,
+                "cid {} was kept — must report Traced", cid);
+        }
+    }
+
+    /// INVARIANT: trace_chain returns an empty Vec for an out-of-range ID
+    /// rather than panicking. Adversarial input guard.
+    #[test]
+    fn invariant_out_of_range_id_returns_empty_chain() {
+        let arena = TraceArena::new();
+        let chain = arena.trace_chain(usize::MAX);
+        assert!(chain.is_empty());
+        assert_eq!(arena.derivation_depth(usize::MAX), 0);
+    }
 }
