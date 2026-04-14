@@ -36,6 +36,7 @@ pub struct AppState {
     pub tx: broadcast::Sender<String>,
     pub agent: Mutex<LfiAgent>,
     pub search_engine: WebSearchEngine,
+    pub metrics: Arc<crate::intelligence::metrics::LfiMetrics>,
 }
 
 /// POST /api/auth body
@@ -361,6 +362,18 @@ async fn qos_handler() -> impl IntoResponse {
 }
 
 // ============================================================
+// REST: Prometheus Metrics
+// ============================================================
+
+/// GET /api/metrics — Prometheus text-format exposition.
+async fn metrics_handler(
+    State(state): State<Arc<AppState>>,
+) -> impl IntoResponse {
+    let body = state.metrics.render_prometheus();
+    ([("content-type", "text/plain; version=0.0.4")], body)
+}
+
+// ============================================================
 // REST: Health Check
 // ============================================================
 
@@ -417,6 +430,7 @@ async fn think_handler(
     }
 
     debug!("// AUDIT: /api/think input_len={}", req.input.len());
+    state.metrics.inc_counter("lfi_think_total", &[], 1);
     let mut agent = state.agent.lock();
     match agent.think_traced(&req.input) {
         Ok((result, cid)) => Json(json!({
@@ -511,6 +525,11 @@ async fn provenance_explain_handler(
     let agent = state.agent.lock();
     let engine = agent.provenance.lock();
     let explanation = engine.explain_conclusion(conclusion_id);
+    let kind_label = match explanation.kind {
+        crate::reasoning_provenance::ProvenanceKind::TracedDerivation => "traced",
+        crate::reasoning_provenance::ProvenanceKind::ReconstructedRationalization { .. } => "reconstructed",
+    };
+    state.metrics.inc_counter("lfi_provenance_query_total", &[("kind", kind_label)], 1);
     Json(json!({
         "conclusion_id": conclusion_id,
         "kind": match explanation.kind {
@@ -647,10 +666,19 @@ pub fn create_router() -> Result<Router, Box<dyn std::error::Error>> {
         tracing::error!("// CRITICAL: LfiAgent initialization failed: {}", e);
         format!("LfiAgent init failed: {}", e).into()
     })?;
+    let metrics = Arc::new(crate::intelligence::metrics::LfiMetrics::new());
+    metrics.register_help("lfi_think_total",
+        "Total number of POST /api/think calls accepted (post-validation)");
+    metrics.register_help("lfi_provenance_query_total",
+        "Total /api/provenance/:cid lookups by kind");
+    metrics.register_help("lfi_chat_total",
+        "Total chat messages handled over /ws/chat");
+
     let state = Arc::new(AppState {
         tx,
         agent: Mutex::new(agent),
         search_engine: WebSearchEngine::new(),
+        metrics,
     });
 
     let cors = CorsLayer::permissive();
@@ -665,6 +693,7 @@ pub fn create_router() -> Result<Router, Box<dyn std::error::Error>> {
         .route("/api/tier", post(tier_handler))
         .route("/api/qos", get(qos_handler))
         .route("/api/health", get(health_handler))
+        .route("/api/metrics", get(metrics_handler))
         .route("/api/think", post(think_handler))
         .route("/api/knowledge/review", post(knowledge_review_handler))
         .route("/api/knowledge/due", get(knowledge_due_handler))

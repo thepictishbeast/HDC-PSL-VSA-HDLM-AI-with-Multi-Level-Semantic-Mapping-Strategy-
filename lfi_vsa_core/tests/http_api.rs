@@ -190,6 +190,67 @@ async fn test_knowledge_review_rejects_empty_concept() {
     assert_eq!(json["status"], "rejected");
 }
 
+/// GET /api/metrics returns 200 with Prometheus text content type.
+#[tokio::test]
+async fn test_metrics_endpoint_returns_200_and_text_plain() {
+    let app = lfi_vsa_core::api::create_router().expect("router");
+    let response = app
+        .oneshot(Request::builder().uri("/api/metrics").body(Body::empty()).unwrap())
+        .await
+        .expect("request");
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let content_type = response.headers().get("content-type")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("");
+    assert!(content_type.starts_with("text/plain"),
+        "metrics must be text/plain, got {:?}", content_type);
+    // Body parses as UTF-8 (may be empty if no counter has been incremented yet).
+    let bytes = response.into_body().collect().await.unwrap().to_bytes();
+    let _text = std::str::from_utf8(&bytes).expect("utf8");
+}
+
+/// /api/think → /api/metrics should show the counter has incremented.
+#[tokio::test]
+async fn test_think_increments_think_counter() {
+    let app = lfi_vsa_core::api::create_router().expect("router");
+
+    // Hit /api/think a few times.
+    for input in ["q1", "q2", "q3"] {
+        let body = serde_json::json!({ "input": input }).to_string();
+        let _ = app.clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/think")
+                    .header("content-type", "application/json")
+                    .body(Body::from(body))
+                    .unwrap(),
+            )
+            .await
+            .expect("think req");
+    }
+
+    // Now scrape metrics.
+    let response = app
+        .oneshot(Request::builder().uri("/api/metrics").body(Body::empty()).unwrap())
+        .await
+        .expect("metrics req");
+    let bytes = response.into_body().collect().await.unwrap().to_bytes();
+    let text = std::str::from_utf8(&bytes).expect("utf8");
+    // The counter line must show ≥ 3 (we made 3 calls — exact match would
+    // be brittle if other tests interleave, so just assert presence + non-zero).
+    assert!(text.contains("lfi_think_total"),
+        "lfi_think_total must be exposed");
+    let any_nonzero = text.lines().any(|l| {
+        l.starts_with("lfi_think_total") && l.split_whitespace().last()
+            .and_then(|v| v.parse::<u64>().ok())
+            .map(|n| n >= 3)
+            .unwrap_or(false)
+    });
+    assert!(any_nonzero, "lfi_think_total must be ≥ 3 after 3 think calls, got: {}", text);
+}
+
 /// End-to-end: POST /api/think, then GET /api/provenance/:cid returns Traced.
 #[tokio::test]
 async fn test_think_then_query_provenance_returns_traced() {
