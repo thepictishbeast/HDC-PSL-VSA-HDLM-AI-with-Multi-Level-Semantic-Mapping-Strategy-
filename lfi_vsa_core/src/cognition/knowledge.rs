@@ -152,6 +152,8 @@ pub struct KnowledgeEngine {
     noise_threshold: f64,
     /// Maximum number of clarifying questions to generate.
     max_questions: usize,
+    /// Spaced-repetition scheduler — decides which concepts to rehearse next.
+    review_scheduler: crate::cognition::spaced_repetition::SpacedRepetitionScheduler,
 }
 
 impl KnowledgeEngine {
@@ -164,6 +166,7 @@ impl KnowledgeEngine {
             self_knowledge: Self::baseline_self_knowledge(),
             noise_threshold: 0.2,
             max_questions: 5,
+            review_scheduler: crate::cognition::spaced_repetition::SpacedRepetitionScheduler::new(),
         };
         engine.seed_core_concepts();
         engine
@@ -632,11 +635,14 @@ impl KnowledgeEngine {
                 // Mastery increases with exposure
                 concept.mastery = (concept.mastery + 0.05).min(1.0);
                 concept.trust_score = 1.0; // Reinforced by Sovereign
-                
+
                 debuglog!("KnowledgeEngine::learn: reinforced '{}' (mastery={:.2})",
                          name, concept.mastery);
 
                 self.knowledge_memory.associate(&vector, &vector)?;
+                // Repeat exposure counts as a perfect-recall review.
+                self.review_scheduler.register(name);
+                self.review_scheduler.review(name, 5);
                 return Ok(());
             }
         }
@@ -653,6 +659,8 @@ impl KnowledgeEngine {
         };
         self.concepts.push(concept);
         self.knowledge_memory.associate(&vector, &vector)?;
+        // Register with the review scheduler — new concepts are immediately due.
+        self.review_scheduler.register(name);
 
         debuglog!("KnowledgeEngine::learn: NEW Sovereign-verified concept '{}' acquired", name);
         Ok(())
@@ -786,9 +794,56 @@ impl KnowledgeEngine {
                 concept.encounter_count += 1;
                 concept.mastery = (concept.mastery + 0.1).min(1.0);
                 debuglog!("KnowledgeEngine::reinforce: '{}' mastery={:.2}", name, concept.mastery);
+                // Register + record as a perfect-recall review.
+                self.review_scheduler.register(name);
+                self.review_scheduler.review(name, 5);
                 return;
             }
         }
+    }
+
+    /// Record a review with a graded quality score (0-5).
+    /// Unlike `reinforce`, this lets callers say "user knew it sort of" (q=3)
+    /// vs "perfect recall" (q=5) vs "failed" (q=0).
+    ///
+    /// Mastery adjustment mirrors the quality:
+    ///   q=5 → +0.10, q=4 → +0.06, q=3 → +0.03, q<3 → -0.05 (forgetting)
+    pub fn review(&mut self, name: &str, quality: u8) {
+        let quality = quality.min(5);
+        let delta = match quality {
+            5 => 0.10,
+            4 => 0.06,
+            3 => 0.03,
+            _ => -0.05,
+        };
+        for concept in &mut self.concepts {
+            if concept.name == name {
+                concept.encounter_count += 1;
+                concept.mastery = (concept.mastery + delta).clamp(0.0, 1.0);
+                self.review_scheduler.register(name);
+                self.review_scheduler.review(name, quality);
+                debuglog!("KnowledgeEngine::review: '{}' q={} mastery={:.2}",
+                    name, quality, concept.mastery);
+                return;
+            }
+        }
+    }
+
+    /// Concepts currently due for spaced-repetition review, most overdue first.
+    ///
+    /// Cross-references the scheduler's due list with stored concepts so the
+    /// caller gets back the full LearnedConcept (with vector + mastery) — not
+    /// just a name.
+    pub fn concepts_due_for_review(&self, limit: usize) -> Vec<&LearnedConcept> {
+        let cards = self.review_scheduler.top_due(limit);
+        cards.iter().filter_map(|card| {
+            self.concepts.iter().find(|c| c.name == card.name)
+        }).collect()
+    }
+
+    /// Read-only access to the review scheduler (for inspection/serialization).
+    pub fn review_scheduler(&self) -> &crate::cognition::spaced_repetition::SpacedRepetitionScheduler {
+        &self.review_scheduler
     }
 
     /// Find the top-K most similar concepts to a query vector.
@@ -1018,6 +1073,93 @@ pub struct KnowledgeSummary {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_learn_registers_with_review_scheduler() -> Result<(), HdcError> {
+        let mut engine = KnowledgeEngine::new();
+        let initial = engine.review_scheduler().card_count();
+        engine.learn("test_concept_scheduler_xyz", &["related"], true)?;
+        // Learning a new concept must register it with the scheduler.
+        assert!(
+            engine.review_scheduler().card_count() > initial,
+            "New concept must be registered with scheduler"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn test_reinforce_records_successful_review() -> Result<(), HdcError> {
+        let mut engine = KnowledgeEngine::new();
+        engine.learn("concept_a_review", &[], true)?;
+
+        // First reinforce → scheduler sees a successful review.
+        engine.reinforce("concept_a_review");
+        let card = engine.review_scheduler()
+            .get("concept_a_review")
+            .expect("card registered");
+        assert_eq!(card.streak, 1, "reinforce must bump streak");
+        assert!(card.failure_count == 0, "reinforce must not count as failure");
+        Ok(())
+    }
+
+    #[test]
+    fn test_review_with_quality_adjusts_mastery_and_scheduler() -> Result<(), HdcError> {
+        let mut engine = KnowledgeEngine::new();
+        engine.learn("graded_concept", &[], true)?;
+        let initial_mastery = engine.mastery_of("graded_concept");
+
+        // Failure — mastery drops, scheduler streak resets.
+        engine.review("graded_concept", 0);
+        let after_fail = engine.mastery_of("graded_concept");
+        assert!(after_fail < initial_mastery, "failure must decrease mastery");
+        let card = engine.review_scheduler().get("graded_concept").expect("card");
+        assert_eq!(card.streak, 0, "failure must reset streak");
+        assert_eq!(card.failure_count, 1);
+
+        // Perfect — mastery climbs, streak is 1.
+        engine.review("graded_concept", 5);
+        let after_pass = engine.mastery_of("graded_concept");
+        assert!(after_pass > after_fail, "q=5 must increase mastery");
+        let card = engine.review_scheduler().get("graded_concept").expect("card");
+        assert_eq!(card.streak, 1);
+        Ok(())
+    }
+
+    #[test]
+    fn test_review_quality_clamped_to_5() -> Result<(), HdcError> {
+        let mut engine = KnowledgeEngine::new();
+        engine.learn("clamp_test", &[], true)?;
+        // Out-of-range quality must not panic; treated as q=5.
+        engine.review("clamp_test", 255);
+        let card = engine.review_scheduler().get("clamp_test").expect("card");
+        assert_eq!(card.streak, 1, "q=255 must be clamped to q=5");
+        Ok(())
+    }
+
+    #[test]
+    fn test_concepts_due_for_review_returns_registered_concepts() -> Result<(), HdcError> {
+        let mut engine = KnowledgeEngine::new();
+        engine.learn("due_test_a", &[], true)?;
+        engine.learn("due_test_b", &[], true)?;
+        // Freshly registered cards are due immediately.
+        let due = engine.concepts_due_for_review(10);
+        let names: Vec<&str> = due.iter().map(|c| c.name.as_str()).collect();
+        assert!(names.contains(&"due_test_a"),
+            "due_test_a must be in due list, got {:?}", names);
+        assert!(names.contains(&"due_test_b"),
+            "due_test_b must be in due list, got {:?}", names);
+        Ok(())
+    }
+
+    #[test]
+    fn test_review_on_unknown_concept_is_noop() -> Result<(), HdcError> {
+        let mut engine = KnowledgeEngine::new();
+        let before = engine.concept_count();
+        engine.review("absolutely_not_a_real_concept", 5);
+        // No new concept invented — review is a no-op for unknowns.
+        assert_eq!(engine.concept_count(), before);
+        Ok(())
+    }
 
     #[test]
     fn test_export_graph_dot_has_all_concepts_and_edges() -> Result<(), HdcError> {

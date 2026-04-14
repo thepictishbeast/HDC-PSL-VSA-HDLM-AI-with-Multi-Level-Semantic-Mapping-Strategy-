@@ -341,7 +341,8 @@ Auto-generate question variations from existing 300 examples. Rephrasings, harde
 - [x] `due_now(now_ms)` / `top_due(n)` — return overdue cards, sorted by most-overdue first
 - [x] JSON serialize/deserialize with 16 MiB DoS guard
 - [x] Never invents reviews for unregistered concepts (invariant test)
-- [x] 12 new tests (1034 → 1046 lib tests)
+- [x] **Integrated into `KnowledgeEngine`**: `learn()` auto-registers, `reinforce()` records q=5 reviews, new `review(name, q)` method for graded reviews with mastery adjustment, `concepts_due_for_review(limit)` cross-references scheduler + concept store
+- [x] 12 scheduler tests + 6 integration tests (1034 → 1056 lib tests)
 
 #### Distributed Inference
 Split training work across multiple Ollama instances on different machines. Useful when laptop + VPS both run Ollama.
