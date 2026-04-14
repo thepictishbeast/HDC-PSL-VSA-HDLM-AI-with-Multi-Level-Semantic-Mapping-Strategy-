@@ -40,6 +40,7 @@ pub mod honey_tokens;
 pub mod audit_log;
 pub mod config;
 pub mod metrics;
+pub mod policy_engine;
 
 pub use osint::{OsintAnalyzer, OsintSignal};
 pub use web_audit::ConnectivityAxiom;
