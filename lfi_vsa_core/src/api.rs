@@ -410,8 +410,10 @@ async fn metrics_handler(
 /// safe to log; the original is only included in the response in
 /// trimmed form (first 200 chars) for context, never fully echoed.
 async fn opsec_scan_handler(
+    State(state): State<Arc<AppState>>,
     Json(req): Json<OpsecRequest>,
 ) -> impl IntoResponse {
+    state.metrics.inc_counter("lfi_opsec_scan_total", &[], 1);
     if req.text.is_empty() {
         return Json(json!({
             "status": "rejected",
@@ -479,6 +481,7 @@ async fn audit_handler(
     }
 
     debug!("// AUDIT: /api/audit seed_len={}", req.seed.len());
+    state.metrics.inc_counter("lfi_audit_total", &[], 1);
     let agent = state.agent.lock();
 
     // Deterministic hash → seed → BipolarVector.
@@ -872,6 +875,10 @@ pub fn create_router() -> Result<Router, Box<dyn std::error::Error>> {
         "Total /api/provenance/:cid lookups by kind");
     metrics.register_help("lfi_chat_total",
         "Total chat messages handled over /ws/chat");
+    metrics.register_help("lfi_audit_total",
+        "Total POST /api/audit calls accepted by the PSL supervisor");
+    metrics.register_help("lfi_opsec_scan_total",
+        "Total POST /api/opsec/scan calls (PII redaction)");
 
     let state = Arc::new(AppState {
         tx,
