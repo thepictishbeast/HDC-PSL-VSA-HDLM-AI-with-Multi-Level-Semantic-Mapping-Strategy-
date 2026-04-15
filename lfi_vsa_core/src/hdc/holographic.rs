@@ -198,4 +198,80 @@ mod tests {
         assert!(mem.is_near_capacity(), "200 associations should approach capacity");
         Ok(())
     }
+
+    // ============================================================
+    // Stress / invariant tests for HolographicMemory
+    // ============================================================
+
+    /// INVARIANT: association_count grows by exactly 1 per associate() call.
+    #[test]
+    fn invariant_association_count_monotonic() -> Result<(), HdcError> {
+        let mut mem = HolographicMemory::new();
+        for i in 0..20 {
+            let k = BipolarVector::new_random()?;
+            let v = BipolarVector::new_random()?;
+            let before = mem.association_count();
+            mem.associate(&k, &v)?;
+            assert_eq!(mem.association_count(), before + 1,
+                "count must grow by 1 at iter {}", i);
+        }
+        Ok(())
+    }
+
+    /// INVARIANT: clear() resets association_count to zero.
+    #[test]
+    fn invariant_clear_zeros_count() -> Result<(), HdcError> {
+        let mut mem = HolographicMemory::new();
+        for _ in 0..10 {
+            let k = BipolarVector::new_random()?;
+            let v = BipolarVector::new_random()?;
+            mem.associate(&k, &v)?;
+        }
+        assert_eq!(mem.association_count(), 10);
+        mem.clear();
+        assert_eq!(mem.association_count(), 0,
+            "clear must reset count to 0");
+        Ok(())
+    }
+
+    /// INVARIANT: capacity_estimate ratio is in [0.0, 1.0+epsilon].
+    #[test]
+    fn invariant_capacity_estimate_ratio_in_unit_interval() -> Result<(), HdcError> {
+        let mut mem = HolographicMemory::new();
+        for i in 0..150 {
+            if i > 0 {
+                let k = BipolarVector::new_random()?;
+                let v = BipolarVector::new_random()?;
+                mem.associate(&k, &v)?;
+            }
+            let (ratio, _capacity) = mem.capacity_estimate();
+            assert!(ratio >= 0.0 && ratio <= 1.0 + 1e-6,
+                "capacity ratio out of range at i={}: {}", i, ratio);
+        }
+        Ok(())
+    }
+
+    /// INVARIANT: logic_flux stays finite (no NaN/Inf) after stress.
+    #[test]
+    fn invariant_logic_flux_finite() -> Result<(), HdcError> {
+        let mut mem = HolographicMemory::new();
+        for _ in 0..100 {
+            let k = BipolarVector::new_random()?;
+            let v = BipolarVector::new_random()?;
+            mem.associate(&k, &v)?;
+        }
+        let f = mem.logic_flux()?;
+        assert!(f.is_finite(),
+            "logic_flux must stay finite, got {}", f);
+        Ok(())
+    }
+
+    /// INVARIANT: probing an empty memory does not panic.
+    #[test]
+    fn invariant_probe_empty_memory_safe() -> Result<(), HdcError> {
+        let mem = HolographicMemory::new();
+        let key = BipolarVector::new_random()?;
+        let _ = mem.probe(&key); // Just must not panic.
+        Ok(())
+    }
 }
