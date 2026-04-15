@@ -212,4 +212,61 @@ mod tests {
         assert!(sim2 > 0.0, "Second signal should be detectable: {:.4}", sim2);
         Ok(())
     }
+
+    // ============================================================
+    // Stress / invariant tests for SuperpositionStorage
+    // ============================================================
+
+    /// INVARIANT: signal_count grows by exactly 1 per commit_real call.
+    #[test]
+    fn invariant_signal_count_monotonic_on_commit() -> Result<(), HdcError> {
+        let mut s = SuperpositionStorage::new();
+        for i in 0..15 {
+            let before = s.signal_count;
+            let v = BipolarVector::new_random()?;
+            s.commit_real(&v)?;
+            assert_eq!(s.signal_count, before + 1,
+                "count must grow by 1 per commit at iter {}", i);
+        }
+        Ok(())
+    }
+
+    /// INVARIANT: inject_chaff(n) grows signal_count by exactly n.
+    #[test]
+    fn invariant_chaff_grows_count_by_n() -> Result<(), HdcError> {
+        let mut s = SuperpositionStorage::new();
+        for n in [1, 5, 20] {
+            let before = s.signal_count;
+            s.inject_chaff(n)?;
+            assert_eq!(s.signal_count, before + n,
+                "inject_chaff({}) must grow count by {}", n, n);
+        }
+        Ok(())
+    }
+
+    /// INVARIANT: probing an empty storage doesn't panic and returns a finite f64.
+    #[test]
+    fn invariant_probe_empty_finite() -> Result<(), HdcError> {
+        let s = SuperpositionStorage::new();
+        let key = BipolarVector::new_random()?;
+        let sim = s.probe(&key)?;
+        assert!(sim.is_finite(), "empty probe must return finite, got {}", sim);
+        Ok(())
+    }
+
+    /// INVARIANT: probe similarity is in [-1.0, 1.0] after stress.
+    #[test]
+    fn invariant_probe_similarity_in_cosine_range() -> Result<(), HdcError> {
+        let mut s = SuperpositionStorage::new();
+        for _ in 0..50 {
+            s.commit_real(&BipolarVector::new_random()?)?;
+        }
+        for _ in 0..10 {
+            let probe_key = BipolarVector::new_random()?;
+            let sim = s.probe(&probe_key)?;
+            assert!(sim >= -1.0 - 1e-6 && sim <= 1.0 + 1e-6,
+                "cosine probe out of [-1, 1]: {}", sim);
+        }
+        Ok(())
+    }
 }
