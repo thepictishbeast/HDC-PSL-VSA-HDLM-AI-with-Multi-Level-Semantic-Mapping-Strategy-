@@ -341,6 +341,110 @@ impl AnswerNormalizer {
         false
     }
 
+    /// Try to extract a number with a unit and convert to SI base units.
+    /// Examples:
+    ///   "299,792 km/s" → Some((299792000.0, "m/s"))
+    ///   "3 x 10^8 m/s" → Some((3e8, "m/s"))
+    ///   "5 kg"        → Some((5.0, "kg"))
+    ///   "12 ms"       → Some((0.012, "s"))
+    ///
+    /// BUG ASSUMPTION: only handles a small set of common SI prefixes
+    /// and a few unit aliases. Returns None on anything ambiguous.
+    pub fn parse_with_si_units(s: &str) -> Option<(f64, String)> {
+        let trimmed = s.trim().replace(',', "");
+        // Try "A x 10^B unit" or "A * 10^B unit" or "Ae±B unit" first.
+        let scientific = regex::Regex::new(
+            r"(?ix)
+            ^\s*
+            (?P<mantissa> [+-]? \d+ (?:\.\d+)? )
+            \s* (?: x | \* ) \s* 10\s*\^\s*
+            (?P<exp> [+-]? \d+ )
+            \s* (?P<unit> [a-zA-Z/^*0-9]* )
+            \s*$
+        ").ok()?;
+        if let Some(c) = scientific.captures(&trimmed) {
+            let m: f64 = c["mantissa"].parse().ok()?;
+            let e: i32 = c["exp"].parse().ok()?;
+            let value = m * 10f64.powi(e);
+            let unit = c["unit"].trim().to_string();
+            return Some(Self::to_si(value, &unit));
+        }
+        // Plain "A unit" or "Ae±B unit".
+        let plain = regex::Regex::new(
+            r"(?ix)
+            ^\s*
+            (?P<value> [+-]? \d+ (?:\.\d+)? (?:[eE][+-]?\d+)? )
+            \s*
+            (?P<unit> [a-zA-Z/^*0-9]* )
+            \s*$
+        ").ok()?;
+        if let Some(c) = plain.captures(&trimmed) {
+            let v: f64 = c["value"].parse().ok()?;
+            let unit = c["unit"].trim().to_string();
+            return Some(Self::to_si(v, &unit));
+        }
+        None
+    }
+
+    /// Convert (value, unit) to (value_in_base, base_unit) by stripping
+    /// SI prefixes (k, M, G, m, μ, n) and normalising aliases.
+    fn to_si(value: f64, unit: &str) -> (f64, String) {
+        // Normalise common aliases first.
+        let unit_norm = unit
+            .replace("μ", "u")
+            .replace("Ω", "ohm");
+
+        // Strip prefix from the leading character if it forms a known SI
+        // prefix AND the remaining string is a known base unit.
+        let known_bases = ["m", "g", "s", "Hz", "Pa", "N", "J", "W", "V",
+                           "A", "K", "L", "B", "bit", "ohm", "m/s",
+                           "m/s^2", "kg", "rad"];
+        // kilogram is the SI base mass unit; treat raw "g" as 1e-3 kg.
+        if unit_norm == "g" { return (value * 1e-3, "kg".into()); }
+        if unit_norm == "kg" { return (value, "kg".into()); }
+        // Compound units of the form "X/Y" — strip prefix from numerator
+        // (denominator stays unchanged because most denominators are
+        // unitless quantities like "s" or "m^2").
+        if let Some((num, denom)) = unit_norm.split_once('/') {
+            let (mult, base_num) = Self::to_si(1.0, num);
+            return (value * mult, format!("{}/{}", base_num, denom));
+        }
+        if unit_norm.contains('^') {
+            return (value, unit_norm);
+        }
+        for base in &known_bases {
+            if unit_norm == *base { return (value, base.to_string()); }
+            if let Some(rest) = unit_norm.strip_prefix(|c: char| matches!(c, 'k'|'M'|'G'|'T'|'m'|'u'|'n'|'p')) {
+                if rest == *base {
+                    let mult = match unit_norm.chars().next().unwrap() {
+                        'k' => 1e3, 'M' => 1e6, 'G' => 1e9, 'T' => 1e12,
+                        'm' => 1e-3, 'u' => 1e-6, 'n' => 1e-9, 'p' => 1e-12,
+                        _ => 1.0,
+                    };
+                    return (value * mult, base.to_string());
+                }
+            }
+        }
+        (value, unit_norm)
+    }
+
+    /// Detect equivalence after SI normalization. Returns true if both
+    /// strings parse as values with units that reduce to the same base
+    /// unit and (numerically) the same magnitude within rel_tol.
+    pub fn unit_equivalent(a: &str, b: &str, rel_tol: f64) -> bool {
+        let pa = Self::parse_with_si_units(a);
+        let pb = Self::parse_with_si_units(b);
+        if let (Some((va, ua)), Some((vb, ub))) = (pa, pb) {
+            // Normalise units (m/s == m/s; ignore minor suffix variation).
+            if ua.to_lowercase() != ub.to_lowercase() && !ua.is_empty() && !ub.is_empty() {
+                return false;
+            }
+            if vb.abs() < 1e-12 { return va.abs() < 1e-12; }
+            return ((va - vb) / vb).abs() < rel_tol;
+        }
+        false
+    }
+
     /// Word-to-number: "five" → "5".
     pub fn word_to_number(s: &str) -> String {
         let mappings = [
@@ -447,6 +551,19 @@ impl AnswerVerifier {
                 normalized_expected: exp_norm,
                 matched_mode: Some("NumericEquivalence".into()),
                 confidence: 0.98,
+            };
+        }
+
+        // 4b. Unit-aware equivalence: "299792 km/s" matches "3 x 10^8 m/s",
+        // "0.012 s" matches "12 ms", etc. Catches the failure mode where
+        // the LLM gives the right answer in a different unit.
+        if AnswerNormalizer::unit_equivalent(answer, expected, 0.01) {
+            return VerifyResult {
+                is_correct: true,
+                normalized_answer: ans_norm,
+                normalized_expected: exp_norm,
+                matched_mode: Some("UnitEquivalence".into()),
+                confidence: 0.95,
             };
         }
 
@@ -777,5 +894,41 @@ mod tests {
                 "Should match: '{}' vs '{}' (normalized: '{}' vs '{}')",
                 answer, expected, r.normalized_answer, r.normalized_expected);
         }
+    }
+
+    #[test]
+    fn test_unit_equivalence_speed_of_light_km_vs_m() {
+        // The exact failure mode from the live training run:
+        // model said "299,792 km/s", expected "3 x 10^8 m/s".
+        // Same value, different units — must verify as correct.
+        assert!(AnswerNormalizer::unit_equivalent("299792 km/s", "3 x 10^8 m/s", 0.01));
+        assert!(AnswerNormalizer::unit_equivalent("299,792 km/s", "299792000 m/s", 0.01));
+    }
+
+    #[test]
+    fn test_unit_equivalence_milli_seconds() {
+        assert!(AnswerNormalizer::unit_equivalent("12 ms", "0.012 s", 0.01));
+        assert!(AnswerNormalizer::unit_equivalent("1500 ms", "1.5 s", 0.01));
+    }
+
+    #[test]
+    fn test_unit_equivalence_kilo_grams() {
+        assert!(AnswerNormalizer::unit_equivalent("5 kg", "5000 g", 0.01));
+    }
+
+    #[test]
+    fn test_unit_equivalence_rejects_mismatched_units() {
+        // Same number, different base units must NOT match.
+        assert!(!AnswerNormalizer::unit_equivalent("5 m", "5 s", 0.01));
+        assert!(!AnswerNormalizer::unit_equivalent("100 N", "100 W", 0.01));
+    }
+
+    #[test]
+    fn test_verify_uses_unit_equivalence_for_speed_of_light() {
+        // End-to-end: AnswerVerifier::verify must catch the unit-equivalent case.
+        let result = AnswerVerifier::verify("299,792 km/s", "3 x 10^8 m/s");
+        assert!(result.is_correct,
+            "verify must accept unit-equivalent answers: matched_mode={:?}",
+            result.matched_mode);
     }
 }
