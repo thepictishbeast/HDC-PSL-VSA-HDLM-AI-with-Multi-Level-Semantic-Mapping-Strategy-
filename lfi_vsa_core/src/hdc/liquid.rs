@@ -108,11 +108,25 @@ impl LiquidSensorium {
     }
 
     /// Genetic adaptation: mutate the time constants (tau) to handle new noise patterns.
+    ///
+    /// AVP-PASS-N: 2026-04-15 — earlier impl applied `neuron.tau *= factor`
+    /// without sanitizing the factor. NaN factors propagated into tau,
+    /// producing non-finite state across the entire sensorium. Now any
+    /// non-finite or non-positive factor is silently skipped.
     pub fn mutate_tau(&mut self, factors: &[f64]) {
         let n_count = self.neurons.len();
+        if n_count == 0 { return; }
         for (i, factor) in factors.iter().enumerate() {
+            // SECURITY: drop NaN / Inf / non-positive factors. Mutation
+            // intent is reasonable scaling, not arithmetic poisoning.
+            if !factor.is_finite() || *factor <= 0.0 {
+                continue;
+            }
             if let Some(neuron) = self.neurons.get_mut(i % n_count) {
-                neuron.tau = (neuron.tau * factor).clamp(0.1, 10.0);
+                let new_tau = (neuron.tau * factor).clamp(0.1, 10.0);
+                if new_tau.is_finite() && new_tau > 0.0 {
+                    neuron.tau = new_tau;
+                }
             }
         }
     }
@@ -209,5 +223,54 @@ mod tests {
         let hv = lnn.project_to_vsa()?;
         assert_eq!(hv.dim(), 10000);
         Ok(())
+    }
+
+    // ============================================================
+    // Stress / invariant tests for LiquidSensorium
+    // ============================================================
+
+    /// INVARIANT: project_to_vsa always returns a vector of dimension 10000.
+    #[test]
+    fn invariant_projection_dim_constant() -> Result<(), HdcError> {
+        for n in [0usize, 1, 5, 19, 100] {
+            let lnn = LiquidSensorium::new(n);
+            let hv = lnn.project_to_vsa()?;
+            assert_eq!(hv.dim(), 10000,
+                "projection dim must be 10000 for neuron_count={}", n);
+        }
+        Ok(())
+    }
+
+    /// INVARIANT: step() never panics on extreme inputs and keeps neuron
+    /// state finite (no NaN/Inf from accumulated drift).
+    #[test]
+    fn invariant_step_keeps_state_finite() -> Result<(), HdcError> {
+        let mut lnn = LiquidSensorium::new(19);
+        let inputs = [0.0, 1.0, -1.0, 1e6, -1e6, f64::EPSILON];
+        for input in inputs {
+            for _ in 0..10 {
+                lnn.step(input, 0.01)?;
+                for n in &lnn.neurons {
+                    assert!(n.state.is_finite(),
+                        "neuron state went non-finite under input {}", input);
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// INVARIANT: mutate_tau respects clamping under extreme inputs
+    /// (no NaN, no negative tau).
+    #[test]
+    fn invariant_mutate_tau_clamps_safely() {
+        let mut lnn = LiquidSensorium::new(5);
+        // Pass huge factors and check tau stays positive + finite.
+        lnn.mutate_tau(&[1e6, -1e6, 0.0, f64::INFINITY, f64::NAN]);
+        for n in &lnn.neurons {
+            assert!(n.tau.is_finite(),
+                "tau went non-finite under extreme mutation: {}", n.tau);
+            assert!(n.tau > 0.0,
+                "tau went non-positive: {}", n.tau);
+        }
     }
 }
