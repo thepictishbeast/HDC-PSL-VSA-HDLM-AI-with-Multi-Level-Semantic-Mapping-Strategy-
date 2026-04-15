@@ -177,6 +177,7 @@ The axum-based server exposes a REST + WebSocket API. All JSON. Handlers are in
 | `/api/search` | POST | no | Web search with cross-reference |
 | `/api/think` | POST | no | Think **with provenance**, returns `conclusion_id` |
 | `/api/audit` | POST | no | PSL governance audit over a seed-derived vector |
+| `/api/opsec/scan` | POST | no | Scan text for PII / sensitive markers, return sanitized + matches |
 | `/api/knowledge/review` | POST | no | Graded review (quality 0–5) — updates mastery + SM-2 schedule |
 | `/api/knowledge/due` | GET | no | Concepts currently due for spaced-repetition review |
 | `/api/knowledge/concepts` | GET | no | List every known concept with mastery + relations |

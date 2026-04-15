@@ -210,6 +210,80 @@ async fn test_metrics_endpoint_returns_200_and_text_plain() {
     let _text = std::str::from_utf8(&bytes).expect("utf8");
 }
 
+/// POST /api/opsec/scan sanitizes input and reports matches.
+#[tokio::test]
+async fn test_opsec_scan_redacts_sensitive_text() {
+    let app = lfi_vsa_core::api::create_router().expect("router");
+    let body = serde_json::json!({
+        "text": "Contact me at user@example.com or 555-12-3456 about the test."
+    }).to_string();
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/opsec/scan")
+                .header("content-type", "application/json")
+                .body(Body::from(body))
+                .unwrap(),
+        )
+        .await
+        .expect("request");
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let bytes = response.into_body().collect().await.unwrap().to_bytes();
+    let json: Value = serde_json::from_slice(&bytes).expect("valid JSON");
+    assert_eq!(json["status"], "ok");
+    let sanitized = json["sanitized"].as_str().expect("sanitized");
+    // The original PII (email + SSN) must NOT appear in the sanitized text.
+    assert!(!sanitized.contains("user@example.com"),
+        "email must be redacted, got: {}", sanitized);
+    assert!(!sanitized.contains("555-12-3456"),
+        "SSN must be redacted, got: {}", sanitized);
+}
+
+/// POST /api/opsec/scan rejects empty + oversize inputs.
+#[tokio::test]
+async fn test_opsec_scan_rejects_empty_and_oversize() {
+    let app = lfi_vsa_core::api::create_router().expect("router");
+
+    // Empty
+    let body = serde_json::json!({ "text": "" }).to_string();
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/opsec/scan")
+                .header("content-type", "application/json")
+                .body(Body::from(body))
+                .unwrap(),
+        )
+        .await
+        .expect("request");
+    let bytes = response.into_body().collect().await.unwrap().to_bytes();
+    let json: Value = serde_json::from_slice(&bytes).expect("valid JSON");
+    assert_eq!(json["status"], "rejected", "empty must be rejected");
+
+    // Oversize
+    let huge = "a".repeat(64 * 1024 + 1);
+    let body = serde_json::json!({ "text": huge }).to_string();
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/opsec/scan")
+                .header("content-type", "application/json")
+                .body(Body::from(body))
+                .unwrap(),
+        )
+        .await
+        .expect("request");
+    let bytes = response.into_body().collect().await.unwrap().to_bytes();
+    let json: Value = serde_json::from_slice(&bytes).expect("valid JSON");
+    assert_eq!(json["status"], "rejected", "oversize must be rejected");
+}
+
 /// POST /api/audit returns a verdict for any non-empty seed.
 #[tokio::test]
 async fn test_audit_endpoint_returns_verdict() {

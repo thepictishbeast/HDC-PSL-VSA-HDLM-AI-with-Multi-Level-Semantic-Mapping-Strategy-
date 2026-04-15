@@ -87,6 +87,12 @@ pub struct AuditRequest {
     pub seed: String,
 }
 
+/// POST /api/opsec/scan body — submits text for PII / sensitive-data scanning.
+#[derive(Deserialize)]
+pub struct OpsecRequest {
+    pub text: String,
+}
+
 // ============================================================
 // WebSocket: Telemetry Stream
 // ============================================================
@@ -388,6 +394,62 @@ async fn metrics_handler(
 ) -> impl IntoResponse {
     let body = state.metrics.render_prometheus();
     ([("content-type", "text/plain; version=0.0.4")], body)
+}
+
+// ============================================================
+// REST: OPSEC Scan
+// ============================================================
+
+/// POST /api/opsec/scan — scan text for PII / sensitive markers.
+///
+/// Returns the sanitized version (with sensitive matches replaced by
+/// deterministic placeholders) plus per-match metadata so the caller
+/// can audit what was found without leaking the originals back.
+///
+/// SECURITY: caps text at 64 KiB. The returned sanitized string is
+/// safe to log; the original is only included in the response in
+/// trimmed form (first 200 chars) for context, never fully echoed.
+async fn opsec_scan_handler(
+    Json(req): Json<OpsecRequest>,
+) -> impl IntoResponse {
+    if req.text.is_empty() {
+        return Json(json!({
+            "status": "rejected",
+            "reason": "text is empty"
+        }));
+    }
+    if req.text.len() > 64 * 1024 {
+        return Json(json!({
+            "status": "rejected",
+            "reason": "text exceeds 64 KiB"
+        }));
+    }
+
+    debug!("// AUDIT: /api/opsec/scan input_len={}", req.text.len());
+    match crate::hdlm::intercept::OpsecIntercept::scan(&req.text) {
+        Ok(result) => {
+            let detailed: Vec<serde_json::Value> = result.detailed_matches.iter().map(|m| {
+                json!({
+                    "category": format!("{:?}", m.category),
+                    "position": m.position,
+                    "redacted_with": m.redacted_with,
+                    // Note: original matched text is NOT returned — it's
+                    // sensitive data by definition.
+                })
+            }).collect();
+            Json(json!({
+                "status": "ok",
+                "sanitized": result.sanitized,
+                "matches_found": result.matches_found.len(),
+                "bytes_redacted": result.bytes_redacted,
+                "detailed_matches": detailed,
+            }))
+        }
+        Err(e) => Json(json!({
+            "status": "error",
+            "reason": format!("scan failed: {:?}", e),
+        })),
+    }
 }
 
 // ============================================================
@@ -833,6 +895,7 @@ pub fn create_router() -> Result<Router, Box<dyn std::error::Error>> {
         .route("/api/metrics", get(metrics_handler))
         .route("/api/think", post(think_handler))
         .route("/api/audit", post(audit_handler))
+        .route("/api/opsec/scan", post(opsec_scan_handler))
         .route("/api/knowledge/review", post(knowledge_review_handler))
         .route("/api/knowledge/due", get(knowledge_due_handler))
         .route("/api/knowledge/concepts", get(knowledge_concepts_handler))
