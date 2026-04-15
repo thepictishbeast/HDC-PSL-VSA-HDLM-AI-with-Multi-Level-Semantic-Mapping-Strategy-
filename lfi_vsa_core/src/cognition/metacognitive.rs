@@ -673,4 +673,99 @@ mod tests {
         assert_eq!(empty.overall_readiness(), 0.0);
         Ok(())
     }
+
+    // ============================================================
+    // Stress / invariant tests for MetaCognitiveProfiler
+    // ============================================================
+
+    /// INVARIANT: success_rate stays in [0.0, 1.0] regardless of recorded mix.
+    #[test]
+    fn invariant_success_rate_in_unit_interval() -> Result<(), HdcError> {
+        let mut profiler = MetaCognitiveProfiler::new();
+        for i in 0..50 {
+            profiler.record(&PerformanceRecord {
+                domain: CognitiveDomain::Coding,
+                success: i % 3 != 0,
+                confidence: 0.5,
+                task_vector: BipolarVector::new_random().expect("rand"),
+                description: "test".into(),
+            })?;
+            let rate = profiler.success_rate(&CognitiveDomain::Coding);
+            assert!(rate >= 0.0 && rate <= 1.0,
+                "success_rate escaped [0,1]: {}", rate);
+        }
+        Ok(())
+    }
+
+    /// INVARIANT: average_confidence stays in [0.0, 1.0].
+    #[test]
+    fn invariant_average_confidence_in_unit_interval() -> Result<(), HdcError> {
+        let mut profiler = MetaCognitiveProfiler::new();
+        for i in 0..30 {
+            let conf = (i as f64 % 11.0) / 10.0;
+            profiler.record(&PerformanceRecord {
+                domain: CognitiveDomain::Reasoning,
+                success: true,
+                confidence: conf,
+                task_vector: BipolarVector::new_random().expect("rand"),
+                description: "test".into(),
+            })?;
+            let avg = profiler.average_confidence(&CognitiveDomain::Reasoning);
+            assert!(avg >= 0.0 && avg <= 1.0,
+                "avg confidence escaped [0,1]: {}", avg);
+        }
+        Ok(())
+    }
+
+    /// INVARIANT: overall_readiness stays in [0.0, 1.0] across multi-domain mix.
+    #[test]
+    fn invariant_overall_readiness_in_unit_interval() -> Result<(), HdcError> {
+        let mut profiler = MetaCognitiveProfiler::new();
+        let domains = [
+            CognitiveDomain::Coding,
+            CognitiveDomain::Reasoning,
+            CognitiveDomain::Mathematics,
+            CognitiveDomain::Security,
+        ];
+        for d in &domains {
+            for i in 0..10 {
+                profiler.record(&PerformanceRecord {
+                    domain: d.clone(),
+                    success: i % 2 == 0,
+                    confidence: 0.6,
+                    task_vector: BipolarVector::new_random().expect("rand"),
+                    description: "test".into(),
+                })?;
+            }
+        }
+        let r = profiler.overall_readiness();
+        assert!(r >= 0.0 && r <= 1.0, "readiness escaped [0,1]: {}", r);
+        Ok(())
+    }
+
+    /// INVARIANT: domain_count grows when a new domain is recorded for the
+    /// first time, stays flat for subsequent records on existing domains.
+    #[test]
+    fn invariant_domain_count_grows_on_first_record_only() -> Result<(), HdcError> {
+        let mut profiler = MetaCognitiveProfiler::new();
+        let initial = profiler.domain_count();
+        profiler.record(&PerformanceRecord {
+            domain: CognitiveDomain::Coding,
+            success: true, confidence: 0.5,
+            task_vector: BipolarVector::new_random().expect("rand"),
+            description: "first".into(),
+        })?;
+        let after_first = profiler.domain_count();
+        assert_eq!(after_first, initial + 1, "first record must add 1 domain");
+        // Second record for the SAME domain — count must not grow.
+        profiler.record(&PerformanceRecord {
+            domain: CognitiveDomain::Coding,
+            success: false, confidence: 0.3,
+            task_vector: BipolarVector::new_random().expect("rand"),
+            description: "second".into(),
+        })?;
+        assert_eq!(profiler.domain_count(), after_first,
+            "second record on existing domain must not grow count");
+        Ok(())
+    }
 }
