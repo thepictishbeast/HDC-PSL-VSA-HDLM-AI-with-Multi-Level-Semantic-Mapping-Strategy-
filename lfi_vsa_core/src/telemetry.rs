@@ -127,4 +127,55 @@ mod tests {
         let ram = MaterialAuditor::read_available_memory();
         assert!(ram > 0, "Available memory should be positive: {}", ram);
     }
+
+    // ============================================================
+    // Stress / invariant tests for telemetry
+    // ============================================================
+
+    /// INVARIANT: get_stats output values fall in expected sane ranges
+    /// regardless of input vsa_ortho / pass_rate.
+    #[test]
+    fn invariant_stats_sane_ranges() {
+        for ortho in [0.0, 0.5, 1.0, -0.3] {
+            for pass in [0.0, 0.5, 1.0] {
+                let s = MaterialAuditor::get_stats(ortho, pass);
+                // RAM is non-zero (we read /proc/meminfo or fall back to 2048).
+                assert!(s.ram_available_mb > 0,
+                    "RAM must be positive, got {}", s.ram_available_mb);
+                // Temperature in plausible range (0-150 C — covers thermal-readout
+                // failure default 45.0 + extreme overheating).
+                assert!(s.cpu_temp_c >= 0.0 && s.cpu_temp_c < 150.0,
+                    "Temp out of range: {}", s.cpu_temp_c);
+                // The two pass-through fields are echoed back exactly.
+                assert!((s.vsa_orthogonality - ortho).abs() < 1e-9);
+                assert!((s.axiom_pass_rate - pass).abs() < 1e-9);
+            }
+        }
+    }
+
+    /// INVARIANT: throttle flag is set iff temp > 80 C.
+    #[test]
+    fn invariant_throttle_flag_matches_threshold() {
+        // Test the formula directly because we can't override sensors.
+        let s = MaterialAuditor::get_stats(0.5, 0.5);
+        assert_eq!(s.is_throttled, s.cpu_temp_c > 80.0,
+            "is_throttled flag must equal (temp > 80): temp={}, flag={}",
+            s.cpu_temp_c, s.is_throttled);
+    }
+
+    /// INVARIANT: get_stats is read-only — calling it multiple times
+    /// produces the same RAM/temp readings within a tight time window.
+    #[test]
+    fn invariant_get_stats_idempotent_in_short_window() {
+        let s1 = MaterialAuditor::get_stats(0.5, 0.5);
+        let s2 = MaterialAuditor::get_stats(0.5, 0.5);
+        // RAM may drift by a few MB between back-to-back calls, but
+        // not wildly. Same with temperature.
+        assert!((s1.ram_available_mb as i64 - s2.ram_available_mb as i64).abs() < 500,
+            "RAM should not drift > 500 MB in a few µs: {} vs {}",
+            s1.ram_available_mb, s2.ram_available_mb);
+        assert!((s1.cpu_temp_c - s2.cpu_temp_c).abs() < 5.0,
+            "Temp should not drift > 5C in a few µs: {} vs {}",
+            s1.cpu_temp_c, s2.cpu_temp_c);
+    }
 }
