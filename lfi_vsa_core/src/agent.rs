@@ -57,6 +57,9 @@ impl LfiAgent {
         supervisor.register_axiom(Box::new(crate::psl::axiom::StatisticalEquilibriumAxiom { tolerance: 0.15 }));
         supervisor.register_axiom(Box::new(crate::psl::axiom::DataIntegrityAxiom { max_bytes: 10_000_000 }));
         supervisor.register_axiom(Box::new(crate::psl::axiom::ClassInterestAxiom));
+        // ConfidenceCalibrationAxiom — rejects vectors whose mean exceeds ±0.5
+        // (degenerate / adversarial inputs that would spike cosine similarity).
+        supervisor.register_axiom(Box::new(crate::psl::axiom::ConfidenceCalibrationAxiom::default()));
 
         let memory = SuperpositionStorage::new();
         let reasoner = CognitiveCore::new()?;
@@ -368,6 +371,34 @@ mod tests {
     fn test_agent_creation() {
         let agent = LfiAgent::new();
         assert!(agent.is_ok(), "Agent should initialize without error");
+    }
+
+    #[test]
+    fn test_agent_supervisor_includes_default_axioms() {
+        let agent = LfiAgent::new().expect("agent init");
+        let count = agent.supervisor.axiom_count();
+        // 5 default axioms: Dimensionality, StatisticalEquilibrium,
+        // DataIntegrity, ClassInterest, ConfidenceCalibration.
+        assert!(count >= 5,
+            "default supervisor must register at least 5 axioms, got {}", count);
+    }
+
+    #[test]
+    fn test_agent_supervisor_rejects_degenerate_vector() {
+        use crate::psl::axiom::AuditTarget;
+        let agent = LfiAgent::new().expect("agent init");
+        // Build an all-+1 vector — ConfidenceCalibrationAxiom must catch it.
+        let template = crate::hdc::vector::BipolarVector::new_random().expect("random");
+        let mut data = template.data.clone();
+        for i in 0..data.len() { data.set(i, true); }
+        let degenerate = crate::hdc::vector::BipolarVector { data };
+        let target = AuditTarget::Vector(degenerate);
+        let verdict = agent.supervisor.audit(&target).expect("audit");
+        // A degenerate all-+1 vector violates calibration; should not pass
+        // the trust threshold.
+        assert!(verdict.confidence < agent.supervisor.material_trust_threshold,
+            "degenerate vector must not reach trust threshold, got conf {:.3}",
+            verdict.confidence);
     }
 
     #[test]
