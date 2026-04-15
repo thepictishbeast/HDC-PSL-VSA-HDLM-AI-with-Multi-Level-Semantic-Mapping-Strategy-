@@ -268,27 +268,45 @@ impl AnswerNormalizer {
     }
 
     /// Case-insensitive string replacement.
+    ///
+    /// AVP-PASS-N: 2026-04-14 — earlier impl used byte-indexed slicing
+    /// from haystack into haystack_lower, which panicked whenever
+    /// to_lowercase() changed the byte length of a multi-byte char (e.g.
+    /// Greek 'ω' or German 'ß'). Replaced with char-boundary-safe scan
+    /// using char_indices() — index into the ORIGINAL haystack only
+    /// (never the lowercased copy), and lowercase the candidate slice
+    /// just for comparison.
     fn replace_case_insensitive(haystack: &str, needle: &str, replacement: &str) -> String {
-        let mut result = String::with_capacity(haystack.len());
-        let haystack_lower = haystack.to_lowercase();
+        if needle.is_empty() {
+            return haystack.to_string();
+        }
         let needle_lower = needle.to_lowercase();
-        let mut i = 0;
-        let bytes = haystack.as_bytes();
+        let mut result = String::with_capacity(haystack.len());
 
-        while i < bytes.len() {
-            if i + needle.len() <= bytes.len() {
-                let chunk_lower = &haystack_lower[i..i + needle.len()];
-                if chunk_lower == needle_lower {
+        let chars: Vec<(usize, char)> = haystack.char_indices().collect();
+        let mut i = 0;
+        while i < chars.len() {
+            let start = chars[i].0;
+            // Try to match needle starting at `start`.
+            // Advance to find end of candidate of needle.chars() length.
+            let needle_chars = needle.chars().count();
+            if i + needle_chars <= chars.len() {
+                // Compute end byte offset of candidate substring.
+                let end = if i + needle_chars == chars.len() {
+                    haystack.len()
+                } else {
+                    chars[i + needle_chars].0
+                };
+                let candidate = &haystack[start..end];
+                if candidate.to_lowercase() == needle_lower {
                     result.push_str(replacement);
-                    i += needle.len();
+                    i += needle_chars;
                     continue;
                 }
             }
-            // Handle UTF-8: find next char boundary.
-            let next = bytes[i..].iter().position(|&b| b < 128 || b >= 192)
-                .map(|p| if p == 0 { 1 } else { p }).unwrap_or(1);
-            result.push_str(&haystack[i..i + next]);
-            i += next;
+            // No match — keep this char and advance one.
+            result.push(chars[i].1);
+            i += 1;
         }
         result
     }
@@ -1039,6 +1057,30 @@ mod tests {
         assert!(r.is_correct,
             "markdown-bold answer containing exact expected must pass: mode={:?}",
             r.matched_mode);
+    }
+
+    #[test]
+    fn test_replace_case_insensitive_utf8_safe() {
+        // AVP regression guard: previously panicked with
+        // "byte index N is not a char boundary" when haystack contains
+        // multi-byte chars like Greek omega 'ω' or 'Ω'.
+        // Real failure from training run #6: ohm's-law explanation
+        // containing 'Ω' for resistance crashed the verifier.
+        let answer = "v = 10v context: ohm's law states v = ir Ω";
+        let needle = "ohm";
+        let result = AnswerNormalizer::replace_case_insensitive(answer, needle, "OHM");
+        // Just must not panic AND must contain the replacement once.
+        assert!(result.contains("OHM"),
+            "replacement must occur exactly once, got '{}'", result);
+    }
+
+    #[test]
+    fn test_replace_case_insensitive_handles_omega() {
+        // Specific case from training run #6.
+        let s = "resistance ω is measured in ohms";
+        let r = AnswerNormalizer::replace_case_insensitive(s, "ohms", "ohm");
+        assert!(r.contains("ohm"));
+        assert!(r.contains('ω'), "non-needle multi-byte chars must survive");
     }
 
     #[test]
