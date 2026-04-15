@@ -268,4 +268,62 @@ mod tests {
         assert_eq!(DIM_BIGBRAIN, 32768);
         assert!(DIM_BIGBRAIN > DIM_PROLETARIAT);
     }
+
+    // ============================================================
+    // Stress / invariant tests for HyperMemory
+    // ============================================================
+
+    /// INVARIANT: same string seed always produces the same vector.
+    #[test]
+    fn invariant_from_string_is_deterministic() {
+        let v1 = HyperMemory::from_string("PlausiDen", DIM_PROLETARIAT);
+        let v2 = HyperMemory::from_string("PlausiDen", DIM_PROLETARIAT);
+        assert_eq!(v1.export_raw_bitvec(), v2.export_raw_bitvec(),
+            "deterministic seed must yield identical bitvecs");
+    }
+
+    /// INVARIANT: distinct strings produce distinct vectors (no collisions
+    /// for practical English-text inputs).
+    #[test]
+    fn invariant_distinct_strings_distinct_vectors() {
+        let mut seen = std::collections::HashSet::new();
+        for i in 0..200 {
+            let v = HyperMemory::from_string(&format!("term_{}", i), DIM_PROLETARIAT);
+            let bits = v.export_raw_bitvec();
+            // Hash-fingerprint the first 128 bits as a u128.
+            let key: u128 = bits.iter().take(128).enumerate()
+                .filter(|(_, b)| **b).map(|(i, _)| 1u128 << i).sum();
+            assert!(seen.insert(key),
+                "vector for term_{} collided with previous vector", i);
+        }
+    }
+
+    /// INVARIANT: bind is approximately associative across 3 random vectors.
+    #[test]
+    fn invariant_bind_associative_high_similarity() {
+        let a = HyperMemory::generate_seed(DIM_PROLETARIAT);
+        let b = HyperMemory::generate_seed(DIM_PROLETARIAT);
+        let c = HyperMemory::generate_seed(DIM_PROLETARIAT);
+        let lhs = a.bind(&b).unwrap().bind(&c).unwrap();
+        let rhs = a.bind(&b.bind(&c).unwrap()).unwrap();
+        let sim = lhs.similarity(&rhs);
+        // Bind on HyperMemory is element-wise XOR; associativity holds
+        // exactly. Allow a small floating-point tolerance for similarity.
+        assert!(sim > 0.95,
+            "associativity must hold (sim > 0.95), got {:.4}", sim);
+    }
+
+    /// INVARIANT: self-similarity always exceeds similarity to any random
+    /// other vector — the basic guarantee that HDC respects identity.
+    #[test]
+    fn invariant_self_similarity_dominates_random() {
+        let v = HyperMemory::generate_seed(DIM_PROLETARIAT);
+        let self_sim = v.similarity(&v);
+        for _ in 0..20 {
+            let other = HyperMemory::generate_seed(DIM_PROLETARIAT);
+            let other_sim = v.similarity(&other);
+            assert!(self_sim > other_sim,
+                "self-similarity {} must dominate random {}", self_sim, other_sim);
+        }
+    }
 }
