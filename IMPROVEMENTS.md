@@ -1,9 +1,27 @@
 # LFI — Improvements Tracker
 
-Status: **LIVE TRAINING**
-Last updated: 2026-04-14 (756 tests, 0 failures, 70+ modules, 49 training domains, Ollama LIVE)
+Status: **LIVE — Provenance Pipeline Operational**
+Last updated: 2026-04-14 (1083 lib + 19 HTTP + 13 pipeline tests, 0 failures, 0 warnings, 80+ modules)
 
-## CURRENT MILESTONE: Real Ollama Training Confirmed Working
+## CURRENT MILESTONE: End-to-End Reasoning Provenance
+
+The full provenance loop is wired: every chat message and /api/think
+call records a TracedDerivation; clients can query
+`/api/provenance/:cid` to walk the derivation chain. Untraced
+queries return ReconstructedRationalization with a reason — the
+core architectural invariant ("can't fake a trace") is enforced
+structurally, not by policy, and verified by 31+ tests including
+adversarial reclamation under load.
+
+HTTP API surface (20+ routes):
+  - `/api/think`, `/api/audit`, `/api/opsec/scan` — substrate
+  - `/api/provenance/{stats,export,compact,reset,/:cid,/:cid/chain}` — provenance
+  - `/api/knowledge/{review,due,concepts,learn}` — knowledge / SM-2
+  - `/api/health`, `/api/metrics`, `/api/agent/state` — observability
+  - `/ws/chat`, `/ws/telemetry` — streaming
+  - Admin endpoints (export/reset/compact/learn) require authentication.
+
+## PRIOR MILESTONE: Real Ollama Training Confirmed Working
 
 LFI successfully ran real inference training against qwen2.5-coder:7b on 2026-04-14.
 Pilot run: 20/22 correct on math domain (90.9%, real LLM latency ~7s/query warm).
@@ -343,6 +361,33 @@ Auto-generate question variations from existing 300 examples. Rephrasings, harde
 - [x] Never invents reviews for unregistered concepts (invariant test)
 - [x] **Integrated into `KnowledgeEngine`**: `learn()` auto-registers, `reinforce()` records q=5 reviews, new `review(name, q)` method for graded reviews with mastery adjustment, `concepts_due_for_review(limit)` cross-references scheduler + concept store
 - [x] 12 scheduler tests + 6 integration tests (1034 → 1056 lib tests)
+- [x] +7 invariant tests (EF bounds across 256 mixed reviews, monotonic failure-count, JSON-roundtrip-under-load)
+
+### Done in this session — additional items not in original roadmap
+
+#### HTTP API expansion — ✅ DONE (2026-04-14)
+- [x] `POST /api/think` — runs `LfiAgent::think_traced`, returns `{answer, confidence, mode, conclusion_id}`. 16 KiB input cap.
+- [x] `POST /api/audit` — PSL governance over a seed-derived vector. Returns `{axiom_id, level, confidence, permits_execution}`.
+- [x] `POST /api/opsec/scan` — text → sanitized + per-match metadata. Privacy-preserving: never echoes original PII.
+- [x] `POST /api/knowledge/{review,learn}` + `GET /api/knowledge/{due,concepts}` — full SM-2 review surface and concept inventory.
+- [x] `GET /api/health` — subsystem readiness JSON.
+- [x] `GET /api/metrics` — Prometheus 0.0.4 text exposition with 5 counters: `lfi_think_total`, `lfi_chat_total`, `lfi_audit_total`, `lfi_opsec_scan_total`, `lfi_provenance_query_total{kind}`.
+- [x] `GET /api/agent/state` — single-call dashboard summary (psl + knowledge + provenance + agent).
+- [x] WebSocket `/ws/chat` records provenance per inbound message and includes `conclusion_id` in every response.
+- [x] 19 HTTP integration tests via `tower::ServiceExt::oneshot` against the real router.
+
+#### ConfidenceCalibrationAxiom — ✅ DONE (2026-04-14)
+- [x] New PSL axiom rejecting suspiciously polarised vectors (degenerate or adversarial inputs).
+- [x] Wired into LfiAgent's default supervisor — every agent ships with calibration enforcement.
+- [x] 5 axiom tests + 2 agent tests proving it actually rejects degenerate inputs through the aggregate audit.
+
+#### Workspace hygiene — ✅ DONE (2026-04-14)
+- [x] `cargo build --all-targets` emits zero warnings (was 26).
+- [x] Auto-fixed 21 unused-import warnings via `cargo fix`; manually resolved 5 (CacheEntry visibility, dead-code-allow on reserved fields, double-ref clone, scoped DIM_PROLETARIAT, useless-type-limit comparison).
+
+#### TraceArena + KnowledgeEngine invariant tests — ✅ DONE (2026-04-14)
+- [x] 6 TraceArena invariants (chain ID resolution, depth equivalence, compaction-preserves-Traced-vs-Reconstructed under reclamation pressure).
+- [x] 5 KnowledgeEngine invariants (concept-count monotonicity, mastery clamping, untrusted-learn no-op, learned-concepts-survive-export, due-list limit enforcement).
 
 #### Distributed Inference
 Split training work across multiple Ollama instances on different machines. Useful when laptop + VPS both run Ollama.
