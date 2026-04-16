@@ -1951,6 +1951,59 @@ pub fn create_router() -> Result<Router, Box<dyn std::error::Error>> {
         }))
     }
 
+    // --- Causal Reasoning API ---
+
+    /// POST /api/causal/query — query the causal graph.
+    /// Body: { "entity": "smoking", "level": "intervention", "target": "lung_cancer" }
+    async fn causal_query_handler(
+        State(state): State<Arc<AppState>>,
+        Json(body): Json<serde_json::Value>,
+    ) -> impl IntoResponse {
+        let entity = body.get("entity").and_then(|v| v.as_str()).unwrap_or("");
+        let level = body.get("level").and_then(|v| v.as_str()).unwrap_or("association");
+        let target = body.get("target").and_then(|v| v.as_str()).unwrap_or("");
+
+        if entity.is_empty() {
+            return Json(json!({ "error": "entity required" }));
+        }
+
+        let agent = state.agent.lock();
+        let results = match level {
+            "intervention" if !target.is_empty() => {
+                let r = agent.causal_graph.query_intervention(entity, target);
+                json!({ "level": "intervention", "result": {
+                    "answer": r.answer, "confidence": r.confidence,
+                    "chain": r.reasoning_chain, "confounders": r.confounders_considered
+                }})
+            }
+            "counterfactual" if !target.is_empty() => {
+                let r = agent.causal_graph.query_counterfactual(entity, target);
+                json!({ "level": "counterfactual", "result": {
+                    "answer": r.answer, "confidence": r.confidence,
+                    "chain": r.reasoning_chain
+                }})
+            }
+            _ => {
+                let results = agent.causal_graph.query_association(entity);
+                json!({ "level": "association", "results": results.iter().map(|r| json!({
+                    "answer": r.answer, "confidence": r.confidence
+                })).collect::<Vec<_>>() })
+            }
+        };
+        Json(results)
+    }
+
+    /// GET /api/causal/stats — causal graph statistics.
+    async fn causal_stats_handler(
+        State(state): State<Arc<AppState>>,
+    ) -> impl IntoResponse {
+        let agent = state.agent.lock();
+        Json(json!({
+            "entities": agent.causal_graph.entity_count(),
+            "edges": agent.causal_graph.edge_count(),
+        }))
+    }
+
     // SECURITY: Restrict CORS to localhost origins only.
     // AVP-2 AUDIT 2026-04-16: CorsLayer::permissive() was CRITICAL —
     // allowed any website to make authenticated cross-origin requests.
@@ -2007,6 +2060,8 @@ pub fn create_router() -> Result<Router, Box<dyn std::error::Error>> {
         .route("/api/provenance/:conclusion_id", get(provenance_explain_handler))
         .route("/api/provenance/:conclusion_id/chain", get(provenance_chain_handler))
         .route("/api/generate/image", post(image_generate_handler))
+        .route("/api/causal/query", post(causal_query_handler))
+        .route("/api/causal/stats", get(causal_stats_handler))
         .layer(cors)
         .with_state(state))
 }

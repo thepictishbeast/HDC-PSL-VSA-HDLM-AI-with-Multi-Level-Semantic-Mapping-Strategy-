@@ -49,6 +49,9 @@ pub struct LfiAgent {
     /// before each chat call so the reasoner can inject them into Ollama prompts.
     /// SUPERSOCIETY: This is how 51M+ facts improve every answer.
     pub rag_context: Vec<(String, String, f64)>,
+    /// Causal reasoning graph — Pearl's 3-level framework.
+    /// SUPERSOCIETY: Transforms "what IS" into "what WOULD HAPPEN IF".
+    pub causal_graph: crate::cognition::causal::CausalGraph,
 }
 
 impl LfiAgent {
@@ -134,6 +137,7 @@ impl LfiAgent {
             psl_feedback: PslFeedbackLoop::new(),
             provenance: Arc::new(Mutex::new(ProvenanceEngine::new())),
             rag_context: Vec::new(),
+            causal_graph: crate::cognition::causal::CausalGraph::new(),
         })
     }
 
