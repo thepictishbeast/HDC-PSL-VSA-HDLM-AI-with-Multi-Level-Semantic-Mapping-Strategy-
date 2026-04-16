@@ -1644,7 +1644,19 @@ ${cmdList}
         } else if (tok.startsWith('*') && tok.endsWith('*') && tok.length >= 2) {
           out.push(<em key={`${baseKey}-i${i}-${j}`}>{tok.slice(1, -1)}</em>);
         } else if (tok) {
-          out.push(<span key={`${baseKey}-t${i}-${j}`}>{tok}</span>);
+          // Check for markdown links [text](url)
+          const linkParts = tok.split(/(\[[^\]]+\]\([^)]+\))/g);
+          linkParts.forEach((lp, k) => {
+            const linkMatch = lp.match(/^\[([^\]]+)\]\(([^)]+)\)$/);
+            if (linkMatch) {
+              out.push(<a key={`${baseKey}-l${i}-${j}-${k}`} href={linkMatch[2]}
+                target="_blank" rel="noopener noreferrer"
+                style={{ color: C.accent, textDecoration: 'underline' }}
+              >{linkMatch[1]}</a>);
+            } else if (lp) {
+              out.push(<span key={`${baseKey}-t${i}-${j}-${k}`}>{lp}</span>);
+            }
+          });
         }
       });
     });
@@ -1701,7 +1713,45 @@ ${cmdList}
     }
     if (lastIndex < text.length) {
       const tail = text.slice(lastIndex);
-      parts.push(<span key={`t${key++}`}>{renderInlineMd(tail, `post${key}`)}</span>);
+      // Detect and render bullet/numbered lists within text segments
+      const listLines = tail.split('\n');
+      let currentList: string[] = [];
+      let listType: 'ul' | 'ol' | null = null;
+      const flushList = () => {
+        if (currentList.length > 0 && listType) {
+          const Tag = listType;
+          parts.push(
+            <Tag key={`list${key++}`} style={{ margin: '8px 0', paddingLeft: '24px' }}>
+              {currentList.map((item, li) => (
+                <li key={li} style={{ marginBottom: '4px' }}>{renderInlineMd(item, `li${key}-${li}`)}</li>
+              ))}
+            </Tag>
+          );
+          currentList = [];
+          listType = null;
+        }
+      };
+      listLines.forEach((line) => {
+        const bulletMatch = line.match(/^\s*[-*]\s+(.+)/);
+        const numMatch = line.match(/^\s*\d+\.\s+(.+)/);
+        if (bulletMatch) {
+          if (listType === 'ol') flushList();
+          listType = 'ul';
+          currentList.push(bulletMatch[1]);
+        } else if (numMatch) {
+          if (listType === 'ul') flushList();
+          listType = 'ol';
+          currentList.push(numMatch[1]);
+        } else {
+          flushList();
+          if (line.trim()) {
+            parts.push(<span key={`t${key++}`}>{renderInlineMd(line, `post${key}`)}{'\n'}</span>);
+          } else {
+            parts.push(<br key={`br${key++}`} />);
+          }
+        }
+      });
+      flushList();
     }
     return parts.length > 0 ? parts : [<span key='empty'>{renderInlineMd(text, 'solo')}</span>];
   };
