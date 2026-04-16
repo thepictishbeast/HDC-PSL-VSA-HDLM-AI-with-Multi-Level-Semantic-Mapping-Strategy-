@@ -1038,6 +1038,42 @@ impl CognitiveCore {
     }
 
     /// Generate a response string based on intent and thought analysis.
+    /// Query local Ollama for a substantive answer. Returns None if Ollama
+    /// is unavailable or times out — callers should fall back to templates.
+    /// BUG ASSUMPTION: Ollama may not be running. This must never block startup
+    /// or cause a panic. Timeout is 30s to keep chat responsive.
+    fn query_ollama(prompt: &str) -> Option<String> {
+        let safe = prompt.replace('\\', "\\\\")
+            .replace('"', "\\\"")
+            .replace('\n', "\\n")
+            .replace('\r', "\\r")
+            .replace('\t', "\\t");
+
+        let body = format!(
+            r#"{{"model":"qwen2.5-coder:7b","prompt":"You are a helpful, warm AI assistant. Answer naturally and conversationally. Be concise but thorough. Question: {}","stream":false,"options":{{"temperature":0.4,"num_predict":500}}}}"#,
+            safe
+        );
+
+        let output = std::process::Command::new("curl")
+            .args(&[
+                "-s", "--max-time", "60",
+                "-X", "POST", "http://localhost:11434/api/generate",
+                "-H", "Content-Type: application/json",
+                "-d", &body,
+            ])
+            .output()
+            .ok()?;
+
+        if !output.status.success() { return None; }
+
+        let resp = String::from_utf8_lossy(&output.stdout);
+        // Parse Ollama JSON response
+        let parsed: serde_json::Value = serde_json::from_str(&resp).ok()?;
+        let answer = parsed.get("response")?.as_str()?.trim().to_string();
+        if answer.is_empty() || answer.len() < 10 { return None; }
+        Some(answer)
+    }
+
     fn generate_response(&self, input: &str, thought: &ThoughtResult) -> Result<String, HdcError> {
         debuglog!("CognitiveCore::generate_response: mode={:?}", thought.mode);
 
@@ -1083,12 +1119,17 @@ impl CognitiveCore {
                 self.derive_expansive_explanation(topic, thought)?
             }
             Some(Intent::Search { query }) => {
-                let q = crate::truncate_str(query, 80);
-                format!(
-                    "Good question — let me look into \"{}\" for you. \
-                     I'll search my knowledge base and get back to you with what I find.",
-                    q
-                )
+                // Try Ollama for a real answer first
+                if let Some(answer) = Self::query_ollama(query) {
+                    answer
+                } else {
+                    let q = crate::truncate_str(query, 80);
+                    format!(
+                        "Good question — let me look into \"{}\" for you. \
+                         I'll search my knowledge base and get back to you with what I find.",
+                        q
+                    )
+                }
             }
             Some(Intent::PlanTask { goal }) => {
                 let g = crate::truncate_str(goal, 80);
@@ -1109,12 +1150,18 @@ impl CognitiveCore {
                 }
             }
             Some(Intent::Analyze { target }) => {
-                let t = crate::truncate_str(target, 80);
-                format!(
-                    "Let me take a closer look at \"{}\". I'll break down the key aspects \
-                     and share what I find.",
-                    t
-                )
+                // Try Ollama for substantive analysis
+                let prompt = format!("Analyze this topic thoroughly: {}", target);
+                if let Some(answer) = Self::query_ollama(&prompt) {
+                    answer
+                } else {
+                    let t = crate::truncate_str(target, 80);
+                    format!(
+                        "Let me take a closer look at \"{}\". I'll break down the key aspects \
+                         and share what I find.",
+                        t
+                    )
+                }
             }
             Some(Intent::Improve { target }) => {
                 let t = crate::truncate_str(target, 80);
@@ -1376,60 +1423,26 @@ impl CognitiveCore {
         // response that either attempts a direct answer or signals engagement.
         // These were previously falling through to mechanical "I'll analyze" stubs.
         {
-            let knowledge_extractors: &[(&str, fn(&str) -> String)] = &[
-                ("what is a ", |topic| format!(
-                    "Good question. {} — let me think about this for a second. \
-                     The short answer depends on context, but I'll give you the version \
-                     I think is most useful. What are you working on that brought this up?",
-                    topic
-                )),
-                ("what is an ", |topic| format!(
-                    "Good question. {} — let me think about this for a second. \
-                     The short answer depends on context, but I'll give you the version \
-                     I think is most useful. What are you working on that brought this up?",
-                    topic
-                )),
-                ("what is the ", |topic| format!(
-                    "That's a big one — {}. Let me give you the core idea first, \
-                     then we can go deeper if you want.",
-                    topic
-                )),
-                ("what are ", |topic| format!(
-                    "Short version on {}: I'll break it down. Are you looking \
-                     for a quick overview or the full picture?",
-                    topic
-                )),
-                ("how does ", |topic| format!(
-                    "Here's how {} works, at a high level. Let me know if you want \
-                     more detail on any part.",
-                    topic.trim_end_matches(" work").trim_end_matches(" works")
-                )),
-                ("how do ", |topic| format!(
-                    "Here's the gist of how {} work. Want me to go deeper \
-                     on any specific part?",
-                    topic.trim_end_matches(" work")
-                )),
-                ("who is ", |topic| format!(
-                    "Let me tell you about {}. What context — their work, their \
-                     background, or how they're relevant to what you're doing?",
-                    topic
-                )),
-                ("who was ", |topic| format!(
-                    "Let me tell you about {}. Are you looking for the short bio \
-                     or something more specific?",
-                    topic
-                )),
-                ("tell me about ", |topic| format!(
-                    "Sure — {}. That's a broad topic so let me start with the core \
-                     and you can steer me toward what interests you.",
-                    topic
-                )),
+            let knowledge_prefixes: &[&str] = &[
+                "what is a ", "what is an ", "what is the ", "what are ",
+                "how does ", "how do ", "who is ", "who was ",
+                "tell me about ", "describe ", "explain ",
             ];
-            for (prefix, formatter) in knowledge_extractors {
+            for prefix in knowledge_prefixes {
                 if input_lower_pre.starts_with(prefix) {
                     let topic = input_lower_pre[prefix.len()..].trim_end_matches('?').trim();
                     if !topic.is_empty() && topic.len() < 100 {
-                        return formatter(topic);
+                        // Try Ollama for a real, substantive answer
+                        if let Some(answer) = Self::query_ollama(input) {
+                            return answer;
+                        }
+                        // Fallback template if Ollama unavailable
+                        return format!(
+                            "Good question about {}. Let me think about this — \
+                             the short answer depends on context. What angle \
+                             are you most interested in?",
+                            topic
+                        );
                     }
                 }
             }
