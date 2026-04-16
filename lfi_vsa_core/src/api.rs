@@ -40,6 +40,11 @@ pub struct AppState {
     pub search_engine: WebSearchEngine,
     pub metrics: Arc<crate::intelligence::metrics::LfiMetrics>,
     pub db: Arc<crate::persistence::BrainDb>,
+    /// Experience-based learning — captures signals from every interaction.
+    /// SUPERSOCIETY: The more the system is used, the smarter it gets.
+    pub experience: Mutex<crate::intelligence::experience_learning::ExperienceLearner>,
+    /// Metacognitive calibration — makes confidence trustworthy.
+    pub calibration: Mutex<crate::cognition::calibration::CalibrationEngine>,
 }
 
 /// POST /api/auth body
@@ -310,6 +315,42 @@ async fn handle_chat_socket(mut socket: WebSocket, state: Arc<AppState>) {
                                 let _ = writeln!(f, "{}", log_line);
                             }
                             } // end if !incognito_flag
+
+                            // SUPERSOCIETY: Experience-based learning.
+                            // Capture signals from every interaction.
+                            {
+                                use crate::intelligence::experience_learning::{LearningSignal, SignalType};
+                                let sig_type = if response.text.contains("I don't have this") ||
+                                    response.text.contains("No relevant facts") {
+                                    SignalType::KnowledgeGap
+                                } else if thought.confidence < 0.3 {
+                                    SignalType::ZeroCoverage
+                                } else {
+                                    // Default: no explicit signal, but we track the interaction
+                                    // for calibration purposes
+                                    SignalType::PositiveFeedback // Assumed positive unless corrected
+                                };
+                                let signal = LearningSignal {
+                                    signal_type: sig_type,
+                                    user_input: input.to_string(),
+                                    system_response: response.text.clone(),
+                                    correction: None,
+                                    conversation_id: None,
+                                    timestamp: std::time::SystemTime::now()
+                                        .duration_since(std::time::UNIX_EPOCH)
+                                        .map(|d| d.as_secs()).unwrap_or(0),
+                                };
+                                state.experience.lock().capture(signal);
+
+                                // Feed calibration engine
+                                use crate::cognition::calibration::CalibrationSample;
+                                state.calibration.lock().record(CalibrationSample {
+                                    predicted: thought.confidence,
+                                    actual: 1.0, // Assumed correct unless user corrects
+                                    domain: thought.intent.as_ref().map(|i| format!("{:?}", i)),
+                                });
+                            }
+
                             payload
                         }
                         Err(e) => {
@@ -1815,6 +1856,8 @@ pub fn create_router() -> Result<Router, Box<dyn std::error::Error>> {
         search_engine: WebSearchEngine::new(),
         metrics,
         db,
+        experience: Mutex::new(crate::intelligence::experience_learning::ExperienceLearner::new()),
+        calibration: Mutex::new(crate::cognition::calibration::CalibrationEngine::new()),
     });
 
     // --- Image Generation ---
