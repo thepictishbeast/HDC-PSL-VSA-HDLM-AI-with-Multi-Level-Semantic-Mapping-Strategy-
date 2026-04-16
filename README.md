@@ -1,34 +1,29 @@
-# PlausiDen AI Training Data
+# PlausiDen AI Training Data & Scripts
 
-Structured knowledge for the LFI neurosymbolic cognitive core.
+Training infrastructure for the LFI neurosymbolic cognitive core.
 
-## Contents
+## Structure
 
-- `facts.json` — All facts from brain.db (subject-predicate-object triples, reasoning chains, adversarial examples)
-- `training_state.json` — Per-domain training progress (sessions, examples, last trained)
+- `scripts/` — Ingestion and training scripts
+  - `train_adaptive.sh` — SM-2 adaptive domain rotation trainer
+  - `knowledge_loop.sh` — Continuous fact gen + self-play cycle
+  - `generate_structured_facts.py` — LLM-based structured triple generation
+  - `generate_facts_extended.py` — Extended domain fact generation (12 domains)
+  - `generate_adversarial_bulk.py` — Bulk adversarial example generation (10 categories)
+  - `self_play.py` — Self-play reasoning chain generation
+  - `ingest_gsm8k.py` — GSM8K math reasoning chain ingestion
+- `training_data.rs` — 800+ curated training examples across 40+ domains
+- `adversarial_data.rs` — 50+ adversarial examples (fallacies, injections, contradictions, vuln code)
+- `training_state.json` — Per-domain adaptive training progress
 
-## Sources
+## Brain.db Stats (not uploaded — too large, regenerate from scripts)
 
-| Source | Count | Description |
-|--------|-------|-------------|
-| gsm8k | 7,473 | Grade School Math 8K — step-by-step reasoning chains (MIT) |
-| gsm8k_test | 1,319 | GSM8K test set (MIT) |
-| strategyqa | 2,061 | Multi-hop yes/no reasoning with decomposition (MIT) |
-| llm_generated | 500+ | Structured triples generated via local Ollama |
-| adversarial | 50+ | Logical fallacies, injections, contradictions |
-| self_play | 5+ | LFI self-play reasoning chains |
-| ai_extracted | 3 | Facts auto-extracted from user conversations |
-
-## Usage
-
-Import into brain.db:
-```bash
-sqlite3 ~/.local/share/plausiden/brain.db < import_facts.sql
-```
-
-Or use the ingestion scripts in `lfi_vsa_core/scripts/`.
+Current: 20M+ facts, 12 GB+ across 30+ sources including:
+Wikipedia (2M), Amazon (3.6M), SNLI (549K), MultiNLI (393K), C4 (streaming 10M+),
+OpenWebText (5M), SQuAD (130K), HellaSwag (40K), PIQA (18K), GSM8K (9K),
+CodeSearchNet (349K), multilingual NLI (2.4M in 6 languages), news (500K), 
+DBpedia (560K), Yahoo Answers (1.4M), and more.
 
 ## License
 
-Training data sources are individually licensed (MIT, CC BY-SA, etc.).
-Generated data is CC0 (public domain).
+Training scripts: MIT. Source datasets have individual licenses (MIT, CC BY-SA, CC0, etc.).
