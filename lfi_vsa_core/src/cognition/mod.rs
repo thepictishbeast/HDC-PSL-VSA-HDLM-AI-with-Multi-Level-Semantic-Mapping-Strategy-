@@ -12,6 +12,7 @@ pub mod active_inference;
 pub mod metacognitive;
 pub mod knowledge_compiler;
 pub mod spaced_repetition;
+pub mod causal;
 
 pub use planner::{Plan, PlanStep, StepStatus, Planner};
 pub use reasoner::{CognitiveMode, CognitiveCore, ThoughtResult};
