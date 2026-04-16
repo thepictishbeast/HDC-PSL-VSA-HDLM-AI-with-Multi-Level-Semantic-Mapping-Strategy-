@@ -45,6 +45,7 @@ pub mod policy_engine;
 pub mod rate_limiter;
 pub mod webhook;
 pub mod candle_inference;
+pub mod experience_learning;
 
 pub use osint::{OsintAnalyzer, OsintSignal};
 pub use web_audit::ConnectivityAxiom;
