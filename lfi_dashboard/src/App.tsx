@@ -1119,7 +1119,10 @@ ${cmdList}
       else if (mod && k === 'd') { e.preventDefault(); setSettings(s => ({ ...s, developerMode: !s.developerMode })); }
       else if (mod && k === ',') { e.preventDefault(); setShowSettings(true); }
       else if (mod && k === 'e') { e.preventDefault(); inputRef.current?.focus(); }
+      else if (mod && k === '/') { e.preventDefault(); inputRef.current?.focus(); }
       else if (mod && e.shiftKey && k === 'k') { e.preventDefault(); setShowKnowledge(true); fetchKnowledge(); }
+      else if (mod && e.shiftKey && k === 'd') { e.preventDefault(); const themes: Array<typeof settings.theme> = ['dark','light','midnight','forest','sunset','rose','contrast']; const idx = themes.indexOf(settings.theme); setSettings(s => ({...s, theme: themes[(idx+1) % themes.length]})); }
+      else if (mod && k === 'b') { e.preventDefault(); setShowConvoSidebar(v => !v); }
       else if (e.key === 'Escape') {
         if (showCmdPalette) setShowCmdPalette(false);
         else if (showSettings) setShowSettings(false);
