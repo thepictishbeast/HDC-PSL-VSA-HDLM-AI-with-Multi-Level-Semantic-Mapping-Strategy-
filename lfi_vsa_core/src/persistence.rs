@@ -91,6 +91,14 @@ impl BrainDb {
                 key TEXT PRIMARY KEY,
                 value TEXT NOT NULL
             );
+
+            CREATE TABLE IF NOT EXISTS user_profile (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL,
+                category TEXT DEFAULT 'general',
+                learned_at TEXT DEFAULT (datetime('now')),
+                source TEXT DEFAULT 'conversation'
+            );
         ")?;
         info!("// PERSISTENCE: Schema migrated");
         Ok(())
@@ -305,6 +313,45 @@ impl BrainDb {
         let conn = self.conn.lock().unwrap();
         conn.query_row(
             "SELECT value FROM settings WHERE key = ?1",
+            params![key],
+            |row| row.get(0),
+        ).ok()
+    }
+    // ---- User Profile (persistent memory across sessions) ----
+
+    /// Save a user profile fact. Used for: name, role, location, preferences,
+    /// relationships. These are loaded fully on startup (not capped like facts)
+    /// so the AI always knows who it's talking to.
+    pub fn save_profile(&self, key: &str, value: &str, category: &str) {
+        let conn = self.conn.lock().unwrap();
+        let _ = conn.execute(
+            "INSERT OR REPLACE INTO user_profile (key, value, category, learned_at) \
+             VALUES (?1, ?2, ?3, datetime('now'))",
+            params![key, value, category],
+        );
+    }
+
+    /// Load all user profile facts. Called on startup to hydrate the agent's
+    /// understanding of the user. Returns (key, value, category) tuples.
+    pub fn load_profile(&self) -> Vec<(String, String, String)> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT key, value, category FROM user_profile ORDER BY learned_at DESC"
+        ).unwrap();
+        stmt.query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+            ))
+        }).unwrap().filter_map(|r| r.ok()).collect()
+    }
+
+    /// Get a specific profile value.
+    pub fn get_profile(&self, key: &str) -> Option<String> {
+        let conn = self.conn.lock().unwrap();
+        conn.query_row(
+            "SELECT value FROM user_profile WHERE key = ?1",
             params![key],
             |row| row.get(0),
         ).ok()

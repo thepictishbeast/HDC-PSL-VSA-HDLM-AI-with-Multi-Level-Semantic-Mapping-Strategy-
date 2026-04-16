@@ -194,27 +194,28 @@ async fn handle_chat_socket(mut socket: WebSocket, state: Arc<AppState>) {
                     // available for the response generation.
                     let lower = input.to_lowercase();
                     let db_ref = state.db.clone();
-                    let mut learn = |key: &str, val: &str| {
+                    let mut learn = |key: &str, val: &str, category: &str| {
                         let v = val.trim().to_string();
                         if v.is_empty() || v.len() > 200 { return; }
-                        debuglog!("chat: auto-learned fact {}={}", key, v);
+                        debuglog!("chat: auto-learned profile {}={} ({})", key, v, category);
                         agent.conversation_facts.insert(key.to_string(), v.clone());
                         let mut guard = agent.shared_knowledge.lock();
                         guard.store.upsert_fact(key, &v);
-                        // Persist to SQLite so facts survive server restarts.
+                        // Persist to both facts table AND user_profile table.
                         db_ref.upsert_fact(key, &v, "ai_extracted", 1.0);
+                        db_ref.save_profile(key, &v, category);
                     };
                     // Name
                     if lower.starts_with("my name is ") {
-                        learn("sovereign_name", &input[11..]);
+                        learn("sovereign_name", &input[11..], "identity");
                     } else if lower.starts_with("call me ") {
-                        learn("sovereign_name", &input[8..]);
+                        learn("sovereign_name", &input[8..], "identity");
                     }
                     // Preferences
                     for prefix in &["i like ", "i love ", "i enjoy ", "my favorite ", "i prefer "] {
                         if lower.starts_with(prefix) {
                             learn(&format!("preference_{}", prefix.trim().replace(' ', "_")),
-                                  &input[prefix.len()..]);
+                                  &input[prefix.len()..], "preference");
                             break;
                         }
                     }
@@ -222,7 +223,7 @@ async fn handle_chat_socket(mut socket: WebSocket, state: Arc<AppState>) {
                     for prefix in &["i'm a ", "im a ", "i am a ", "i work as ", "i work at "] {
                         if lower.starts_with(prefix) {
                             let key = if lower.contains("work at") { "workplace" } else { "role" };
-                            learn(key, &input[prefix.len()..]);
+                            learn(key, &input[prefix.len()..], "professional");
                             break;
                         }
                     }
@@ -230,7 +231,7 @@ async fn handle_chat_socket(mut socket: WebSocket, state: Arc<AppState>) {
                     if lower.starts_with("i live in ") || lower.starts_with("i'm from ") || lower.starts_with("im from ") {
                         let cut = if lower.starts_with("i live in ") { 10 }
                                   else if lower.starts_with("i'm from ") { 9 } else { 8 };
-                        learn("location", &input[cut..]);
+                        learn("location", &input[cut..], "identity");
                     }
                     // Relationships
                     for (trigger, key) in &[
@@ -246,7 +247,7 @@ async fn handle_chat_socket(mut socket: WebSocket, state: Arc<AppState>) {
                                     .trim_start_matches(" is named ")
                                     .trim_start_matches(" is ");
                                 if !rest.is_empty() {
-                                    learn(key, &rest.split(|c: char| ",.!?\n".contains(c)).next().unwrap_or(rest));
+                                    learn(key, &rest.split(|c: char| ",.!?\n".contains(c)).next().unwrap_or(rest), "relationship");
                                 }
                             }
                         }
@@ -1767,6 +1768,16 @@ pub fn create_router() -> Result<Router, Box<dyn std::error::Error>> {
         let count = agent_lock.conversation_facts.len();
         if count > 0 {
             info!("// PERSISTENCE: Hydrated {} facts from brain.db (capped for startup speed)", count);
+        }
+        // Also load user profile — this is small and always loaded fully.
+        let profile = db.load_profile();
+        for (key, value, _category) in &profile {
+            agent_lock.conversation_facts.insert(key.clone(), value.clone());
+            let mut guard = agent_lock.shared_knowledge.lock();
+            guard.store.upsert_fact(key, value);
+        }
+        if !profile.is_empty() {
+            info!("// PERSISTENCE: Loaded {} user profile facts", profile.len());
         }
     }
 
