@@ -20,9 +20,98 @@ use lfi_vsa_core::cognition::knowledge::KnowledgeEngine;
 use lfi_vsa_core::intelligence::local_inference::{
     InferenceTrainer, InferenceTrainingConfig, InferenceBackend,
 };
-use lfi_vsa_core::intelligence::training_data::TrainingDataGenerator;
+use lfi_vsa_core::intelligence::training_data::{TrainingDataGenerator, TrainingExample};
 use lfi_vsa_core::intelligence::weight_manager::IntelligenceCheckpoint;
 use std::env;
+
+// SUPERSOCIETY: Pull high-quality facts from brain.db to augment hardcoded training data
+// AVP-PASS-13: 2026-04-16 — wires 51M+ facts into the training pipeline
+fn load_braindb_examples(domain_filter: &Option<String>, max: usize) -> Vec<TrainingExample> {
+    let db_path = format!("{}/.local/share/plausiden/brain.db",
+        env::var("HOME").unwrap_or_else(|_| "/root".into()));
+
+    let conn = match rusqlite::Connection::open(&db_path) {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("  [brain.db] Cannot open: {}", e);
+            return Vec::new();
+        }
+    };
+    let _ = conn.execute_batch("PRAGMA busy_timeout=30000; PRAGMA journal_mode=WAL;");
+
+    // Query high-quality facts with domain/quality filtering
+    // BUG ASSUMPTION: quality_score or domain may be NULL for some rows
+    let sql = if let Some(ref _d) = domain_filter {
+        format!(
+            "SELECT value, COALESCE(domain,'general'), COALESCE(quality_score,0.5) \
+             FROM facts WHERE domain = ?1 AND quality_score >= 0.75 \
+             AND length(value) >= 50 ORDER BY RANDOM() LIMIT {}",
+            max
+        )
+    } else {
+        format!(
+            "SELECT value, COALESCE(domain,'general'), COALESCE(quality_score,0.5) \
+             FROM facts WHERE quality_score >= 0.75 \
+             AND length(value) >= 50 ORDER BY RANDOM() LIMIT {}",
+            max
+        )
+    };
+
+    let mut stmt = match conn.prepare(&sql) {
+        Ok(s) => s,
+        Err(e) => {
+            eprintln!("  [brain.db] Query failed: {}", e);
+            return Vec::new();
+        }
+    };
+
+    let params: Vec<Box<dyn rusqlite::types::ToSql>> = if let Some(ref d) = domain_filter {
+        vec![Box::new(d.clone())]
+    } else {
+        vec![]
+    };
+
+    let param_refs: Vec<&dyn rusqlite::types::ToSql> = params.iter().map(|p| p.as_ref()).collect();
+
+    let rows = match stmt.query_map(param_refs.as_slice(), |row| {
+        let value: String = row.get(0)?;
+        let domain: String = row.get(1)?;
+        let quality: f64 = row.get(2)?;
+        Ok((value, domain, quality))
+    }) {
+        Ok(r) => r,
+        Err(e) => {
+            eprintln!("  [brain.db] Fetch failed: {}", e);
+            return Vec::new();
+        }
+    };
+
+    let mut examples = Vec::new();
+    for row in rows {
+        if let Ok((value, domain, quality)) = row {
+            // Split value into input/output if it contains newline, otherwise use as input
+            let (input, expected) = if let Some(idx) = value.find('\n') {
+                (value[..idx].to_string(), value[idx+1..].to_string())
+            } else {
+                (value.clone(), format!("(fact from {} domain)", domain))
+            };
+
+            // Map quality_score to difficulty (inverse: high quality = lower difficulty)
+            let difficulty = 1.0 - quality.min(1.0);
+
+            examples.push(TrainingExample::new(
+                &domain,
+                &input,
+                &expected,
+                difficulty,
+                &["brain_db", "augmented"],
+            ));
+        }
+    }
+
+    println!("  [brain.db] Loaded {} high-quality facts (quality >= 0.75, length >= 50)", examples.len());
+    examples
+}
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("================================================");
@@ -90,16 +179,26 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("  ✓ Ollama is running and model '{}' is available", model);
     println!();
 
-    // Load training examples.
+    // Load training examples from BOTH hardcoded data AND brain.db
+    // SUPERSOCIETY: This is the critical bridge — 51M facts now feed training
     println!("[2/5] Loading training data...");
-    let all_examples = TrainingDataGenerator::all_examples();
+    let hardcoded = TrainingDataGenerator::all_examples();
+    let hardcoded_count = hardcoded.len();
+    let braindb = load_braindb_examples(&domain_filter, max_examples);
+    let braindb_count = braindb.len();
+
+    // Merge: hardcoded first (curated), then brain.db augmentation
+    let mut all_examples = hardcoded;
+    all_examples.extend(braindb);
+
     let examples: Vec<_> = if let Some(ref d) = domain_filter {
         all_examples.into_iter().filter(|e| e.domain == *d).collect()
     } else {
         all_examples
     };
     let examples: Vec<_> = examples.into_iter().take(max_examples).collect();
-    println!("  ✓ Loaded {} examples", examples.len());
+    println!("  ✓ Loaded {} examples ({} hardcoded + {} from brain.db)",
+        examples.len(), hardcoded_count, braindb_count);
     println!();
 
     // Initialize trainer and knowledge engine.
