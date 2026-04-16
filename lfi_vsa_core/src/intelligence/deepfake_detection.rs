@@ -546,4 +546,113 @@ mod tests {
         assert!(threat.mitigation.to_lowercase().contains("ai") ||
                 threat.mitigation.to_lowercase().contains("verify"));
     }
+
+    // ============================================================
+    // Stress / invariant tests for deepfake_detection
+    // ============================================================
+
+    /// INVARIANT: every detector returns a finite confidence in [0,1].
+    #[test]
+    fn invariant_threat_confidence_in_unit_interval() {
+        let img = ImageDeepfakeDetector::analyze(&MediaMetadata {
+            software: Some("Stable Diffusion XL".into()),
+            ..Default::default()
+        });
+        assert!(img.confidence.is_finite() && (0.0..=1.0).contains(&img.confidence),
+            "image confidence out of [0,1]: {}", img.confidence);
+
+        let img_clean = ImageDeepfakeDetector::analyze(&MediaMetadata::default());
+        assert!(img_clean.confidence.is_finite() && (0.0..=1.0).contains(&img_clean.confidence));
+
+        let aud = AudioDeepfakeDetector::analyze(&AudioTranscript {
+            text: "uh, well, you know, like".into(),
+            segments: vec![],
+            has_background_noise: true,
+            has_natural_pauses: true,
+        });
+        assert!(aud.confidence.is_finite() && (0.0..=1.0).contains(&aud.confidence),
+            "audio confidence out of [0,1]: {}", aud.confidence);
+
+        let vid = VideoDeepfakeDetector::analyze(&VideoMetadata {
+            file_metadata: MediaMetadata::default(),
+            audio_transcript: None,
+            frame_count: Some(1500),
+            duration_seconds: Some(60.0),
+            multiple_faces: false,
+            blink_rate_per_min: Some(15.0),
+            lighting_consistency: Some(0.9),
+        });
+        assert!(vid.confidence.is_finite() && (0.0..=1.0).contains(&vid.confidence),
+            "video confidence out of [0,1]: {}", vid.confidence);
+    }
+
+    /// INVARIANT: clean metadata produces low (or zero) confidence threat.
+    #[test]
+    fn invariant_clean_metadata_low_score() {
+        let threat = ImageDeepfakeDetector::analyze(&MediaMetadata::default());
+        assert!(threat.confidence < 0.5,
+            "clean metadata should produce low confidence: {}", threat.confidence);
+    }
+
+    /// INVARIANT: known AI generators (DALL-E, Stable Diffusion, Midjourney)
+    /// always trigger non-zero confidence — security-critical positive case.
+    #[test]
+    fn invariant_known_ai_software_flagged() {
+        for software in ["DALL-E 3", "Stable Diffusion", "Midjourney v6"] {
+            let m = MediaMetadata {
+                software: Some(software.into()),
+                ..Default::default()
+            };
+            let threat = ImageDeepfakeDetector::analyze(&m);
+            assert!(threat.confidence > 0.0,
+                "known AI generator {} not flagged: {}", software, threat.confidence);
+        }
+    }
+
+    /// INVARIANT: detectors never panic on arbitrary unicode software names.
+    #[test]
+    fn invariant_detectors_safe_on_unicode_software() {
+        let weird = ["", "アリス Studio", "🦀-Edit", "control:\x00", &"x".repeat(10_000)];
+        for s in weird {
+            let m = MediaMetadata {
+                software: Some(s.to_string()),
+                ..Default::default()
+            };
+            let _ = ImageDeepfakeDetector::analyze(&m);
+        }
+    }
+
+    /// INVARIANT: video detector handles zero-duration video without dividing
+    /// by zero — produces a non-NaN confidence.
+    #[test]
+    fn invariant_video_zero_duration_safe() {
+        let m = VideoMetadata {
+            file_metadata: MediaMetadata::default(),
+            audio_transcript: None,
+            frame_count: Some(0),
+            duration_seconds: Some(0.0),
+            multiple_faces: false,
+            blink_rate_per_min: Some(0.0),
+            lighting_consistency: Some(0.5),
+        };
+        let threat = VideoDeepfakeDetector::analyze(&m);
+        assert!(threat.confidence.is_finite(),
+            "zero-duration video confidence must be finite, got {}", threat.confidence);
+    }
+
+    /// INVARIANT: VideoMetadata with None optional fields doesn't panic.
+    #[test]
+    fn invariant_video_none_fields_safe() {
+        let m = VideoMetadata {
+            file_metadata: MediaMetadata::default(),
+            audio_transcript: None,
+            frame_count: None,
+            duration_seconds: None,
+            multiple_faces: false,
+            blink_rate_per_min: None,
+            lighting_consistency: None,
+        };
+        let threat = VideoDeepfakeDetector::analyze(&m);
+        assert!(threat.confidence.is_finite());
+    }
 }

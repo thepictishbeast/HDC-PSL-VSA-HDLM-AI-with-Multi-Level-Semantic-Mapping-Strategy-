@@ -11,6 +11,7 @@ pub mod serial_streamer;
 pub mod weight_manager;
 pub mod training;
 pub mod training_data;
+pub mod adversarial_data;
 pub mod benchmark;
 pub mod local_inference;
 pub mod code_eval;

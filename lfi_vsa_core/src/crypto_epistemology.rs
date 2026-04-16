@@ -518,4 +518,63 @@ mod tests {
             assert_eq!(ledger.commitments.len(), initial + i + 1);
         }
     }
+
+    /// INVARIANT: commit produces distinct hashes for distinct beliefs
+    /// (probabilistic — SHA-256 collisions astronomical).
+    #[test]
+    fn invariant_distinct_beliefs_distinct_hashes_ledger() {
+        let mut ledger = EpistemicLedger::new();
+        let a = HyperMemory::from_string("belief_A", DIM_PROLETARIAT);
+        let b = HyperMemory::from_string("belief_B", DIM_PROLETARIAT);
+        ledger.commit_belief(&a, "a");
+        ledger.commit_belief(&b, "b");
+        let h_a = ledger.commitments[0].commitment_hash;
+        let h_b = ledger.commitments[1].commitment_hash;
+        assert_ne!(h_a, h_b,
+            "distinct beliefs should produce distinct hashes");
+    }
+
+    /// INVARIANT: fresh commitment has revealed=false.
+    #[test]
+    fn invariant_new_commitment_not_revealed() {
+        let mut ledger = EpistemicLedger::new();
+        let b = HyperMemory::from_string("x", DIM_PROLETARIAT);
+        ledger.commit_belief(&b, "test");
+        assert!(!ledger.commitments[0].revealed,
+            "fresh commitment should not be revealed");
+    }
+
+    /// INVARIANT: reveal marks the commitment as revealed.
+    #[test]
+    fn invariant_reveal_marks_revealed() {
+        let mut ledger = EpistemicLedger::new();
+        let b = HyperMemory::from_string("x", DIM_PROLETARIAT);
+        let idx = ledger.commit_belief(&b, "test");
+        let result = ledger.reveal(idx);
+        assert!(result.is_some(), "reveal should succeed");
+        assert!(ledger.commitments[idx].revealed,
+            "commitment should be marked revealed after reveal");
+    }
+
+    /// INVARIANT: reveal on out-of-bounds index returns None.
+    #[test]
+    fn invariant_reveal_out_of_bounds_returns_none() {
+        let mut ledger = EpistemicLedger::new();
+        assert!(ledger.reveal(0).is_none(), "reveal on empty ledger");
+        assert!(ledger.reveal(999).is_none(), "reveal of OOB idx");
+    }
+
+    /// INVARIANT: verify rejects tampered commitment hash.
+    #[test]
+    fn invariant_verify_rejects_tampered_hash() {
+        let mut ledger = EpistemicLedger::new();
+        let b = HyperMemory::from_string("x", DIM_PROLETARIAT);
+        let idx = ledger.commit_belief(&b, "t");
+        let (mut commitment, witness) = ledger.reveal(idx).unwrap();
+        // Tamper with hash.
+        commitment.commitment_hash[0] ^= 0xFF;
+        let result = EpistemicLedger::verify(&commitment, &witness);
+        assert!(!result.valid,
+            "tampered hash should be rejected: {:?}", result);
+    }
 }

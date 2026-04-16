@@ -243,4 +243,83 @@ mod tests {
         assert!(IdentityProver::verify(&proof, "", "", "", ""));
         assert!(!IdentityProver::verify(&proof, "notempty", "", "", ""));
     }
+
+    // ============================================================
+    // Stress / invariant tests for IdentityProver
+    // ============================================================
+
+    /// INVARIANT: commit produces same hashes regardless of IdentityKind.
+    /// Only the `kind` field changes; credential hashes are kind-independent.
+    #[test]
+    fn invariant_commit_kind_independent_hashes() {
+        let sov = IdentityProver::commit("U", "c", "l", "p", IdentityKind::Sovereign);
+        let den = IdentityProver::commit("U", "c", "l", "p", IdentityKind::Deniable);
+        assert_eq!(sov.name_hash, den.name_hash);
+        assert_eq!(sov.credentials_commitment, den.credentials_commitment);
+        assert_eq!(sov.password_commitment, den.password_commitment);
+        assert_ne!(sov.kind, den.kind);
+    }
+
+    /// INVARIANT: commit never panics on arbitrary unicode/control input.
+    #[test]
+    fn invariant_commit_safe_on_unicode() {
+        let inputs: [(&str, &str, &str, &str); 5] = [
+            ("", "", "", ""),
+            ("αβγ", "日本語", "🦀", "αβγ"),
+            ("control\x00\x01", "nul", "\n", "\t"),
+            ("very long name padding padding padding", "c", "l", "p"),
+            ("X", "X", "X", "X"),
+        ];
+        for (n, c, l, p) in inputs {
+            let _ = IdentityProver::commit(n, c, l, p, IdentityKind::Sovereign);
+        }
+    }
+
+    /// INVARIANT: hash is pure — same input produces same hash, always.
+    #[test]
+    fn invariant_hash_pure() {
+        for input in ["", "x", "hello world", "αβγ", "🦀🦀🦀"] {
+            let h1 = IdentityProver::hash(input);
+            let h2 = IdentityProver::hash(input);
+            let h3 = IdentityProver::hash(input);
+            assert_eq!(h1, h2);
+            assert_eq!(h2, h3);
+        }
+    }
+
+    /// INVARIANT: verify_signature always rejects empty signature.
+    #[test]
+    fn invariant_empty_signature_always_rejected() {
+        let proof = IdentityProver::commit("U", "c", "l", "p", IdentityKind::Sovereign);
+        for prompt in ["", "x", "anything"] {
+            let sig = SovereignSignature {
+                payload_hash: IdentityProver::hash(prompt),
+                signature: vec![],
+            };
+            assert!(!IdentityProver::verify_signature(&proof, prompt, &sig),
+                "empty signature for {:?} should be rejected", prompt);
+        }
+    }
+
+    /// INVARIANT: SovereignSignature serialize round-trip.
+    #[test]
+    fn invariant_signature_serde_roundtrip() {
+        let sig = SovereignSignature {
+            payload_hash: 12345,
+            signature: vec![0xAA, 0xBB, 0xCC],
+        };
+        let json = serde_json::to_string(&sig).unwrap();
+        let recovered: SovereignSignature = serde_json::from_str(&json).unwrap();
+        assert_eq!(recovered.payload_hash, sig.payload_hash);
+        assert_eq!(recovered.signature, sig.signature);
+    }
+
+    /// INVARIANT: verify on a commit with different kind still succeeds
+    /// (kind isn't part of what's verified).
+    #[test]
+    fn invariant_verify_kind_irrelevant() {
+        let proof = IdentityProver::commit("U", "c", "l", "p", IdentityKind::Sovereign);
+        assert!(IdentityProver::verify(&proof, "U", "c", "l", "p"));
+        assert!(!IdentityProver::verify(&proof, "U", "c", "l", "different_pass"));
+    }
 }

@@ -317,4 +317,54 @@ mod tests {
         assert_eq!(child.map(|n| &n.kind), Some(&NodeKind::Assignment));
         Ok(())
     }
+
+    // ============================================================
+    // Stress / invariant tests for Tier1 forensic generator
+    // ============================================================
+
+    /// INVARIANT: empty token stream produces EmptyAst or error.
+    #[test]
+    fn invariant_empty_tokens_errors() {
+        let gen = ArithmeticGenerator;
+        let result = gen.generate_from_tokens(&[]);
+        assert!(result.is_err(), "empty tokens should error");
+    }
+
+    /// INVARIANT: malformed prefix expression (missing operand) errors out.
+    #[test]
+    fn invariant_malformed_prefix_errors() {
+        let gen = ArithmeticGenerator;
+        let malformed = vec!["+", "1"]; // binary op missing second operand
+        let result = gen.generate_from_tokens(&malformed);
+        assert!(result.is_err(), "malformed prefix should error");
+    }
+
+    /// INVARIANT: well-formed prefix expressions always yield AST with root.
+    #[test]
+    fn invariant_well_formed_prefix_has_root() -> Result<(), HdlmError> {
+        let gen = ArithmeticGenerator;
+        let inputs = vec![
+            vec!["1"],
+            vec!["+", "1", "2"],
+            vec!["*", "+", "1", "2", "3"],
+        ];
+        for tokens in inputs {
+            let ast = gen.generate_from_tokens(&tokens)?;
+            assert!(ast.root_id().is_some(),
+                "AST for {:?} should have a root", tokens);
+        }
+        Ok(())
+    }
+
+    /// INVARIANT: generate_from_tokens is deterministic.
+    #[test]
+    fn invariant_generate_deterministic() -> Result<(), HdlmError> {
+        let gen = ArithmeticGenerator;
+        let tokens = vec!["+", "1", "*", "2", "3"];
+        let ast1 = gen.generate_from_tokens(&tokens)?;
+        let ast2 = gen.generate_from_tokens(&tokens)?;
+        assert_eq!(ast1.node_count(), ast2.node_count(),
+            "arithmetic generation not deterministic");
+        Ok(())
+    }
 }

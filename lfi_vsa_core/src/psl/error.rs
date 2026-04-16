@@ -102,4 +102,55 @@ mod tests {
         let msg = format!("{}", e);
         assert!(msg.contains("remote_gpu") && msg.contains("integrity"));
     }
+
+    // ============================================================
+    // Stress / invariant tests for PslError
+    // ============================================================
+
+    /// INVARIANT: every variant produces non-empty Display output.
+    #[test]
+    fn invariant_all_variants_display_nonempty() {
+        let variants = [
+            PslError::AxiomViolation { axiom_id: "a".into(), detail: "d".into() },
+            PslError::AxiomFailure { axiom_id: "a".into(), reason: "r".into() },
+            PslError::InvalidAuditTarget { reason: "r".into() },
+            PslError::TrustThresholdBreached { required: 0.5, actual: 0.3 },
+            PslError::HostileDataDetected { source: "s".into(), reason: "r".into() },
+            PslError::EmptyAxiomSet,
+        ];
+        for v in variants {
+            let s = format!("{}", v);
+            assert!(!s.is_empty(), "Display for {:?} is empty", v);
+            assert!(s.contains("PSL"), "Display should include 'PSL': {}", s);
+        }
+    }
+
+    /// INVARIANT: clone preserves all variant data.
+    #[test]
+    fn invariant_clone_preserves_data() {
+        let e = PslError::AxiomViolation {
+            axiom_id: "complex_id_αβγ".into(),
+            detail: "detail with 🦀".into(),
+        };
+        let cloned = e.clone();
+        assert_eq!(e, cloned);
+        assert_eq!(format!("{}", e), format!("{}", cloned));
+    }
+
+    /// INVARIANT: TrustThresholdBreached Display includes both numbers.
+    #[test]
+    fn invariant_trust_threshold_display_includes_numbers() {
+        let e = PslError::TrustThresholdBreached { required: 0.9, actual: 0.3 };
+        let s = format!("{}", e);
+        assert!(s.contains("0.9"), "missing required: {}", s);
+        assert!(s.contains("0.3"), "missing actual: {}", s);
+    }
+
+    /// INVARIANT: PslError is sendable as a std::error::Error.
+    #[test]
+    fn invariant_is_std_error() {
+        let e: Box<dyn std::error::Error> = Box::new(PslError::EmptyAxiomSet);
+        let s = format!("{}", e);
+        assert!(s.contains("axiom"));
+    }
 }

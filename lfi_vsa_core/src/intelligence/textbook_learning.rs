@@ -564,4 +564,109 @@ mod tests {
         let empty = StudySession::new("test");
         assert_eq!(empty.accuracy(), 0.0);
     }
+
+    // ============================================================
+    // Stress / invariant tests for TextbookLearner
+    // ============================================================
+
+    /// INVARIANT: accuracy is always in [0,1] regardless of internal state.
+    #[test]
+    fn invariant_accuracy_in_unit_interval() {
+        let cases = [
+            (0, 0, 0.0),
+            (1, 1, 1.0),
+            (7, 10, 0.7),
+            (0, 10, 0.0),
+        ];
+        for (correct, total, expected) in cases {
+            let mut s = StudySession::new("t");
+            s.correct = correct;
+            s.total = total;
+            let a = s.accuracy();
+            assert!(a.is_finite() && (0.0..=1.0).contains(&a),
+                "accuracy out of [0,1]: {}", a);
+            assert!((a - expected).abs() < 0.001,
+                "accuracy mismatch: got {} expected {}", a, expected);
+        }
+    }
+
+    /// INVARIANT: add_questions appends (no replacement for same section).
+    #[test]
+    fn invariant_add_questions_appends() {
+        let mut lrn = TextbookLearner::new();
+        let q1 = TextbookQuestion::new("q1", "sec", "a1", 0.5);
+        let q2 = TextbookQuestion::new("q2", "sec", "a2", 0.5);
+        lrn.add_questions("sec", vec![q1]);
+        lrn.add_questions("sec", vec![q2]);
+        assert_eq!(lrn.questions.get("sec").unwrap().len(), 2,
+            "subsequent add_questions should append");
+    }
+
+    /// INVARIANT: add_section with the same title replaces (HashMap insert).
+    #[test]
+    fn invariant_add_section_replaces_same_title() {
+        let mut lrn = TextbookLearner::new();
+        let s1 = TextbookSection {
+            title: "T".into(), topic: "t1".into(),
+            content: "c1".into(), concepts: vec![], difficulty: 0.1,
+        };
+        let s2 = TextbookSection {
+            title: "T".into(), topic: "t2".into(),
+            content: "c2".into(), concepts: vec![], difficulty: 0.2,
+        };
+        lrn.add_section(s1);
+        lrn.add_section(s2);
+        assert_eq!(lrn.sections.len(), 1,
+            "same title should replace, not add");
+        assert_eq!(lrn.sections.get("T").unwrap().topic, "t2",
+            "second insert should win");
+    }
+
+    /// INVARIANT: cryptography_basics returns matched sections and questions
+    /// (no orphan questions referencing nonexistent sections).
+    #[test]
+    fn invariant_crypto_basics_questions_match_sections() {
+        let (sections, questions) = SampleTextbooks::cryptography_basics();
+        let section_titles: std::collections::HashSet<_> =
+            sections.iter().map(|s| s.title.clone()).collect();
+        for (title, qs) in &questions {
+            assert!(section_titles.contains(title),
+                "question set for '{}' has no matching section", title);
+            assert!(!qs.is_empty(),
+                "empty question list for section '{}'", title);
+        }
+    }
+
+    /// INVARIANT: every cryptography_basics question has non-empty text
+    /// and references a non-empty section.
+    #[test]
+    fn invariant_crypto_basics_questions_well_formed() {
+        let (_sections, questions) = SampleTextbooks::cryptography_basics();
+        for (_title, qs) in &questions {
+            for q in qs {
+                assert!(!q.question.is_empty(),
+                    "question text empty");
+                assert!(!q.requires_section.is_empty(),
+                    "question missing requires_section");
+                assert!(q.difficulty.is_finite()
+                    && (0.0..=1.0).contains(&q.difficulty),
+                    "difficulty out of [0,1]: {}", q.difficulty);
+            }
+        }
+    }
+
+    /// INVARIANT: new() starts with empty state.
+    #[test]
+    fn invariant_new_starts_empty() {
+        let lrn = TextbookLearner::new();
+        assert!(lrn.sections.is_empty());
+        assert!(lrn.questions.is_empty());
+        assert!(lrn.sessions.is_empty());
+
+        let s = StudySession::new("x");
+        assert_eq!(s.total, 0);
+        assert_eq!(s.correct, 0);
+        assert!(s.attempts.is_empty());
+        assert!(s.concepts_read.is_empty());
+    }
 }

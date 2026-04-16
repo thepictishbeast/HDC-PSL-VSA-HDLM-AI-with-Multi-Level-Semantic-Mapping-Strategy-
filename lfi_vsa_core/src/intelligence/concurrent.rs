@@ -463,4 +463,77 @@ mod tests {
         assert!(report.contains("Trainer:"));
         assert!(report.contains("Improver:"));
     }
+
+    // ============================================================
+    // Stress / invariant tests for concurrent
+    // ============================================================
+
+    /// INVARIANT: SharedState::should_stop is initially false.
+    #[test]
+    fn invariant_initial_state_not_stopping() {
+        let state = SharedState::new();
+        assert!(!state.should_stop(),
+            "fresh SharedState must not signal stop");
+    }
+
+    /// INVARIANT: stop() flips should_stop() to true and stays true.
+    #[test]
+    fn invariant_stop_is_sticky() {
+        let state = SharedState::new();
+        state.stop();
+        assert!(state.should_stop(), "after stop() should_stop must be true");
+        state.stop(); // idempotent
+        assert!(state.should_stop(), "stop() must be idempotent");
+    }
+
+    /// INVARIANT: trainer_accuracy on fresh metrics is 0.0 (no division by zero).
+    #[test]
+    fn invariant_fresh_metrics_zero_accuracy() {
+        let state = SharedState::new();
+        let metrics = state.metrics();
+        let acc = metrics.trainer_accuracy();
+        assert!(acc.is_finite() && (0.0..=1.0).contains(&acc),
+            "fresh accuracy out of [0,1]: {}", acc);
+    }
+
+    /// INVARIANT: SharedState is shareable across threads — Arc clone works
+    /// and reads remain consistent.
+    #[test]
+    fn invariant_shared_state_arc_clone_safe() {
+        use std::sync::Arc;
+        use std::thread;
+        let state = Arc::new(SharedState::new());
+        let mut handles = vec![];
+        for _ in 0..4 {
+            let s = Arc::clone(&state);
+            handles.push(thread::spawn(move || {
+                let _ = s.should_stop();
+                let _ = s.metrics();
+            }));
+        }
+        for h in handles {
+            h.join().expect("thread join");
+        }
+    }
+
+    /// INVARIANT: SharedState fresh metrics produce zero accuracy — no NaN
+    /// poisoning from division-by-zero.
+    #[test]
+    fn invariant_fresh_state_zero_accuracy() {
+        let state = SharedState::new();
+        let metrics = state.metrics();
+        let acc = metrics.trainer_accuracy();
+        assert!(acc.is_finite() && acc == 0.0,
+            "fresh accuracy must be 0.0 (no division by zero), got {}", acc);
+    }
+
+    /// INVARIANT: SharedState::stop() sets should_stop true.
+    #[test]
+    fn invariant_stop_sets_should_stop() {
+        let state = SharedState::new();
+        assert!(!state.should_stop(), "fresh state should not be stopped");
+        state.stop();
+        assert!(state.should_stop(), "after stop() should_stop() is true");
+    }
+
 }

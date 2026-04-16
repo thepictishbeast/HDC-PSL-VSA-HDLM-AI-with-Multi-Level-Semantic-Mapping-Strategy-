@@ -611,4 +611,48 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
         Ok(())
     }
+
+    // ============================================================
+    // Stress / invariant tests for TrainingConfig / Trainer
+    // ============================================================
+
+    /// INVARIANT: TrainingConfig::default() has finite, reasonable values.
+    #[test]
+    fn invariant_default_config_sane() {
+        let c = TrainingConfig::default();
+        assert!(c.episodes_per_epoch > 0);
+        assert!(c.mcts_iterations > 0);
+        assert!(c.epochs > 0);
+        assert!(c.min_synthesis_rate.is_finite()
+            && (0.0..=1.0).contains(&c.min_synthesis_rate),
+            "min_synthesis_rate out of [0,1]: {}", c.min_synthesis_rate);
+    }
+
+    /// INVARIANT: default checkpoint_dir is absolute.
+    #[test]
+    fn invariant_checkpoint_dir_absolute() {
+        let c = TrainingConfig::default();
+        assert!(c.checkpoint_dir.is_absolute(),
+            "checkpoint_dir should be absolute: {:?}", c.checkpoint_dir);
+    }
+
+    /// INVARIANT: trainer created with 0 epochs completes 0 epochs successfully.
+    #[test]
+    fn invariant_zero_epochs_completes_zero() -> Result<(), HdcError> {
+        let dir = PathBuf::from("/tmp/lfi_test_invariant_zero_epochs");
+        std::fs::create_dir_all(&dir).ok();
+        let cfg = TrainingConfig {
+            episodes_per_epoch: 1,
+            mcts_iterations: 1,
+            epochs: 0,
+            checkpoint_dir: dir.clone(),
+            enable_provenance: false,
+            min_synthesis_rate: 0.0,
+        };
+        let mut trainer = Trainer::new(cfg);
+        let result = trainer.train()?;
+        assert_eq!(result.epochs_completed, 0);
+        let _ = std::fs::remove_dir_all(&dir);
+        Ok(())
+    }
 }

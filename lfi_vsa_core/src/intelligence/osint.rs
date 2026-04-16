@@ -283,4 +283,106 @@ mod tests {
             assert!(corr[0].2 < 0.9, "Different payloads should have low correlation");
         }
     }
+
+    // ============================================================
+    // Stress / invariant tests for OsintAnalyzer
+    // ============================================================
+
+    /// INVARIANT: assess_risk returns a finite value in [0,1] for any signal mix.
+    #[test]
+    fn invariant_assess_risk_in_unit_interval() {
+        let analyzer = OsintAnalyzer::new();
+        // Empty input.
+        let r0 = analyzer.assess_risk(&[]);
+        assert!(r0.is_finite() && (0.0..=1.0).contains(&r0),
+            "empty risk out of [0,1]: {}", r0);
+        // Mixed input.
+        let mixed: Vec<OsintSignal> = (0..30)
+            .map(|i| make_signal(&format!("src_{}", i),
+                if i % 5 == 0 { "APT-29 IOC" } else { "benign" }))
+            .collect();
+        let r = analyzer.assess_risk(&mixed);
+        assert!(r.is_finite() && (0.0..=1.0).contains(&r),
+            "mixed risk out of [0,1]: {}", r);
+    }
+
+    /// INVARIANT: priority_score is finite and in a reasonable range — used
+    /// directly as a sort key by triage UIs.
+    #[test]
+    fn invariant_priority_score_finite() {
+        for severity_text in ["benign", "low", "medium", "high", "critical", "アリス"] {
+            let signal = make_signal("src", severity_text);
+            let score = OsintAnalyzer::priority_score(&signal);
+            assert!(score.is_finite(), "priority must be finite, got {}", score);
+            assert!(score >= 0.0, "priority must be non-negative: {}", score);
+        }
+    }
+
+    /// INVARIANT: find_correlations returns indices that are strictly
+    /// less than the input signal count. Out-of-bounds indices would
+    /// crash downstream code on indexed access.
+    #[test]
+    fn invariant_correlations_indices_in_bounds() {
+        let signals: Vec<OsintSignal> = (0..15)
+            .map(|i| make_signal(&format!("s_{}", i), &format!("payload {}", i % 3)))
+            .collect();
+        let corrs = OsintAnalyzer::find_correlations(&signals);
+        for (i, j, score) in &corrs {
+            assert!(*i < signals.len(),
+                "correlation index i={} out of bounds (len={})", i, signals.len());
+            assert!(*j < signals.len(),
+                "correlation index j={} out of bounds (len={})", j, signals.len());
+            assert!(*i != *j, "self-correlation must be excluded");
+            assert!(score.is_finite(),
+                "correlation score must be finite: {}", score);
+        }
+    }
+
+    /// INVARIANT: analyze_signal handles arbitrary unicode/control text.
+    #[test]
+    fn invariant_analyze_signal_safe_on_unicode() {
+        let analyzer = OsintAnalyzer::new();
+        let inputs = ["", "アリス", "🦀🦀", "\x00\x01control", &"x".repeat(50_000)];
+        for payload in inputs {
+            let signal = make_signal("src", payload);
+            // Must not panic.
+            let _ = analyzer.analyze_signal(&signal);
+        }
+    }
+
+    /// INVARIANT: categorize_threat returns a valid ThreatCategory enum
+    /// (exhaustive match guarantees) — never a default-zero or invalid state.
+    #[test]
+    fn invariant_categorize_threat_returns_valid_enum() {
+        for payload in ["", "APT-29 lateral movement", "phishing campaign",
+                        "ransomware deployment", "アリス", "🦀"] {
+            let signal = make_signal("src", payload);
+            let cat = OsintAnalyzer::categorize_threat(&signal);
+            // Exhaustive match — compiler ensures we cover every variant.
+            match cat {
+                ThreatCategory::Vulnerability |
+                ThreatCategory::Malware |
+                ThreatCategory::SocialEngineering |
+                ThreatCategory::DenialOfService |
+                ThreatCategory::DataBreach |
+                ThreatCategory::APT |
+                ThreatCategory::Unknown => {}
+            }
+        }
+    }
+
+    /// INVARIANT: assess_risk with empty list returns 0.0.
+    #[test]
+    fn invariant_empty_signals_zero_risk() {
+        let analyzer = OsintAnalyzer::new();
+        let risk = analyzer.assess_risk(&[]);
+        assert_eq!(risk, 0.0, "empty signals should yield zero risk");
+    }
+
+    /// INVARIANT: find_correlations on empty list returns empty.
+    #[test]
+    fn invariant_find_correlations_empty_list() {
+        let correlations = OsintAnalyzer::find_correlations(&[]);
+        assert!(correlations.is_empty());
+    }
 }

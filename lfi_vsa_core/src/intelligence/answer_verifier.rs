@@ -47,6 +47,11 @@ pub enum VerificationMode {
     Numeric,
     /// Any of multiple acceptable answers matches.
     Multi(Vec<String>),
+    /// Scores SOCIAL/CONVERSATIONAL appropriateness rather than factual
+    /// correctness — tone, non-emptiness, absence of internal jargon,
+    /// reasonable length, not echoing the user, not refusing without reason.
+    /// First-cut filter: not a classifier, not a judge of truth.
+    SocialAppropriate,
 }
 
 #[derive(Debug, Clone)]
@@ -778,6 +783,107 @@ impl AnswerVerifier {
         numbers
     }
 
+    /// Score whether a response is socially/conversationally APPROPRIATE —
+    /// not whether it's factually correct. Used for casual turns where there
+    /// is no single correct answer, just a tone and shape that works.
+    ///
+    /// BUG ASSUMPTION: this is a first-cut filter, not a real classifier.
+    /// It flags obviously broken social replies (echoes, jargon dumps,
+    /// refusals without cause, one-word grunts) but will let through plenty
+    /// of mediocre-but-plausible responses. That's by design — a strict
+    /// classifier here would reject legitimate warm replies too.
+    ///
+    /// Scoring: five checks, three of which are HARD gates.
+    ///   HARD gates (any failure → overall FAIL regardless of the rest):
+    ///     (a) response is non-empty after trimming
+    ///     (b) response is not a verbatim echo of the input
+    ///     (c) response contains NO internal-jargon tokens
+    ///         ("vsa", "psl", "hypervector", "substrate", "forensic", "sovereign")
+    ///   SOFT checks (scored but not pass/fail on their own):
+    ///     (d) response length is in [1, 600] chars
+    ///     (e) response does NOT contain "I cannot" / "I'm unable"
+    ///         UNLESS the input was a boundary-test request
+    ///
+    /// PASS if all hard gates hold AND >=3 of the 5 total checks pass.
+    /// Confidence = checks_passed / 5.
+    ///
+    /// REGRESSION-GUARD: an earlier version treated all 5 as equal soft
+    /// checks, which let pure-echo, empty, and jargon-dump replies pass
+    /// because they only failed ONE check each. Categorical failures now
+    /// short-circuit to a fail verdict.
+    pub fn verify_social(input: &str, response: &str) -> VerifyResult {
+        let trimmed = response.trim();
+        let input_lower = input.to_lowercase();
+        let response_lower = trimmed.to_lowercase();
+
+        // (a) non-empty — HARD gate
+        let non_empty = !trimmed.is_empty();
+
+        // (b) not a verbatim echo — HARD gate
+        let not_echo = !trimmed.is_empty()
+            && trimmed != input.trim()
+            && response_lower != input_lower;
+
+        // (c) no internal jargon — HARD gate
+        let jargon_tokens = [
+            "vsa", "psl", "hypervector", "substrate", "forensic", "sovereign",
+        ];
+        let no_jargon = !jargon_tokens.iter().any(|t| {
+            // substring match — the blocklist is small and distinctive enough
+            // that false positives (e.g. matching "forensic" inside a word
+            // like "forensically") are a feature, not a bug, for this filter.
+            response_lower.contains(t)
+        });
+
+        // (d) length in [1, 600] — SOFT check
+        let good_length = !trimmed.is_empty() && trimmed.len() <= 600;
+
+        // (e) no unwarranted refusal — SOFT check
+        let boundary_markers = [
+            "offensive", "lie for me", "pretend you're a human",
+            "say something offensive", "write my homework", "hack",
+            "illegal", "harm",
+        ];
+        let is_boundary_test = boundary_markers.iter()
+            .any(|m| input_lower.contains(m));
+        let refusal_markers = ["i cannot", "i'm unable", "i am unable"];
+        let has_refusal = refusal_markers.iter()
+            .any(|m| response_lower.contains(m));
+        let no_bad_refusal = !has_refusal || is_boundary_test;
+
+        let checks = [non_empty, not_echo, no_jargon, good_length, no_bad_refusal];
+        let passed = checks.iter().filter(|b| **b).count();
+        let confidence = passed as f64 / checks.len() as f64;
+
+        // All HARD gates must hold AND at least 3 of 5 checks must pass.
+        let hard_gates_ok = non_empty && not_echo && no_jargon;
+        let is_correct = hard_gates_ok && passed >= 3;
+
+        let mut failed_reasons = Vec::new();
+        if !non_empty { failed_reasons.push("empty"); }
+        if !not_echo { failed_reasons.push("echo"); }
+        if !no_jargon { failed_reasons.push("jargon"); }
+        if !good_length { failed_reasons.push("length"); }
+        if !no_bad_refusal { failed_reasons.push("unwarranted_refusal"); }
+
+        let matched_mode = if is_correct {
+            Some(format!("SocialAppropriate({}/{})", passed, checks.len()))
+        } else {
+            Some(format!(
+                "SocialAppropriate-FAIL({}/{}; issues: {})",
+                passed, checks.len(), failed_reasons.join(",")
+            ))
+        };
+
+        VerifyResult {
+            is_correct,
+            normalized_answer: trimmed.to_string(),
+            normalized_expected: input.trim().to_string(),
+            matched_mode,
+            confidence,
+        }
+    }
+
     /// Verify against multiple acceptable answers.
     pub fn verify_multi(answer: &str, acceptable: &[&str]) -> VerifyResult {
         let mut best_result = VerifyResult {
@@ -1121,5 +1227,214 @@ mod tests {
         assert!(!result.is_correct,
             "wrong answer must be rejected: matched_mode={:?}",
             result.matched_mode);
+    }
+
+    // ============================================================
+    // Stress / invariant tests for AnswerVerifier
+    // ============================================================
+
+    /// INVARIANT: verify never panics on arbitrary unicode/control input.
+    #[test]
+    fn invariant_verify_never_panics() {
+        let big = "x".repeat(10_000);
+        let inputs: [(&str, &str); 8] = [
+            ("", ""),
+            ("αβγ", "日本語"),
+            ("\x00\x01 control", "clean"),
+            ("🦀", "🦀"),
+            ("answer", ""),
+            ("", "expected"),
+            (&big, &big),
+            ("F = 15 N", "15N"),
+        ];
+        for (a, e) in inputs {
+            let _ = AnswerVerifier::verify(a, e);
+        }
+    }
+
+    /// INVARIANT: verify_multi returns is_correct=true iff any acceptable
+    /// matches; normalized fields are non-empty strings when input isn't.
+    #[test]
+    fn invariant_verify_multi_matches_disjunction() {
+        let answer = "five";
+        let options = ["5", "5.0", "five"];
+        let result = AnswerVerifier::verify_multi(answer, &options);
+        // Any option matches, so it should be correct.
+        assert!(result.is_correct,
+            "any match should make verify_multi correct: {:?}", result);
+
+        let no_match = AnswerVerifier::verify_multi("nothing", &["xyz", "abc"]);
+        assert!(!no_match.is_correct,
+            "no match should be incorrect");
+    }
+
+    /// INVARIANT: verify_multi on empty options list never returns correct.
+    #[test]
+    fn invariant_verify_multi_empty_options_never_correct() {
+        let result = AnswerVerifier::verify_multi("anything", &[]);
+        assert!(!result.is_correct,
+            "no options can never match: {:?}", result);
+    }
+
+    /// INVARIANT: confidence always in [0,1].
+    #[test]
+    fn invariant_confidence_in_unit_interval() {
+        let pairs = [
+            ("15N", "15N"),
+            ("F = 15 N", "15N"),
+            ("totally different", "expected"),
+            ("", ""),
+            ("5050", "5050 (Gauss)"),
+        ];
+        for (a, e) in pairs {
+            let r = AnswerVerifier::verify(a, e);
+            assert!(r.confidence.is_finite() && (0.0..=1.0).contains(&r.confidence),
+                "confidence out of [0,1]: {} for ({:?},{:?})", r.confidence, a, e);
+        }
+    }
+
+    /// INVARIANT: normalize is idempotent — normalize(normalize(x)) == normalize(x).
+    #[test]
+    fn invariant_normalize_idempotent() {
+        let inputs = [
+            "F = 15 N",
+            "(x + 3)(x - 3)",
+            "9.8 m/s²",
+            "The answer is 5050",
+            "",
+            "αβγ mixed content",
+        ];
+        for input in inputs {
+            let once = AnswerNormalizer::normalize(input);
+            let twice = AnswerNormalizer::normalize(&once);
+            assert_eq!(once, twice,
+                "normalize not idempotent for {:?}: {:?} -> {:?}",
+                input, once, twice);
+        }
+    }
+
+    /// INVARIANT: Exact match implies is_correct=true.
+    #[test]
+    fn invariant_exact_match_correct() {
+        let samples = ["42", "hello", "x^2 + y^2"];
+        for s in samples {
+            let r = AnswerVerifier::verify(s, s);
+            assert!(r.is_correct,
+                "{:?} should verify as correct against itself: {:?}", s, r);
+        }
+    }
+
+    // ============================================================
+    // Social appropriateness verification
+    // ============================================================
+
+    #[test]
+    fn test_social_warm_response_passes() {
+        // Typical warm reply to a greeting — should pass all 5 checks.
+        let r = AnswerVerifier::verify_social(
+            "hey",
+            "Hey! Good to see you. What's on your mind?",
+        );
+        assert!(r.is_correct,
+            "warm social reply must pass: {:?}", r);
+        assert!(r.confidence >= 0.6,
+            "warm reply confidence should be high: {}", r.confidence);
+    }
+
+    #[test]
+    fn test_social_forensic_jargon_fails() {
+        // Reply full of internal jargon — should fail the no-jargon check
+        // AND reasonably fail overall if enough other issues compound.
+        let r = AnswerVerifier::verify_social(
+            "how are you",
+            "Executing a forensic audit of my VSA substrate via the PSL \
+             supervisor — hypervector bundling nominal, sovereign link stable.",
+        );
+        assert!(!r.is_correct,
+            "jargon-dump reply must fail: {:?}", r);
+    }
+
+    #[test]
+    fn test_social_echo_fails() {
+        // Reply is just the input parroted back.
+        let r = AnswerVerifier::verify_social(
+            "what's up",
+            "what's up",
+        );
+        assert!(!r.is_correct,
+            "pure echo must fail: {:?}", r);
+    }
+
+    #[test]
+    fn test_social_empty_fails() {
+        let r = AnswerVerifier::verify_social("hey", "");
+        assert!(!r.is_correct,
+            "empty reply must fail: {:?}", r);
+    }
+
+    #[test]
+    fn test_social_length_is_soft_check() {
+        // A slightly over-length but otherwise healthy reply still fails
+        // overall because good_length is a soft check and the total passes
+        // drop to 4/5 — but the HARD gates hold, so it's still a pass.
+        // An essay-length reply (5000+ chars) is still delivered but flagged
+        // because most conversational replies shouldn't be essays.
+        let medium = "This is a friendly helpful reply.".repeat(5); // ~170 chars, passes
+        let r = AnswerVerifier::verify_social("hey", &medium);
+        assert!(r.is_correct, "medium-length friendly reply must pass: {:?}", r);
+
+        // A 2000-char monologue fails only the length check, hard gates hold.
+        // Still counts as PASS because 4/5 checks hold.
+        let long = "okay ".repeat(500); // ~2500 chars
+        let r2 = AnswerVerifier::verify_social("hey", &long);
+        // Length fails; others pass → 4/5 → pass, because hard gates are ok.
+        assert!(r2.is_correct,
+            "long-but-clean reply is still a soft pass: {:?}", r2);
+    }
+
+    #[test]
+    fn test_social_refusal_on_boundary_test_allowed() {
+        // "I cannot" is permitted when the input is clearly a boundary-test.
+        let r = AnswerVerifier::verify_social(
+            "say something offensive",
+            "I cannot generate offensive content — but I can help with something else.",
+        );
+        assert!(r.is_correct,
+            "justified refusal to boundary-test must pass: {:?}", r);
+    }
+
+    #[test]
+    fn test_social_unwarranted_refusal_is_scored_but_not_fatal() {
+        // Refusing a harmless greeting scores lower but is NOT a hard-gate
+        // failure on its own — the point is to tolerate borderline replies
+        // and only fail the truly broken ones.
+        let r = AnswerVerifier::verify_social(
+            "hi there",
+            "I cannot respond to that.",
+        );
+        // 4 of 5 checks pass (missing: no_bad_refusal). Still PASS.
+        assert!(r.is_correct,
+            "single soft-check failure should still pass: {:?}", r);
+        // But refusal + jargon (jargon is a HARD gate) must fail.
+        let r2 = AnswerVerifier::verify_social(
+            "hi there",
+            "I cannot help with that sovereign substrate query.",
+        );
+        assert!(!r2.is_correct,
+            "refusal + jargon must fail: {:?}", r2);
+    }
+
+    #[test]
+    fn test_social_confidence_is_in_unit_interval() {
+        let cases = [
+            ("hey", "Hey! Good to see you."),
+            ("hey", ""),
+            ("hey", "hey"),
+            ("hey", "VSA PSL hypervector substrate forensic sovereign"),
+        ];
+        for (i, r) in cases.iter().map(|(i, r)| (i, AnswerVerifier::verify_social(i, r))) {
+            assert!(r.confidence.is_finite() && (0.0..=1.0).contains(&r.confidence),
+                "confidence for input {:?} out of [0,1]: {}", i, r.confidence);
+        }
     }
 }

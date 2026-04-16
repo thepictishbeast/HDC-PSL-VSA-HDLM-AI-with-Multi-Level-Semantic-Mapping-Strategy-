@@ -2,12 +2,36 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Sovereign Command Console</title>
+    <!-- Fonts: DM Sans + JetBrains Mono. Per Bible §4.3 (PSA): no Google
+         CDN. Self-host when woff2 files are available locally; until then,
+         the font stack falls through to system sans-serif. -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <title>PlausiDen AI</title>
     <meta name="apple-mobile-web-app-capable" content="yes" />
-    <meta name="theme-color" content="#050508" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="theme-color" content="#000000" />
     <script src="https://cdn.jsdelivr.net/npm/eruda"></script>
-    <script>eruda.init();</script>
+    <script>
+      // Eruda policy:
+      //   settings.erudaMode = 'auto' (default): mobile only
+      //                      = 'on'            : always show
+      //                      = 'off'           : never show
+      // Loaded from lfi_settings in localStorage so the choice persists.
+      (function () {
+        try {
+          var raw = localStorage.getItem('lfi_settings');
+          var mode = 'auto';
+          if (raw) {
+            var s = JSON.parse(raw);
+            if (s && typeof s.erudaMode === 'string') mode = s.erudaMode;
+          }
+          var isMobile = /Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+          var shouldShow =
+            mode === 'on' || (mode === 'auto' && isMobile);
+          if (shouldShow && window.eruda) { eruda.init(); }
+        } catch (e) { /* non-fatal */ }
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

@@ -172,4 +172,85 @@ mod tests {
         opt.evolve();
         assert_eq!(opt.population.len(), 5);
     }
+
+    // ============================================================
+    // Stress / invariant tests for GeneticOptimizer
+    // ============================================================
+
+    /// INVARIANT: population size is preserved across evolve().
+    #[test]
+    fn invariant_evolve_preserves_population_size() {
+        let sizes = [5, 10, 50, 100];
+        for &n in &sizes {
+            let mut opt = GeneticOptimizer::new(n, 4);
+            opt.evolve();
+            assert_eq!(opt.population.len(), n,
+                "population size changed after evolve for n={}", n);
+        }
+    }
+
+    /// INVARIANT: gene count is preserved across evolve().
+    #[test]
+    fn invariant_evolve_preserves_gene_count() {
+        for gc in [1usize, 3, 8, 20] {
+            let mut opt = GeneticOptimizer::new(10, gc);
+            opt.evolve();
+            for c in &opt.population {
+                assert_eq!(c.genes.len(), gc,
+                    "gene count changed for chromosome");
+            }
+        }
+    }
+
+    /// INVARIANT: genes always remain clamped to [0,1] after evolve().
+    #[test]
+    fn invariant_genes_always_in_unit_interval() {
+        let mut opt = GeneticOptimizer::new(20, 5);
+        for _ in 0..50 {
+            for i in 0..20 {
+                opt.update_fitness(i, i as f64);
+            }
+            opt.evolve();
+            for c in &opt.population {
+                for &g in &c.genes {
+                    assert!(g.is_finite() && (0.0..=1.0).contains(&g),
+                        "gene out of [0,1] after evolve: {}", g);
+                }
+            }
+        }
+    }
+
+    /// INVARIANT: update_fitness on out-of-bounds index is a no-op (no panic).
+    #[test]
+    fn invariant_update_fitness_out_of_bounds_safe() {
+        let mut opt = GeneticOptimizer::new(5, 2);
+        opt.update_fitness(1000, 42.0);
+        opt.update_fitness(usize::MAX, f64::NAN);
+        assert_eq!(opt.population.len(), 5);
+    }
+
+    /// INVARIANT: best_genes is None for empty population, Some otherwise.
+    #[test]
+    fn invariant_best_genes_consistent_with_population() {
+        let opt = GeneticOptimizer::new(0, 3);
+        assert!(opt.best_genes().is_none(),
+            "empty population should have no best_genes");
+
+        let opt = GeneticOptimizer::new(1, 3);
+        assert!(opt.best_genes().is_some(),
+            "non-empty population should have best_genes");
+    }
+
+    /// INVARIANT: fitness=NaN doesn't panic the sort in evolve().
+    #[test]
+    fn invariant_evolve_nan_fitness_safe() {
+        let mut opt = GeneticOptimizer::new(10, 4);
+        opt.update_fitness(0, f64::NAN);
+        opt.update_fitness(1, 5.0);
+        opt.update_fitness(2, f64::INFINITY);
+        opt.update_fitness(3, f64::NEG_INFINITY);
+        // Must not panic.
+        opt.evolve();
+        assert_eq!(opt.population.len(), 10);
+    }
 }

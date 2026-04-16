@@ -349,4 +349,96 @@ mod tests {
         ];
         assert_eq!(targets.len(), 10);
     }
+
+    // ============================================================
+    // Stress / invariant tests for UniversalConstruct
+    // ============================================================
+
+    fn all_constructs() -> Vec<UniversalConstruct> {
+        use UniversalConstruct::*;
+        vec![
+            Block, Conditional, ForLoop, WhileLoop, PatternMatch,
+            ErrorHandling, FlowControl, AsyncAwait, Jump,
+            VariableBinding, TypeDeclaration, StructDefinition,
+            EnumDefinition, ArrayType, MapType, TupleType,
+            OptionalType, GenericType, PointerReference, StringType,
+            FunctionDefinition, Lambda, FunctionCall,
+            HigherOrderFunction, Recursion, TailCall,
+            ClassDefinition, InterfaceDefinition, Inheritance,
+            MethodDispatch, AccessControl, Constructor, Destructor,
+            ThreadSpawn, MutexLock, Channel, AtomicOp, Actor, Future,
+            HeapAllocation, StackAllocation, GarbageCollection,
+            ManualMemory, OwnershipBorrowing, ReferenceCounting,
+            ModuleDefinition, Import, Export, Macro, Annotation,
+            FileIO, NetworkIO, DatabaseQuery, SystemCall, Serialization,
+            UIComponent, Routing, StateManagement, Template, Styling,
+            APIEndpoint, Middleware,
+            HdlRegister, HdlWire, HdlClockDomain, HdlModuleInstance, HdlTestbench,
+            Authentication, Authorization, Encryption, InputValidation, AuditLog,
+            UnitTest, IntegrationTest, Assertion, MockObject, PropertyTest,
+        ]
+    }
+
+    /// INVARIANT: paradigms() returns at least one paradigm for every construct.
+    #[test]
+    fn invariant_paradigms_always_nonempty() {
+        for c in all_constructs() {
+            let ps = c.paradigms();
+            assert!(!ps.is_empty(),
+                "construct {:?} has no paradigms", c);
+        }
+    }
+
+    /// INVARIANT: paradigms() is pure — multiple calls return the same result.
+    #[test]
+    fn invariant_paradigms_deterministic() {
+        for c in all_constructs() {
+            assert_eq!(c.paradigms(), c.paradigms(),
+                "paradigms() not deterministic for {:?}", c);
+        }
+    }
+
+    /// INVARIANT: Paradigm and PlatformTarget serde round-trip is lossless.
+    #[test]
+    fn invariant_paradigm_serde_roundtrip() {
+        let paradigms = [
+            Paradigm::ObjectOriented, Paradigm::Functional,
+            Paradigm::Procedural, Paradigm::Systems, Paradigm::Logic,
+            Paradigm::Concurrent, Paradigm::Declarative,
+            Paradigm::HardwareDescription, Paradigm::Scripting,
+            Paradigm::Reactive, Paradigm::LowLevel,
+        ];
+        for p in paradigms {
+            let json = serde_json::to_string(&p).unwrap();
+            let recovered: Paradigm = serde_json::from_str(&json).unwrap();
+            assert_eq!(p, recovered);
+        }
+    }
+
+    /// INVARIANT: PlatformTarget serde round-trip is lossless.
+    #[test]
+    fn invariant_platform_target_serde_roundtrip() {
+        let platforms = [
+            PlatformTarget::Linux, PlatformTarget::Windows,
+            PlatformTarget::MacOS, PlatformTarget::IOS,
+            PlatformTarget::Android, PlatformTarget::Web,
+            PlatformTarget::Embedded, PlatformTarget::FPGA,
+            PlatformTarget::Cloud, PlatformTarget::CrossPlatform,
+        ];
+        for pl in platforms {
+            let json = serde_json::to_string(&pl).unwrap();
+            let recovered: PlatformTarget = serde_json::from_str(&json).unwrap();
+            assert_eq!(pl, recovered);
+        }
+    }
+
+    /// INVARIANT: UniversalConstruct serde round-trip is lossless for all variants.
+    #[test]
+    fn invariant_construct_serde_roundtrip() {
+        for c in all_constructs() {
+            let json = serde_json::to_string(&c).unwrap();
+            let recovered: UniversalConstruct = serde_json::from_str(&json).unwrap();
+            assert_eq!(c, recovered);
+        }
+    }
 }

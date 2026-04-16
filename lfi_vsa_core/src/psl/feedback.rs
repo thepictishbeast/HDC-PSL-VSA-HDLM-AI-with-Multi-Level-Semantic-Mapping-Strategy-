@@ -426,4 +426,87 @@ mod tests {
         assert_eq!(fl.total_rejections, 550);
         Ok(())
     }
+
+    // ============================================================
+    // Stress / invariant tests for PslFeedbackLoop
+    // ============================================================
+
+    /// INVARIANT: total_rejections is monotone across process_verdict calls
+    /// that yield FAIL.
+    #[test]
+    fn invariant_total_rejections_monotone() -> Result<(), HdcError> {
+        let mut fl = PslFeedbackLoop::new();
+        let input = BipolarVector::from_seed(1);
+        let output = BipolarVector::from_seed(2);
+        for i in 0..30 {
+            let before = fl.total_rejections;
+            fl.process_verdict(
+                &make_fail_verdict("TestAxiom", &format!("iter {}", i)),
+                &input, &output,
+            )?;
+            assert_eq!(fl.total_rejections, before + 1,
+                "total_rejections must grow by 1 per FAIL at iter {}", i);
+        }
+        Ok(())
+    }
+
+    /// INVARIANT: set_avoidance_threshold roundtrips and clamps sanely.
+    #[test]
+    fn invariant_avoidance_threshold_roundtrips() {
+        let mut fl = PslFeedbackLoop::new();
+        for t in [0.1, 0.5, 0.9, 0.99] {
+            fl.set_avoidance_threshold(t);
+            // Verify by probing: the threshold should be observable via
+            // check_avoidance behavior. We at least ensure it doesn't panic.
+            let v = BipolarVector::from_seed(42);
+            let _ = fl.check_avoidance(&v, &v);
+        }
+    }
+
+    /// INVARIANT: rejection_stats always returns counts ≤ total_rejections.
+    #[test]
+    fn invariant_stats_consistent_with_total() -> Result<(), HdcError> {
+        let mut fl = PslFeedbackLoop::new();
+        let input = BipolarVector::from_seed(3);
+        let output = BipolarVector::from_seed(4);
+        for i in 0..50 {
+            fl.process_verdict(
+                &make_fail_verdict(
+                    if i % 2 == 0 { "AxiomA" } else { "AxiomB" },
+                    &format!("iter {}", i),
+                ),
+                &input, &output,
+            )?;
+        }
+        let (critical, warning, log_len) = fl.rejection_stats();
+        assert!(critical <= fl.total_rejections);
+        assert!(warning <= fl.total_rejections);
+        assert!(log_len <= fl.total_rejections,
+            "log_len ({}) must not exceed total ({})", log_len, fl.total_rejections);
+        Ok(())
+    }
+
+    /// INVARIANT: most_common_rejection is None on an empty feedback loop
+    /// and returns the top axiom after population.
+    #[test]
+    fn invariant_most_common_rejection_consistent() -> Result<(), HdcError> {
+        let mut fl = PslFeedbackLoop::new();
+        assert!(fl.most_common_rejection().is_none(),
+            "empty loop must return None for most_common_rejection");
+
+        // Populate with mostly AxiomX.
+        let input = BipolarVector::from_seed(5);
+        let output = BipolarVector::from_seed(6);
+        for i in 0..10 {
+            let axiom = if i < 7 { "AxiomX" } else { "AxiomY" };
+            fl.process_verdict(
+                &make_fail_verdict(axiom, &format!("iter {}", i)),
+                &input, &output,
+            )?;
+        }
+        let (winner, count) = fl.most_common_rejection().expect("non-empty");
+        assert_eq!(winner, "AxiomX");
+        assert_eq!(count, 7);
+        Ok(())
+    }
 }

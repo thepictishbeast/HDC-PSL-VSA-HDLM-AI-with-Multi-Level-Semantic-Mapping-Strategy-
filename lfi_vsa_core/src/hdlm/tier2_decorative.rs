@@ -310,4 +310,81 @@ mod tests {
         }
         Ok(())
     }
+
+    // ============================================================
+    // Stress / invariant tests for Tier 2 renderers
+    // ============================================================
+
+    /// INVARIANT: rendering does not mutate the AST (takes &Ast).
+    /// Observable via node_count unchanged.
+    #[test]
+    fn invariant_render_does_not_mutate_ast() -> Result<(), HdlmError> {
+        let gen = ArithmeticGenerator;
+        let ast = gen.generate_from_tokens(&["+", "1", "2"])?;
+        let before_count = ast.node_count();
+        let _ = InfixRenderer.render(&ast)?;
+        let _ = SExprRenderer.render(&ast)?;
+        let _ = JsonRenderer.render(&ast)?;
+        let after_count = ast.node_count();
+        assert_eq!(before_count, after_count,
+            "rendering mutated the AST: {} -> {}", before_count, after_count);
+        Ok(())
+    }
+
+    /// INVARIANT: render on empty AST errors with EmptyAst.
+    #[test]
+    fn invariant_render_empty_ast_errors() {
+        let ast = Ast::new();
+        assert!(InfixRenderer.render(&ast).is_err());
+        assert!(SExprRenderer.render(&ast).is_err());
+        assert!(JsonRenderer.render(&ast).is_err());
+    }
+
+    /// INVARIANT: All renderers produce non-empty output for well-formed ASTs.
+    #[test]
+    fn invariant_renderers_nonempty_for_valid_ast() -> Result<(), HdlmError> {
+        let gen = ArithmeticGenerator;
+        let asts: Vec<_> = [
+            vec!["1"],
+            vec!["+", "1", "2"],
+            vec!["*", "+", "1", "2", "3"],
+        ]
+        .iter()
+        .map(|tokens| gen.generate_from_tokens(tokens).unwrap())
+        .collect();
+
+        for ast in &asts {
+            let infix = InfixRenderer.render(ast)?;
+            let sexpr = SExprRenderer.render(ast)?;
+            let json = JsonRenderer.render(ast)?;
+            assert!(!infix.is_empty());
+            assert!(!sexpr.is_empty());
+            assert!(!json.is_empty());
+        }
+        Ok(())
+    }
+
+    /// INVARIANT: Render is deterministic.
+    #[test]
+    fn invariant_render_deterministic() -> Result<(), HdlmError> {
+        let gen = ArithmeticGenerator;
+        let ast = gen.generate_from_tokens(&["+", "1", "2"])?;
+        let a = InfixRenderer.render(&ast)?;
+        let b = InfixRenderer.render(&ast)?;
+        assert_eq!(a, b, "InfixRenderer not deterministic: {} vs {}", a, b);
+        Ok(())
+    }
+
+    /// INVARIANT: Infix output preserves operand order.
+    #[test]
+    fn invariant_infix_preserves_operand_order() -> Result<(), HdlmError> {
+        let gen = ArithmeticGenerator;
+        // Prefix "- 10 3" is "10 minus 3", should render as (10 - 3).
+        let ast = gen.generate_from_tokens(&["-", "10", "3"])?;
+        let infix = InfixRenderer.render(&ast)?;
+        let idx_10 = infix.find("10").unwrap();
+        let idx_3 = infix.find('3').unwrap();
+        assert!(idx_10 < idx_3, "operand order not preserved: {}", infix);
+        Ok(())
+    }
 }

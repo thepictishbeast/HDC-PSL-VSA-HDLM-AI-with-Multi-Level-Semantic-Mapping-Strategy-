@@ -29,6 +29,7 @@ use tower_http::cors::CorsLayer;
 
 use crate::agent::LfiAgent;
 use crate::telemetry::MaterialAuditor;
+use rusqlite::params;
 use crate::intelligence::web_search::WebSearchEngine;
 
 /// Shared application state across all handlers.
@@ -37,6 +38,7 @@ pub struct AppState {
     pub agent: Mutex<LfiAgent>,
     pub search_engine: WebSearchEngine,
     pub metrics: Arc<crate::intelligence::metrics::LfiMetrics>,
+    pub db: Arc<crate::persistence::BrainDb>,
 }
 
 /// POST /api/auth body
@@ -166,25 +168,94 @@ async fn handle_chat_socket(mut socket: WebSocket, state: Arc<AppState>) {
                 }
                 state.metrics.inc_counter("lfi_chat_total", &[], 1);
 
+                // Send a "thinking" progress update so the UI can show what
+                // tier/mode the AI is about to use before the response arrives.
+                let incognito_flag = parsed.get("incognito")
+                    .and_then(|v| v.as_bool()).unwrap_or(false);
+                let tier_name = {
+                    let agent = state.agent.lock();
+                    format!("{:?}", agent.current_tier)
+                }; // lock dropped here — before the await
+                let progress = json!({
+                    "type": "progress",
+                    "step": format!("{} is thinking...", tier_name),
+                    "tier": tier_name,
+                });
+                let _ = socket.send(Message::Text(progress.to_string())).await;
+
                 // Route through CognitiveCore
                 let response_payload = {
                     let mut agent = state.agent.lock();
 
-                    // Auto-learn from conversational patterns
+                    // Auto-learn from conversational patterns — extract
+                    // persistent user facts that the AI can reference in
+                    // future turns and across sessions. Pattern-based for
+                    // speed; runs before the reasoner so the context is
+                    // available for the response generation.
                     let lower = input.to_lowercase();
+                    let db_ref = state.db.clone();
+                    let mut learn = |key: &str, val: &str| {
+                        let v = val.trim().to_string();
+                        if v.is_empty() || v.len() > 200 { return; }
+                        debuglog!("chat: auto-learned fact {}={}", key, v);
+                        agent.conversation_facts.insert(key.to_string(), v.clone());
+                        let mut guard = agent.shared_knowledge.lock();
+                        guard.store.upsert_fact(key, &v);
+                        // Persist to SQLite so facts survive server restarts.
+                        db_ref.upsert_fact(key, &v, "ai_extracted", 1.0);
+                    };
+                    // Name
                     if lower.starts_with("my name is ") {
-                        let name = input[11..].trim();
-                        if !name.is_empty() {
-                            agent.conversation_facts.insert("sovereign_name".to_string(), name.to_string());
-                            let mut guard = agent.shared_knowledge.lock();
-                            guard.store.upsert_fact("sovereign_name", name);
+                        learn("sovereign_name", &input[11..]);
+                    } else if lower.starts_with("call me ") {
+                        learn("sovereign_name", &input[8..]);
+                    }
+                    // Preferences
+                    for prefix in &["i like ", "i love ", "i enjoy ", "my favorite ", "i prefer "] {
+                        if lower.starts_with(prefix) {
+                            learn(&format!("preference_{}", prefix.trim().replace(' ', "_")),
+                                  &input[prefix.len()..]);
+                            break;
+                        }
+                    }
+                    // Profession / role
+                    for prefix in &["i'm a ", "im a ", "i am a ", "i work as ", "i work at "] {
+                        if lower.starts_with(prefix) {
+                            let key = if lower.contains("work at") { "workplace" } else { "role" };
+                            learn(key, &input[prefix.len()..]);
+                            break;
+                        }
+                    }
+                    // Location
+                    if lower.starts_with("i live in ") || lower.starts_with("i'm from ") || lower.starts_with("im from ") {
+                        let cut = if lower.starts_with("i live in ") { 10 }
+                                  else if lower.starts_with("i'm from ") { 9 } else { 8 };
+                        learn("location", &input[cut..]);
+                    }
+                    // Relationships
+                    for (trigger, key) in &[
+                        ("my wife", "partner"), ("my husband", "partner"),
+                        ("my partner", "partner"), ("my girlfriend", "partner"),
+                        ("my boyfriend", "partner"), ("my dog", "pet_dog"),
+                        ("my cat", "pet_cat"), ("my kid", "child"),
+                        ("my son", "child_son"), ("my daughter", "child_daughter"),
+                    ] {
+                        if lower.contains(trigger) {
+                            if let Some(rest) = lower.split(trigger).nth(1) {
+                                let rest = rest.trim().trim_start_matches("'s name is ")
+                                    .trim_start_matches(" is named ")
+                                    .trim_start_matches(" is ");
+                                if !rest.is_empty() {
+                                    learn(key, &rest.split(|c: char| ",.!?\n".contains(c)).next().unwrap_or(rest));
+                                }
+                            }
                         }
                     }
 
                     match agent.chat_traced(input) {
                         Ok((response, conclusion_id)) => {
                             let thought = &response.thought;
-                            json!({
+                            let payload = json!({
                                 "type": "chat_response",
                                 "content": response.text,
                                 "mode": format!("{:?}", thought.mode),
@@ -199,7 +270,31 @@ async fn handle_chat_socket(mut socket: WebSocket, state: Arc<AppState>) {
                                 })),
                                 // Provenance: client can query /api/provenance/:id with this
                                 "conclusion_id": conclusion_id,
-                            })
+                            });
+                            // Persist every turn for later review + training data
+                            // sourcing. Skip when incognito — per Bible §4.5.
+                            if !incognito_flag {
+                            let log_line = json!({
+                                "ts": std::time::SystemTime::now()
+                                    .duration_since(std::time::UNIX_EPOCH)
+                                    .map(|d| d.as_secs()).unwrap_or(0),
+                                "user": input,
+                                "reply": response.text,
+                                "tier": format!("{:?}", agent.current_tier),
+                                "intent": thought.intent.as_ref().map(|i| format!("{:?}", i)),
+                                "mode": format!("{:?}", thought.mode),
+                                "confidence": thought.confidence,
+                                "conclusion_id": conclusion_id,
+                            });
+                            let _ = std::fs::create_dir_all("/var/log/lfi");
+                            if let Ok(mut f) = std::fs::OpenOptions::new()
+                                .create(true).append(true).open("/var/log/lfi/chat.jsonl")
+                            {
+                                use std::io::Write;
+                                let _ = writeln!(f, "{}", log_line);
+                            }
+                            } // end if !incognito_flag
+                            payload
                         }
                         Err(e) => {
                             json!({
@@ -356,6 +451,660 @@ async fn tier_handler(
         "status": "ok",
         "tier": format!("{:?}", agent.current_tier),
     }))
+}
+
+// ============================================================
+// REST: Chat log + stop
+// ============================================================
+
+/// GET /api/chat-log?limit=N — return recent chat turns logged to
+/// /var/log/lfi/chat.jsonl. Lets the operator (and the AI itself) review
+/// conversation behavior without cross-device sync. Default limit 50.
+async fn chat_log_handler(
+    axum::extract::Query(q): axum::extract::Query<std::collections::HashMap<String, String>>,
+) -> impl IntoResponse {
+    let limit: usize = q.get("limit").and_then(|s| s.parse().ok()).unwrap_or(50).min(500);
+    let path = "/var/log/lfi/chat.jsonl";
+    let content = std::fs::read_to_string(path).unwrap_or_default();
+    // Collect the tail without allocating the whole thing twice.
+    let mut lines: Vec<serde_json::Value> = content
+        .lines()
+        .rev()
+        .take(limit)
+        .filter_map(|l| serde_json::from_str(l).ok())
+        .collect();
+    lines.reverse();
+    Json(json!({
+        "count": lines.len(),
+        "path": path,
+        "entries": lines,
+    }))
+}
+
+/// POST /api/stop — cooperative cancel for any in-flight generation.
+/// Currently a no-op (chat path is synchronous); kept so the UI Stop button
+/// has something to call as streaming is wired in.
+async fn stop_handler() -> impl IntoResponse {
+    info!("// AUDIT: stop requested");
+    Json(json!({ "status": "ok", "note": "no streaming in progress" }))
+}
+
+// ============================================================
+// REST: Desktop tools (Phase 1 of the tool-registry)
+//
+// Safe, visible OS interactions so the AI has a foothold on the host. Each
+// action is authed; each shell invocation is argv-based (never a shell
+// string) and uses a hard-coded binary path or a known program name so it
+// is not susceptible to command injection via user input.
+//
+// DEBIAN-PORTABLE: all binaries listed here (notify-send, xclip, wl-copy,
+// xdg-open, scrot) are available from the base Debian repositories and will
+// be declared as Recommends/Suggests on the eventual .deb.
+// ============================================================
+
+/// GET /api/system/info — portable host + resource snapshot.
+async fn system_info_handler() -> impl IntoResponse {
+    fn read_first_line(p: &str) -> Option<String> {
+        std::fs::read_to_string(p).ok().and_then(|s| s.lines().next().map(|l| l.to_string()))
+    }
+    let hostname = std::fs::read_to_string("/etc/hostname")
+        .map(|s| s.trim().to_string())
+        .or_else(|_| std::env::var("HOSTNAME"))
+        .unwrap_or_else(|_| "unknown".to_string());
+    let kernel = read_first_line("/proc/version").unwrap_or_default();
+    let uptime_secs = std::fs::read_to_string("/proc/uptime").ok()
+        .and_then(|s| s.split_whitespace().next().map(|t| t.to_string()))
+        .and_then(|t| t.parse::<f64>().ok())
+        .map(|f| f as u64);
+    let os_release = std::fs::read_to_string("/etc/os-release").unwrap_or_default();
+    let pretty_name = os_release.lines()
+        .find(|l| l.starts_with("PRETTY_NAME="))
+        .map(|l| l.trim_start_matches("PRETTY_NAME=").trim_matches('"').to_string())
+        .unwrap_or_default();
+    let cpu_model = std::fs::read_to_string("/proc/cpuinfo").ok()
+        .and_then(|c| c.lines()
+            .find(|l| l.starts_with("model name"))
+            .map(|l| l.split(':').nth(1).unwrap_or("").trim().to_string()));
+    let ncpu = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(0);
+    let (ram_avail, ram_total) = {
+        let mut avail = 0u64; let mut total = 0u64;
+        if let Ok(c) = std::fs::read_to_string("/proc/meminfo") {
+            for l in c.lines() {
+                let parts: Vec<&str> = l.split_whitespace().collect();
+                if parts.len() < 2 { continue; }
+                let kb: u64 = parts[1].parse().unwrap_or(0);
+                if l.starts_with("MemAvailable:") { avail = kb; }
+                else if l.starts_with("MemTotal:") { total = kb; }
+            }
+        }
+        (avail, total)
+    };
+    // Disk usage of /
+    let (disk_total, disk_free) = match rustix_like_statvfs("/") {
+        Some((t, f)) => (t, f),
+        None => (0, 0),
+    };
+    Json(json!({
+        "hostname": hostname,
+        "kernel": kernel,
+        "uptime_secs": uptime_secs,
+        "os": pretty_name,
+        "cpu_model": cpu_model,
+        "cpu_count": ncpu,
+        "ram_total_kb": ram_total,
+        "ram_available_kb": ram_avail,
+        "disk_root_total_bytes": disk_total,
+        "disk_root_free_bytes": disk_free,
+    }))
+}
+
+/// Best-effort statvfs via `df -k --output=size,avail`. Falls back silently.
+fn rustix_like_statvfs(path: &str) -> Option<(u64, u64)> {
+    let out = std::process::Command::new("df")
+        .args(["-k", "--output=size,avail", path])
+        .output().ok()?;
+    if !out.status.success() { return None; }
+    let text = String::from_utf8_lossy(&out.stdout);
+    let mut lines = text.lines(); lines.next()?; // header
+    let line = lines.next()?;
+    let cols: Vec<&str> = line.split_whitespace().collect();
+    if cols.len() < 2 { return None; }
+    let total_kb: u64 = cols[0].parse().ok()?;
+    let avail_kb: u64 = cols[1].parse().ok()?;
+    Some((total_kb * 1024, avail_kb * 1024))
+}
+
+#[derive(serde::Deserialize)]
+pub struct NotifyRequest { pub title: String, pub body: String }
+
+/// POST /api/system/notify — desktop notification via notify-send. Requires
+/// auth so randoms on the LAN can't spam the user. Title/body length-capped.
+async fn system_notify_handler(
+    State(state): State<Arc<AppState>>,
+    Json(req): Json<NotifyRequest>,
+) -> impl IntoResponse {
+    let agent = state.agent.lock();
+    if !agent.authenticated {
+        return Json(json!({ "status": "rejected", "reason": "not authenticated" }));
+    }
+    drop(agent);
+    let title = req.title.chars().take(120).collect::<String>();
+    let body = req.body.chars().take(800).collect::<String>();
+    let out = std::process::Command::new("notify-send")
+        .args(["-a", "PlausiDen AI", &title, &body])
+        .output();
+    match out {
+        Ok(o) if o.status.success() => Json(json!({ "status": "ok" })),
+        Ok(o) => Json(json!({
+            "status": "error",
+            "reason": String::from_utf8_lossy(&o.stderr).to_string(),
+        })),
+        Err(e) => Json(json!({
+            "status": "error",
+            "reason": format!("notify-send unavailable: {}", e),
+        })),
+    }
+}
+
+/// GET /api/system/clipboard — read clipboard via wl-paste (Wayland) or
+/// xclip (X11). Tries Wayland first, falls back to X11.
+async fn clipboard_get_handler(
+    State(state): State<Arc<AppState>>,
+) -> impl IntoResponse {
+    let agent = state.agent.lock();
+    if !agent.authenticated {
+        return Json(json!({ "status": "rejected", "reason": "not authenticated" }));
+    }
+    drop(agent);
+    let wayland = std::process::Command::new("wl-paste")
+        .arg("--no-newline").output();
+    if let Ok(o) = wayland {
+        if o.status.success() && !o.stdout.is_empty() {
+            return Json(json!({
+                "status": "ok", "source": "wayland",
+                "text": String::from_utf8_lossy(&o.stdout).to_string(),
+            }));
+        }
+    }
+    let x11 = std::process::Command::new("xclip")
+        .args(["-selection", "clipboard", "-o"]).output();
+    match x11 {
+        Ok(o) if o.status.success() => Json(json!({
+            "status": "ok", "source": "x11",
+            "text": String::from_utf8_lossy(&o.stdout).to_string(),
+        })),
+        Ok(_) => Json(json!({ "status": "error", "reason": "clipboard empty" })),
+        Err(e) => Json(json!({ "status": "error", "reason": format!("no clipboard tool: {}", e) })),
+    }
+}
+
+#[derive(serde::Deserialize)]
+pub struct ClipboardSetRequest { pub text: String }
+
+/// POST /api/system/clipboard — write to the system clipboard.
+async fn clipboard_set_handler(
+    State(state): State<Arc<AppState>>,
+    Json(req): Json<ClipboardSetRequest>,
+) -> impl IntoResponse {
+    let agent = state.agent.lock();
+    if !agent.authenticated {
+        return Json(json!({ "status": "rejected", "reason": "not authenticated" }));
+    }
+    drop(agent);
+    if req.text.len() > 1_000_000 {
+        return Json(json!({ "status": "rejected", "reason": "text > 1 MB" }));
+    }
+    use std::io::Write;
+    // Try Wayland first.
+    if let Ok(mut child) = std::process::Command::new("wl-copy")
+        .stdin(std::process::Stdio::piped()).spawn()
+    {
+        if let Some(mut stdin) = child.stdin.take() {
+            let _ = stdin.write_all(req.text.as_bytes());
+        }
+        if let Ok(s) = child.wait() { if s.success() {
+            return Json(json!({ "status": "ok", "source": "wayland" }));
+        }}
+    }
+    if let Ok(mut child) = std::process::Command::new("xclip")
+        .args(["-selection", "clipboard"])
+        .stdin(std::process::Stdio::piped()).spawn()
+    {
+        if let Some(mut stdin) = child.stdin.take() {
+            let _ = stdin.write_all(req.text.as_bytes());
+        }
+        if let Ok(s) = child.wait() { if s.success() {
+            return Json(json!({ "status": "ok", "source": "x11" }));
+        }}
+    }
+    Json(json!({ "status": "error", "reason": "no clipboard tool available (install wl-clipboard or xclip)" }))
+}
+
+// ============================================================
+// REST: Conversations (server-side persistence per Bible §4.2)
+// ============================================================
+
+/// GET /api/conversations — list all conversations (metadata only).
+async fn conversations_list_handler(
+    State(state): State<Arc<AppState>>,
+) -> impl IntoResponse {
+    let convos = state.db.get_conversations();
+    let list: Vec<serde_json::Value> = convos.iter().map(|(id, title, pinned, starred, updated)| {
+        json!({ "id": id, "title": title, "pinned": pinned, "starred": starred, "updated_at": updated })
+    }).collect();
+    Json(json!({ "count": list.len(), "conversations": list }))
+}
+
+/// GET /api/conversations/:id — fetch a single conversation with all messages.
+async fn conversation_get_handler(
+    State(state): State<Arc<AppState>>,
+    axum::extract::Path(id): axum::extract::Path<String>,
+) -> impl IntoResponse {
+    let messages = state.db.get_messages(&id);
+    let msgs: Vec<serde_json::Value> = messages.iter().map(|(role, content, ts, meta)| {
+        let mut m = json!({ "role": role, "content": content, "timestamp": ts });
+        if let Some(meta_str) = meta {
+            if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(meta_str) {
+                m["meta"] = parsed;
+            }
+        }
+        m
+    }).collect();
+    Json(json!({ "id": id, "messages": msgs, "count": msgs.len() }))
+}
+
+#[derive(serde::Deserialize)]
+pub struct ConversationSyncPayload {
+    pub id: String,
+    pub title: String,
+    #[serde(default)]
+    pub pinned: bool,
+    #[serde(default)]
+    pub starred: bool,
+    pub messages: Vec<SyncMessage>,
+}
+
+#[derive(serde::Deserialize)]
+pub struct SyncMessage {
+    pub role: String,
+    pub content: String,
+    pub timestamp: i64,
+}
+
+/// POST /api/conversations/sync — bulk sync a conversation from the frontend.
+/// Replaces existing messages for this conversation ID.
+async fn conversations_sync_handler(
+    State(state): State<Arc<AppState>>,
+    Json(req): Json<ConversationSyncPayload>,
+) -> impl IntoResponse {
+    if req.id.is_empty() || req.id.len() > 100 {
+        return Json(json!({ "status": "error", "reason": "invalid id" }));
+    }
+    // Save conversation metadata
+    state.db.save_conversation(&req.id, &req.title, req.pinned, req.starred);
+    // Clear existing messages and re-insert (simple full-replace sync)
+    {
+        let conn = state.db.conn.lock().unwrap();
+        let _ = conn.execute("DELETE FROM messages WHERE conversation_id = ?1", params![req.id]);
+    }
+    for msg in &req.messages {
+        state.db.save_message(&req.id, &msg.role, &msg.content, msg.timestamp, None);
+    }
+    info!("// PERSISTENCE: synced conversation {} ({} messages)", req.id, req.messages.len());
+    Json(json!({ "status": "ok", "id": req.id, "messages_synced": req.messages.len() }))
+}
+
+/// DELETE /api/conversations/:id — delete a conversation and its messages.
+async fn conversation_delete_handler(
+    State(state): State<Arc<AppState>>,
+    axum::extract::Path(id): axum::extract::Path<String>,
+) -> impl IntoResponse {
+    state.db.delete_conversation(&id);
+    info!("// PERSISTENCE: deleted conversation {}", id);
+    Json(json!({ "status": "ok", "deleted": id }))
+}
+
+// ============================================================
+// REST: Deep Research (multi-source web agent)
+// Per Bible §3.3.4 Skills: "Research — multi-step web search →
+// source evaluation → synthesis → citation."
+// ============================================================
+
+#[derive(serde::Deserialize)]
+pub struct ResearchRequest { pub query: String, #[serde(default = "default_depth")] pub depth: usize }
+fn default_depth() -> usize { 3 }
+
+/// POST /api/research — deep multi-source research with citations.
+/// Fires N parallel searches with query variations, cross-references results,
+/// synthesizes a cited summary. Returns sources with trust scores.
+async fn research_handler(
+    State(state): State<Arc<AppState>>,
+    Json(req): Json<ResearchRequest>,
+) -> impl IntoResponse {
+    if req.query.is_empty() || req.query.len() > 4096 {
+        return Json(json!({ "status": "error", "reason": "query must be 1-4096 chars" }));
+    }
+    let depth = req.depth.min(5).max(1);
+    info!("// AUDIT: Deep research: '{}' depth={}", crate::truncate_str(&req.query, 60), depth);
+    state.metrics.inc_counter("lfi_research_total", &[], 1);
+
+    // Generate query variations for breadth
+    let variations: Vec<String> = {
+        let base = req.query.clone();
+        let mut v = vec![base.clone()];
+        // Add perspective variations
+        if depth >= 2 { v.push(format!("{} explained simply", base)); }
+        if depth >= 3 { v.push(format!("{} pros and cons", base)); }
+        if depth >= 4 { v.push(format!("{} latest research 2026", base)); }
+        if depth >= 5 { v.push(format!("{} common misconceptions", base)); }
+        v
+    };
+
+    // Run searches sequentially (could be parallel with tokio::spawn but
+    // the search engine holds a lock internally)
+    let mut all_sources: Vec<serde_json::Value> = Vec::new();
+    let mut summaries: Vec<String> = Vec::new();
+    let mut total_trust = 0.0f64;
+
+    for (i, query) in variations.iter().enumerate() {
+        match state.search_engine.search(query) {
+            Ok(result) => {
+                let trust = result.cross_reference_trust;
+                total_trust += trust;
+                summaries.push(result.best_summary.clone());
+                all_sources.push(json!({
+                    "query": query,
+                    "summary": crate::truncate_str(&result.best_summary, 500),
+                    "source_count": result.source_count,
+                    "trust": trust,
+                    "citation_index": i + 1,
+                }));
+            }
+            Err(e) => {
+                all_sources.push(json!({
+                    "query": query,
+                    "error": format!("{:?}", e),
+                    "citation_index": i + 1,
+                }));
+            }
+        }
+    }
+
+    let source_count = all_sources.len();
+    let avg_trust = if source_count > 0 { total_trust / source_count as f64 } else { 0.0 };
+
+    // Synthesize: combine summaries with citation markers
+    let synthesis = if summaries.is_empty() {
+        "No results found. The search may have failed or the topic may not have web coverage.".to_string()
+    } else {
+        let mut out = String::new();
+        for (i, s) in summaries.iter().enumerate() {
+            if !s.is_empty() {
+                if !out.is_empty() { out.push_str("\n\n"); }
+                out.push_str(&format!("{} [{}]", s, i + 1));
+            }
+        }
+        if out.is_empty() {
+            "Search returned results but no usable summaries.".to_string()
+        } else {
+            out
+        }
+    };
+
+    // Persist to brain.db as a research fact
+    let fact_key = format!("research_{}", req.query.chars().take(40).collect::<String>().replace(' ', "_"));
+    state.db.upsert_fact(&fact_key, &crate::truncate_str(&synthesis, 500), "web_research", avg_trust);
+
+    Json(json!({
+        "status": "ok",
+        "query": req.query,
+        "depth": depth,
+        "synthesis": synthesis,
+        "sources": all_sources,
+        "source_count": source_count,
+        "avg_trust": avg_trust,
+    }))
+}
+
+/// GET /api/training/status — training pipeline status from brain.db + log files.
+async fn training_status_handler(
+    State(state): State<Arc<AppState>>,
+) -> impl IntoResponse {
+    let db = &state.db;
+    let history = db.get_training_history(50);
+    let facts_count = db.get_all_facts().len();
+
+    // Read training state file if it exists
+    let state_json = std::fs::read_to_string("/var/log/lfi/training_state.json")
+        .unwrap_or_else(|_| "{}".to_string());
+    let domain_state: serde_json::Value = serde_json::from_str(&state_json).unwrap_or(json!({}));
+
+    // Read last 20 lines of training.jsonl
+    let recent_cycles: Vec<String> = std::fs::read_to_string("/var/log/lfi/training.jsonl")
+        .unwrap_or_default()
+        .lines().rev().take(20)
+        .map(|s| s.to_string())
+        .collect();
+
+    Json(json!({
+        "facts_in_db": facts_count,
+        "training_history": history.iter().map(|(domain, acc, total, correct, ts)| json!({
+            "domain": domain, "accuracy": acc, "total": total, "correct": correct, "timestamp": ts,
+        })).collect::<Vec<_>>(),
+        "domain_state": domain_state,
+        "recent_cycles": recent_cycles,
+        "trainer_running": std::process::Command::new("pgrep")
+            .args(["-f", "train_adaptive"])
+            .output().map(|o| o.status.success()).unwrap_or(false),
+    }))
+}
+
+// ============================================================
+// REST: Desktop Automation (Phase 2 — mouse/keyboard/screenshot)
+// Per Bible §3.5 Tool System + Architectural Bible
+// All gated behind auth. All logged to audit trail.
+// ============================================================
+
+#[derive(serde::Deserialize)]
+pub struct ClickRequest { pub x: i32, pub y: i32, #[serde(default = "default_button")] pub button: u32 }
+fn default_button() -> u32 { 1 }
+
+/// POST /api/system/click — click at screen coordinates via xdotool.
+async fn system_click_handler(
+    State(state): State<Arc<AppState>>,
+    Json(req): Json<ClickRequest>,
+) -> impl IntoResponse {
+    let agent = state.agent.lock();
+    if !agent.authenticated { return Json(json!({ "status": "rejected", "reason": "not authenticated" })); }
+    drop(agent);
+    info!("// AUDIT: desktop click at ({},{}) button={}", req.x, req.y, req.button);
+    let out = std::process::Command::new("xdotool")
+        .args(["mousemove", "--sync", &req.x.to_string(), &req.y.to_string(),
+               "click", &req.button.to_string()])
+        .output();
+    match out {
+        Ok(o) if o.status.success() => Json(json!({ "status": "ok", "x": req.x, "y": req.y })),
+        Ok(o) => Json(json!({ "status": "error", "reason": String::from_utf8_lossy(&o.stderr).to_string() })),
+        Err(e) => Json(json!({ "status": "error", "reason": format!("xdotool unavailable: {}", e) })),
+    }
+}
+
+#[derive(serde::Deserialize)]
+pub struct TypeRequest { pub text: String }
+
+/// POST /api/system/type — type text via xdotool.
+async fn system_type_handler(
+    State(state): State<Arc<AppState>>,
+    Json(req): Json<TypeRequest>,
+) -> impl IntoResponse {
+    let agent = state.agent.lock();
+    if !agent.authenticated { return Json(json!({ "status": "rejected", "reason": "not authenticated" })); }
+    drop(agent);
+    if req.text.len() > 5000 { return Json(json!({ "status": "error", "reason": "text > 5000 chars" })); }
+    info!("// AUDIT: desktop type {} chars", req.text.len());
+    let out = std::process::Command::new("xdotool")
+        .args(["type", "--clearmodifiers", "--delay", "10", &req.text])
+        .output();
+    match out {
+        Ok(o) if o.status.success() => Json(json!({ "status": "ok", "chars": req.text.len() })),
+        Ok(o) => Json(json!({ "status": "error", "reason": String::from_utf8_lossy(&o.stderr).to_string() })),
+        Err(e) => Json(json!({ "status": "error", "reason": format!("{}", e) })),
+    }
+}
+
+#[derive(serde::Deserialize)]
+pub struct KeyRequest { pub keys: String }
+
+/// POST /api/system/key — send key combination via xdotool (e.g., "ctrl+c", "Return").
+async fn system_key_handler(
+    State(state): State<Arc<AppState>>,
+    Json(req): Json<KeyRequest>,
+) -> impl IntoResponse {
+    let agent = state.agent.lock();
+    if !agent.authenticated { return Json(json!({ "status": "rejected", "reason": "not authenticated" })); }
+    drop(agent);
+    info!("// AUDIT: desktop key '{}'", req.keys);
+    let out = std::process::Command::new("xdotool")
+        .args(["key", "--clearmodifiers", &req.keys])
+        .output();
+    match out {
+        Ok(o) if o.status.success() => Json(json!({ "status": "ok", "keys": req.keys })),
+        Ok(o) => Json(json!({ "status": "error", "reason": String::from_utf8_lossy(&o.stderr).to_string() })),
+        Err(e) => Json(json!({ "status": "error", "reason": format!("{}", e) })),
+    }
+}
+
+/// GET /api/system/screenshot — capture screen via scrot, return as base64 PNG.
+async fn system_screenshot_handler(
+    State(state): State<Arc<AppState>>,
+) -> impl IntoResponse {
+    let agent = state.agent.lock();
+    if !agent.authenticated { return Json(json!({ "status": "rejected", "reason": "not authenticated" })); }
+    drop(agent);
+    let path = "/tmp/plausiden_screenshot.png";
+    let out = std::process::Command::new("scrot")
+        .args(["-o", path])
+        .output();
+    match out {
+        Ok(o) if o.status.success() => {
+            match std::fs::read(path) {
+                Ok(bytes) => {
+                    use std::io::Write;
+                    let b64 = {
+                        // Manual base64 encode — minimal, no extra dep
+                        const CHARS: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+                        let mut out = String::with_capacity(bytes.len() * 4 / 3 + 4);
+                        for chunk in bytes.chunks(3) {
+                            let b = [chunk.get(0).copied().unwrap_or(0), chunk.get(1).copied().unwrap_or(0), chunk.get(2).copied().unwrap_or(0)];
+                            out.push(CHARS[((b[0] >> 2) & 0x3f) as usize] as char);
+                            out.push(CHARS[(((b[0] & 0x3) << 4) | (b[1] >> 4)) as usize] as char);
+                            if chunk.len() > 1 { out.push(CHARS[(((b[1] & 0xf) << 2) | (b[2] >> 6)) as usize] as char); } else { out.push('='); }
+                            if chunk.len() > 2 { out.push(CHARS[(b[2] & 0x3f) as usize] as char); } else { out.push('='); }
+                        }
+                        out
+                    };
+                    info!("// AUDIT: screenshot captured, {} bytes", bytes.len());
+                    Json(json!({ "status": "ok", "format": "png", "size": bytes.len(), "data_base64": b64 }))
+                }
+                Err(e) => Json(json!({ "status": "error", "reason": format!("read failed: {}", e) })),
+            }
+        }
+        Ok(o) => Json(json!({ "status": "error", "reason": String::from_utf8_lossy(&o.stderr).to_string() })),
+        Err(e) => Json(json!({ "status": "error", "reason": format!("scrot unavailable: {}", e) })),
+    }
+}
+
+/// GET /api/system/apps — catalogue of installed .desktop apps.
+/// Scans standard XDG directories, parses Desktop Entry files, returns
+/// a sorted list the AI (or UI) can use to launch or reference apps.
+async fn system_apps_handler() -> impl IntoResponse {
+    let dirs = [
+        "/usr/share/applications",
+        "/usr/local/share/applications",
+        "/var/lib/snapd/desktop/applications",
+    ];
+    // Also check user-local
+    let home = std::env::var("HOME").unwrap_or_else(|_| "/root".to_string());
+    let user_dir = format!("{}/.local/share/applications", home);
+
+    let mut apps: Vec<serde_json::Value> = Vec::new();
+    for dir in dirs.iter().chain(std::iter::once(&user_dir.as_str())) {
+        let entries = match std::fs::read_dir(dir) {
+            Ok(e) => e,
+            Err(_) => continue,
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.extension().and_then(|e| e.to_str()) != Some("desktop") { continue; }
+            if let Ok(content) = std::fs::read_to_string(&path) {
+                let mut name = String::new();
+                let mut exec = String::new();
+                let mut icon = String::new();
+                let mut categories = String::new();
+                let mut comment = String::new();
+                let mut no_display = false;
+                for line in content.lines() {
+                    if line.starts_with("Name=") { name = line[5..].to_string(); }
+                    else if line.starts_with("Exec=") { exec = line[5..].to_string(); }
+                    else if line.starts_with("Icon=") { icon = line[5..].to_string(); }
+                    else if line.starts_with("Categories=") { categories = line[11..].to_string(); }
+                    else if line.starts_with("Comment=") { comment = line[8..].to_string(); }
+                    else if line.starts_with("NoDisplay=true") { no_display = true; }
+                }
+                if name.is_empty() || no_display { continue; }
+                // Strip field codes from Exec (%f, %F, %u, %U, etc.)
+                let exec_clean: String = exec.split_whitespace()
+                    .filter(|t| !t.starts_with('%'))
+                    .collect::<Vec<_>>().join(" ");
+                apps.push(json!({
+                    "name": name,
+                    "exec": exec_clean,
+                    "icon": icon,
+                    "categories": categories,
+                    "comment": comment,
+                    "file": path.display().to_string(),
+                }));
+            }
+        }
+    }
+    apps.sort_by(|a, b| {
+        a["name"].as_str().unwrap_or("").to_lowercase()
+            .cmp(&b["name"].as_str().unwrap_or("").to_lowercase())
+    });
+    Json(json!({ "count": apps.len(), "apps": apps }))
+}
+
+/// POST /api/system/launch — launch a desktop app by name or exec path.
+/// Uses `setsid` + `xdg-open` or direct exec so the app doesn't die when
+/// the server restarts. Auth required.
+#[derive(serde::Deserialize)]
+pub struct LaunchRequest { pub app: String }
+
+async fn system_launch_handler(
+    State(state): State<Arc<AppState>>,
+    Json(req): Json<LaunchRequest>,
+) -> impl IntoResponse {
+    let agent = state.agent.lock();
+    if !agent.authenticated {
+        return Json(json!({ "status": "rejected", "reason": "not authenticated" }));
+    }
+    drop(agent);
+    if req.app.is_empty() || req.app.len() > 500 {
+        return Json(json!({ "status": "error", "reason": "invalid app" }));
+    }
+    // Try xdg-open first (handles .desktop files and URLs), fall back to direct exec.
+    let result = std::process::Command::new("setsid")
+        .args(["xdg-open", &req.app])
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn();
+    match result {
+        Ok(_) => {
+            info!("// AUDIT: Launched app: {}", req.app);
+            Json(json!({ "status": "ok", "launched": req.app }))
+        }
+        Err(e) => Json(json!({ "status": "error", "reason": format!("{}", e) })),
+    }
 }
 
 // ============================================================
@@ -921,11 +1670,41 @@ pub fn create_router() -> Result<Router, Box<dyn std::error::Error>> {
     metrics.register_help("lfi_opsec_scan_total",
         "Total POST /api/opsec/scan calls (PII redaction)");
 
+    // Open the persistent brain database. Facts learned during conversation
+    // survive server restarts — per Architectural Bible §4.2.
+    let db_path = crate::persistence::BrainDb::default_path();
+    let db = Arc::new(crate::persistence::BrainDb::open(&db_path)
+        .unwrap_or_else(|e| {
+            warn!("// PERSISTENCE: Failed to open {}: {} — using fallback /tmp", db_path.display(), e);
+            crate::persistence::BrainDb::open(std::path::Path::new("/tmp/plausiden_brain.db")).expect("fallback DB must open")
+        }));
+
+    // Hydrate agent facts from the persistent store. With 40M+ facts in the DB,
+    // loading everything into memory is infeasible. We hydrate only user-extracted
+    // facts and recent high-priority facts. The full DB is queried on demand.
+    // BUG ASSUMPTION: get_all_facts on a 40M row table causes multi-minute startup
+    // delay and potential OOM. Capped hydration fixes this.
+    let agent = Mutex::new(agent);
+    {
+        let mut agent_lock = agent.lock();
+        let hydration_facts = db.get_recent_facts(10_000);
+        for (key, value, _source, _conf) in &hydration_facts {
+            agent_lock.conversation_facts.insert(key.clone(), value.clone());
+            let mut guard = agent_lock.shared_knowledge.lock();
+            guard.store.upsert_fact(key, value);
+        }
+        let count = agent_lock.conversation_facts.len();
+        if count > 0 {
+            info!("// PERSISTENCE: Hydrated {} facts from brain.db (capped for startup speed)", count);
+        }
+    }
+
     let state = Arc::new(AppState {
         tx,
-        agent: Mutex::new(agent),
+        agent,
         search_engine: WebSearchEngine::new(),
         metrics,
+        db,
     });
 
     let cors = CorsLayer::permissive();
@@ -942,6 +1721,22 @@ pub fn create_router() -> Result<Router, Box<dyn std::error::Error>> {
         .route("/api/health", get(health_handler))
         .route("/api/metrics", get(metrics_handler))
         .route("/api/agent/state", get(agent_state_handler))
+        .route("/api/chat-log", get(chat_log_handler))
+        .route("/api/stop", post(stop_handler))
+        .route("/api/system/info", get(system_info_handler))
+        .route("/api/system/notify", post(system_notify_handler))
+        .route("/api/system/clipboard", get(clipboard_get_handler).post(clipboard_set_handler))
+        .route("/api/conversations", get(conversations_list_handler))
+        .route("/api/conversations/sync", post(conversations_sync_handler))
+        .route("/api/conversations/:id", get(conversation_get_handler).delete(conversation_delete_handler))
+        .route("/api/research", post(research_handler))
+        .route("/api/training/status", get(training_status_handler))
+        .route("/api/system/click", post(system_click_handler))
+        .route("/api/system/type", post(system_type_handler))
+        .route("/api/system/key", post(system_key_handler))
+        .route("/api/system/screenshot", get(system_screenshot_handler))
+        .route("/api/system/apps", get(system_apps_handler))
+        .route("/api/system/launch", post(system_launch_handler))
         .route("/api/think", post(think_handler))
         .route("/api/audit", post(audit_handler))
         .route("/api/opsec/scan", post(opsec_scan_handler))

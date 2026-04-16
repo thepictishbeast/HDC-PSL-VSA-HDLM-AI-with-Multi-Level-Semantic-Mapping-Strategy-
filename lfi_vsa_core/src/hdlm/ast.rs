@@ -370,4 +370,82 @@ mod tests {
         node_parent.children.push(0);
         assert!(!node_parent.is_leaf());
     }
+
+    // ============================================================
+    // Stress / invariant tests for Ast
+    // ============================================================
+
+    /// INVARIANT: add_node assigns sequential IDs starting at 0.
+    #[test]
+    fn invariant_add_node_sequential_ids() {
+        let mut ast = Ast::new();
+        for i in 0..10 {
+            let id = ast.add_node(NodeKind::Literal { value: format!("{}", i) });
+            assert_eq!(id, i, "sequential IDs not preserved: got {} at step {}", id, i);
+        }
+    }
+
+    /// INVARIANT: add_child rejects self-reference and out-of-bounds IDs.
+    #[test]
+    fn invariant_add_child_rejects_invalid() {
+        let mut ast = Ast::new();
+        let a = ast.add_node(NodeKind::Root);
+        assert!(ast.add_child(a, a).is_err(), "self-reference should be rejected");
+        assert!(ast.add_child(999, 0).is_err(), "out-of-bounds parent rejected");
+        assert!(ast.add_child(0, 999).is_err(), "out-of-bounds child rejected");
+    }
+
+    /// INVARIANT: dfs and bfs visit exactly the reachable nodes.
+    #[test]
+    fn invariant_dfs_bfs_same_reachable_set() -> Result<(), Box<dyn std::error::Error>> {
+        let mut ast = Ast::new();
+        let root = ast.add_node(NodeKind::Root);
+        let a = ast.add_node(NodeKind::Phrase { text: "a".into() });
+        let b = ast.add_node(NodeKind::Phrase { text: "b".into() });
+        ast.add_child(root, a)?;
+        ast.add_child(root, b)?;
+
+        let dfs: std::collections::HashSet<_> = ast.dfs()?.into_iter().collect();
+        let bfs: std::collections::HashSet<_> = ast.bfs()?.into_iter().collect();
+        assert_eq!(dfs, bfs, "dfs and bfs should visit same node set");
+        Ok(())
+    }
+
+    /// INVARIANT: empty AST dfs/bfs returns EmptyAst error.
+    #[test]
+    fn invariant_empty_ast_traversals_fail() {
+        let ast = Ast::new();
+        assert!(ast.dfs().is_err(), "dfs on empty ast should error");
+        assert!(ast.bfs().is_err(), "bfs on empty ast should error");
+    }
+
+    /// INVARIANT: leaf_count + non_leaf_count == total node count.
+    #[test]
+    fn invariant_leaf_count_plus_non_leaf_equals_total() -> Result<(), Box<dyn std::error::Error>> {
+        let mut ast = Ast::new();
+        let root = ast.add_node(NodeKind::Root);
+        let c1 = ast.add_node(NodeKind::Phrase { text: "c1".into() });
+        let c2 = ast.add_node(NodeKind::Phrase { text: "c2".into() });
+        ast.add_child(root, c1)?;
+        ast.add_child(root, c2)?;
+        let total = ast.node_count();
+        let leaves = ast.leaf_count();
+        assert!(leaves <= total);
+        // c1, c2 are leaves; root is not -> leaves=2, non_leaves=1
+        assert_eq!(leaves, 2);
+        Ok(())
+    }
+
+    /// INVARIANT: add_node_with_hv stores fingerprint and returns sequential id.
+    #[test]
+    fn invariant_add_with_hv_stores_fingerprint() -> Result<(), Box<dyn std::error::Error>> {
+        let mut ast = Ast::new();
+        let hv = BipolarVector::new_random()
+            .map_err(|e| Box::new(e) as Box<dyn std::error::Error>)?;
+        let id = ast.add_node_with_hv(NodeKind::Literal { value: "x".into() }, hv);
+        assert_eq!(id, 0);
+        let node = ast.get_node(id).unwrap();
+        assert!(node.hv_fingerprint.is_some());
+        Ok(())
+    }
 }

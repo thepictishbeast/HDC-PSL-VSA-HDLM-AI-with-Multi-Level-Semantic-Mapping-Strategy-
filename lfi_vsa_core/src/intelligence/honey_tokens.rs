@@ -583,4 +583,125 @@ mod tests {
         let fired = registry.check(&observed, "attacker dump");
         assert_eq!(fired.len(), 2, "Should detect both tokens");
     }
+
+    // ============================================================
+    // Stress / invariant tests for honey_tokens
+    // ============================================================
+
+    /// INVARIANT: HoneyTokenGenerator with the same seed produces the same
+    /// tokens — analysts can re-derive the trap inventory.
+    #[test]
+    fn invariant_generator_deterministic_per_seed() {
+        let mut g1 = HoneyTokenGenerator::new(42);
+        let mut g2 = HoneyTokenGenerator::new(42);
+        let t1 = g1.aws_access_key("prod");
+        let t2 = g2.aws_access_key("prod");
+        assert_eq!(t1.value, t2.value,
+            "same seed must yield same AWS key");
+        let g1_gh = g1.github_token("prod");
+        let g2_gh = g2.github_token("prod");
+        assert_eq!(g1_gh.value, g2_gh.value,
+            "same seed must yield same GitHub token");
+    }
+
+    /// INVARIANT: different seeds produce different tokens (no collision).
+    #[test]
+    fn invariant_generator_seeds_diverge() {
+        let mut g1 = HoneyTokenGenerator::new(1);
+        let mut g2 = HoneyTokenGenerator::new(2);
+        assert_ne!(g1.aws_access_key("p").value, g2.aws_access_key("p").value);
+        assert_ne!(g1.github_token("p").value, g2.github_token("p").value);
+        assert_ne!(g1.openai_key("p").value, g2.openai_key("p").value);
+    }
+
+    /// INVARIANT: registry register() returns a unique id per token.
+    /// Duplicate ids would defeat audit correlation.
+    #[test]
+    fn invariant_registry_ids_unique() {
+        let mut g = HoneyTokenGenerator::new(7);
+        let mut reg = HoneyTokenRegistry::new();
+        let mut seen = std::collections::HashSet::new();
+        for i in 0..30 {
+            let token = g.aws_access_key(&format!("dep_{}", i));
+            let id = reg.register(token);
+            assert!(seen.insert(id.clone()),
+                "duplicate honey-token id at iter {}: {}", i, id);
+        }
+    }
+
+    /// INVARIANT: get(id) returns Some only for registered tokens.
+    #[test]
+    fn invariant_get_matches_register() {
+        let mut g = HoneyTokenGenerator::new(11);
+        let mut reg = HoneyTokenRegistry::new();
+        let id = reg.register(g.aws_access_key("d"));
+        assert!(reg.get(&id).is_some(), "registered id must be retrievable");
+        assert!(reg.get("nonexistent_id").is_none(),
+            "unregistered id must return None");
+    }
+
+    /// INVARIANT: check() never panics on arbitrary unicode / control bytes.
+    #[test]
+    fn invariant_check_safe_on_unicode() {
+        let mut g = HoneyTokenGenerator::new(13);
+        let mut reg = HoneyTokenRegistry::new();
+        reg.register(g.aws_access_key("d"));
+        let inputs = [
+            "",
+            "アリス",
+            "🦀🦀🦀",
+            "control: \x00\x01\x1f",
+            &"x".repeat(100_000),
+        ];
+        for input in inputs {
+            // Must not panic.
+            let _ = reg.check(input, "test");
+        }
+    }
+
+    /// INVARIANT: check() only fires when the token's value appears verbatim
+    /// — partial matches must NOT trigger (false-positive avoidance).
+    #[test]
+    fn invariant_no_partial_match_false_positives() {
+        let mut g = HoneyTokenGenerator::new(17);
+        let mut reg = HoneyTokenRegistry::new();
+        let token = g.aws_access_key("d");
+        let value = token.value.clone();
+        reg.register(token);
+        // First half of the value alone must not fire.
+        let half_len = value.len() / 2;
+        if half_len > 4 {
+            let half = &value[..half_len];
+            let fired = reg.check(half, "partial");
+            assert!(fired.is_empty(),
+                "partial match must not fire: {:?}", half);
+        }
+    }
+
+    /// INVARIANT: generator is deterministic with same seed.
+    #[test]
+    fn invariant_generator_deterministic() {
+        let mut g1 = HoneyTokenGenerator::new(42);
+        let mut g2 = HoneyTokenGenerator::new(42);
+        let t1 = g1.aws_access_key("prod");
+        let t2 = g2.aws_access_key("prod");
+        assert_eq!(t1.value, t2.value,
+            "same seed must produce same tokens");
+    }
+
+    /// INVARIANT: fresh registry has no fired tokens.
+    #[test]
+    fn invariant_fresh_registry_no_fired_tokens() {
+        let reg = HoneyTokenRegistry::new();
+        let fired = reg.fired_tokens();
+        assert!(fired.is_empty(),
+            "fresh registry should have no fired tokens");
+    }
+
+    /// INVARIANT: get() returns None for unknown IDs.
+    #[test]
+    fn invariant_get_unknown_id_none() {
+        let reg = HoneyTokenRegistry::new();
+        assert!(reg.get("nonexistent_token_id_xxx").is_none());
+    }
 }

@@ -676,4 +676,140 @@ mod tests {
         let result = engine.evaluate_first_match(&huge, &empty_meta());
         assert!(matches!(result.action, Action::Block { .. }));
     }
+
+    // ============================================================
+    // Stress / invariant tests for PolicyEngine
+    // ============================================================
+
+    /// INVARIANT: Always condition always matches; Never always misses.
+    #[test]
+    fn invariant_always_and_never_constants() {
+        let meta = empty_meta();
+        let inputs = ["", "x", "very long text here"];
+        for input in inputs {
+            assert!(Condition::Always.evaluate(input, &meta),
+                "Always should match {:?}", input);
+            assert!(!Condition::Never.evaluate(input, &meta),
+                "Never should not match {:?}", input);
+        }
+    }
+
+    /// INVARIANT: Not inverts every condition.
+    #[test]
+    fn invariant_not_inverts() {
+        let meta = empty_meta();
+        let conds = vec![
+            Condition::Contains("x".into()),
+            Condition::LengthGt(5),
+            Condition::Always,
+            Condition::Never,
+        ];
+        for c in conds {
+            let not_c = Condition::Not(Box::new(c.clone()));
+            for input in ["", "x", "hello"] {
+                assert_eq!(
+                    c.evaluate(input, &meta),
+                    !not_c.evaluate(input, &meta),
+                    "Not did not invert for {:?} / input={:?}", c, input,
+                );
+            }
+        }
+    }
+
+    /// INVARIANT: And is monotone — if And([a,b]) matches, both a and b match.
+    #[test]
+    fn invariant_and_requires_all() {
+        let meta = empty_meta();
+        let conds = vec![
+            Condition::Contains("foo".into()),
+            Condition::LengthGt(3),
+        ];
+        let and = Condition::And(conds.clone());
+        let inputs = ["foo", "foobar", "xy", "fo", ""];
+        for input in inputs {
+            if and.evaluate(input, &meta) {
+                for c in &conds {
+                    assert!(c.evaluate(input, &meta),
+                        "And matched but {:?} didn't for {:?}", c, input);
+                }
+            }
+        }
+    }
+
+    /// INVARIANT: Or matching ⇒ at least one sub-condition matches.
+    #[test]
+    fn invariant_or_requires_any() {
+        let meta = empty_meta();
+        let conds = vec![
+            Condition::Contains("foo".into()),
+            Condition::Contains("bar".into()),
+        ];
+        let or = Condition::Or(conds.clone());
+        let inputs = ["foo", "bar", "foobar", "baz", ""];
+        for input in inputs {
+            if or.evaluate(input, &meta) {
+                assert!(conds.iter().any(|c| c.evaluate(input, &meta)),
+                    "Or matched but no branch did for {:?}", input);
+            }
+        }
+    }
+
+    /// INVARIANT: remove_rule returns true iff the rule was present.
+    #[test]
+    fn invariant_remove_rule_consistency() {
+        let mut engine = PolicyEngine::new();
+        assert!(!engine.remove_rule("ghost"),
+            "remove of non-existent rule should return false");
+        engine.add_rule(Rule::new("test", "d", Condition::Always, Action::Allow));
+        assert!(engine.remove_rule("test"),
+            "remove of existing rule should return true");
+        assert!(!engine.remove_rule("test"),
+            "second remove should return false");
+    }
+
+    /// INVARIANT: set_enabled returns true iff rule exists; disabled rules
+    /// never fire.
+    #[test]
+    fn invariant_disabled_rules_do_not_fire() {
+        let mut engine = PolicyEngine::new();
+        engine.add_rule(
+            Rule::new("r", "d", Condition::Always,
+                Action::Block { reason: "nope".into() })
+                .enabled(false)
+        );
+        let r = engine.evaluate_first_match("anything", &empty_meta());
+        assert!(matches!(r.action, Action::Allow),
+            "disabled rule should not fire; got {:?}", r);
+    }
+
+    /// INVARIANT: evaluate_first_match never panics on unicode / control input.
+    #[test]
+    fn invariant_evaluate_never_panics() {
+        let mut engine = PolicyEngine::with_default_rules();
+        let inputs = vec![
+            "".to_string(),
+            "αβγ".to_string(),
+            "\x00\x01".to_string(),
+            "🦀🦀🦀".to_string(),
+            "x".repeat(50_000),
+        ];
+        for input in &inputs {
+            let _ = engine.evaluate_first_match(input, &empty_meta());
+        }
+    }
+
+    /// INVARIANT: RuleSeverity ordering is total (Info < Low < Medium < High < Critical).
+    #[test]
+    fn invariant_severity_ordering_total() {
+        use RuleSeverity::*;
+        let order = [Info, Low, Medium, High, Critical];
+        for i in 0..order.len() {
+            for j in 0..order.len() {
+                if i < j {
+                    assert!(order[i] < order[j],
+                        "{:?} should be < {:?}", order[i], order[j]);
+                }
+            }
+        }
+    }
 }

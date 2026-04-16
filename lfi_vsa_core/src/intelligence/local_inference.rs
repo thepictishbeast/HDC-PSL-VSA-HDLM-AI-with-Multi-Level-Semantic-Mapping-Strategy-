@@ -1364,4 +1364,81 @@ mod tests {
         assert_eq!(weak[0].1, 2);
         Ok(())
     }
+
+    // ============================================================
+    // Stress / invariant tests for local_inference
+    // ============================================================
+
+    /// INVARIANT: InferenceCache is bounded by max_entries (LRU).
+    #[test]
+    fn invariant_cache_bounded_by_capacity() {
+        let mut cache = InferenceCache::new(10);
+        for i in 0..50 {
+            cache.put(&format!("q{}", i), &format!("a{}", i), "mock");
+        }
+        assert!(cache.len() <= 10,
+            "cache exceeded capacity: {} > 10", cache.len());
+    }
+
+    /// INVARIANT: cache hit_rate always in [0,1].
+    #[test]
+    fn invariant_cache_hit_rate_in_unit_interval() {
+        let mut cache = InferenceCache::new(5);
+        cache.put("q1", "a1", "mock");
+        // Hit
+        let _ = cache.get("q1");
+        // Miss
+        let _ = cache.get("q2");
+        let rate = cache.hit_rate();
+        assert!(rate.is_finite() && (0.0..=1.0).contains(&rate),
+            "hit_rate out of [0,1]: {}", rate);
+    }
+
+    /// INVARIANT: clear() empties the cache.
+    #[test]
+    fn invariant_cache_clear_empties() {
+        let mut cache = InferenceCache::new(10);
+        cache.put("q1", "a1", "mock");
+        cache.put("q2", "a2", "mock");
+        assert!(!cache.is_empty());
+        cache.clear();
+        assert!(cache.is_empty(),
+            "cache should be empty after clear, len={}", cache.len());
+    }
+
+    /// INVARIANT: Default InferenceBackend is Mock.
+    #[test]
+    fn invariant_default_backend_is_mock() {
+        let b = InferenceBackend::default();
+        assert!(matches!(b, InferenceBackend::Mock { .. }),
+            "default backend should be Mock, got {:?}", b);
+    }
+
+    /// INVARIANT: ErrorKind::classify never panics on arbitrary strings.
+    #[test]
+    fn invariant_classify_never_panics() {
+        let inputs: [(&str, &str, &str); 8] = [
+            ("", "", ""),
+            ("short", "long expected answer with many words", "q?"),
+            ("αβγ", "日本語", "question"),
+            ("\x00\x01", "control", "q"),
+            ("I don't know", "answer", "q"),
+            ("2+3=5", "5", "2+3"),
+            ("totally off-topic reply", "sky is blue", "what color is the sky?"),
+            ("", "something", ""),
+        ];
+        for (a, e, q) in inputs {
+            let _ = ErrorKind::classify(a, e, q);
+        }
+    }
+
+    /// INVARIANT: Empty/whitespace answer classifies as Refusal.
+    #[test]
+    fn invariant_empty_answer_refusal() {
+        for blank in ["", "   ", "\n\t", "i don't know"] {
+            let k = ErrorKind::classify(blank, "5", "what is 2+3?");
+            assert_eq!(k, ErrorKind::Refusal,
+                "blank/refusal {:?} should classify as Refusal, got {:?}", blank, k);
+        }
+    }
 }

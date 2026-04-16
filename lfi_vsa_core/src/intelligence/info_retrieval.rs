@@ -861,4 +861,181 @@ mod tests {
             q.query_text.contains("research") || q.query_text.contains("paper"));
         assert!(has_research, "Technical focus should find research queries");
     }
+
+    // ============================================================
+    // Stress / invariant tests for InfoRetrievalEngine
+    // ============================================================
+
+    /// INVARIANT: `plan` always produces at least one query — the raw name
+    /// query is unconditional. Empty plans mean the caller can't make
+    /// progress, which is a design failure.
+    #[test]
+    fn invariant_plan_always_includes_raw_name_query() {
+        let types = [
+            TargetType::Person,
+            TargetType::Organization,
+            TargetType::Event,
+            TargetType::Location,
+            TargetType::Product,
+            TargetType::Topic,
+            TargetType::Unknown,
+        ];
+        for name in ["Alice", "Acme Corp", "CVE-2025-12345", "x"] {
+            for tt in &types {
+                let t = Target::new(name).with_type(tt.clone());
+                let queries = QueryPlanner::plan(&t);
+                assert!(!queries.is_empty(),
+                    "plan must not be empty for target '{}' type {:?}", name, tt);
+                assert!(queries.iter().any(|q| q.query_text == name),
+                    "plan must include the raw name query for '{}'", name);
+            }
+        }
+    }
+
+    /// INVARIANT: every planned query carries a positive priority and a
+    /// non-empty rationale. An unprioritised query is a latent bug — the
+    /// planner reports confidence that doesn't exist.
+    #[test]
+    fn invariant_plan_priorities_and_rationales_well_formed() {
+        let targets = [
+            Target::new("Linux kernel").with_type(TargetType::Product),
+            Target::new("2025 election").with_type(TargetType::Event),
+            Target::new("San Francisco").with_type(TargetType::Location),
+            Target::new("Alan Turing").with_type(TargetType::Person),
+        ];
+        for t in &targets {
+            for q in QueryPlanner::plan(t) {
+                assert!(q.priority > 0.0 && q.priority.is_finite(),
+                    "query priority must be finite + positive: {}", q.priority);
+                assert!(!q.rationale.is_empty(),
+                    "every query needs a rationale");
+                assert!(!q.source_types.is_empty(),
+                    "every query must target at least one source category");
+            }
+        }
+    }
+
+    /// INVARIANT: `ingest_fact` always produces a Fact with finite
+    /// confidence in [0, 1] and a non-empty source/statement.
+    #[test]
+    fn invariant_ingest_fact_returns_well_formed_fact() {
+        let mut eng = InfoRetrievalEngine::new();
+        let sources = ["wikipedia", "news_api", "arxiv", "social_media", "unknown"];
+        for src in sources {
+            let fact = eng.ingest_fact("Alice founded Acme.", src, Some("2024-01-01"));
+            assert!(fact.confidence >= 0.0 && fact.confidence <= 1.0 && fact.confidence.is_finite(),
+                "confidence out of [0,1] or non-finite for source {}: {}", src, fact.confidence);
+            assert!(!fact.statement.is_empty());
+            assert!(!fact.source.is_empty());
+            assert_eq!(fact.date.as_deref(), Some("2024-01-01"));
+        }
+    }
+
+    /// INVARIANT: entity extraction never panics on arbitrary unicode or
+    /// pathological inputs, and every returned entity is non-empty.
+    #[test]
+    fn invariant_extract_entities_safe_on_arbitrary_input() {
+        let weird_inputs = [
+            "",
+            "   ",
+            "ALLCAPS ALLCAPS ALLCAPS",
+            "lowercase only words here",
+            "Mixed Case With Émoji 🦀 and ñoñ-ascii",
+            "Numbers123 456 789Mixed",
+            "A B C D E F",
+            "X",
+            "アリス visited パリ",
+        ];
+        for input in weird_inputs {
+            let entities = InfoRetrievalEngine::extract_entities(input);
+            for e in &entities {
+                assert!(!e.is_empty(),
+                    "extracted entity must not be empty, from input {:?}", input);
+                assert!(e.trim() == e,
+                    "extracted entity must have no leading/trailing whitespace: {:?}", e);
+            }
+        }
+    }
+
+    /// INVARIANT: `build_report` preserves every input fact. Dropping a
+    /// fact silently would corrupt an analyst's understanding.
+    #[test]
+    fn invariant_build_report_preserves_all_facts() {
+        let eng = InfoRetrievalEngine::new();
+        let target = Target::new("Subject").with_type(TargetType::Person);
+        let facts = vec![
+            Fact {
+                statement: "A".into(), source: "wikipedia".into(),
+                source_category: SourceCategory::Community,
+                date: None, entities: vec![],
+                tier: crate::intelligence::epistemic_filter::KnowledgeTier::Plausible,
+                confidence: 0.6,
+            },
+            Fact {
+                statement: "B".into(), source: "arxiv".into(),
+                source_category: SourceCategory::PeerReviewed,
+                date: Some("2024".into()), entities: vec![],
+                tier: crate::intelligence::epistemic_filter::KnowledgeTier::Corroborated,
+                confidence: 0.9,
+            },
+            Fact {
+                statement: "C".into(), source: "social_media".into(),
+                source_category: SourceCategory::Anonymous,
+                date: None, entities: vec![],
+                tier: crate::intelligence::epistemic_filter::KnowledgeTier::Suspect,
+                confidence: 0.1,
+            },
+        ];
+        let report = eng.build_report(target, facts.clone());
+        // Every fact should reach the report — either via the main facts list
+        // or via the by-tier groupings. The sum across tiers should equal 3.
+        let total_by_tier: usize = report.by_tier.values().map(|v| v.len()).sum();
+        assert_eq!(total_by_tier, 3,
+            "build_report must keep all 3 facts in by_tier groups");
+    }
+
+    /// INVARIANT: planning for the same target twice is deterministic.
+    /// An analyst re-running a case should see identical queries.
+    #[test]
+    fn invariant_plan_is_deterministic() {
+        let t = Target::new("TestTarget")
+            .with_type(TargetType::Organization)
+            .with_focus(QueryFocus::Financial)
+            .with_context("context disambiguator");
+        let q1 = QueryPlanner::plan(&t);
+        let q2 = QueryPlanner::plan(&t);
+        assert_eq!(q1.len(), q2.len(),
+            "plan must return the same number of queries each time");
+        for (a, b) in q1.iter().zip(q2.iter()) {
+            assert_eq!(a.query_text, b.query_text);
+            assert_eq!(a.priority, b.priority);
+            assert_eq!(a.rationale, b.rationale);
+        }
+    }
+
+    /// INVARIANT: plan always returns non-empty query list for any target.
+    #[test]
+    fn invariant_plan_always_non_empty() {
+        let targets = [
+            Target::new("Basic"),
+            Target::new("Complex").with_type(TargetType::Person).with_focus(QueryFocus::Technical),
+            Target::new("αβγ").with_context("unicode target"),
+        ];
+        for t in targets {
+            let queries = QueryPlanner::plan(&t);
+            assert!(!queries.is_empty(),
+                "plan should return non-empty queries for {:?}", t.name);
+        }
+    }
+
+    /// INVARIANT: Target builder is chainable.
+    #[test]
+    fn invariant_target_builder_chainable() {
+        let t = Target::new("Test")
+            .with_type(TargetType::Organization)
+            .with_focus(QueryFocus::Financial)
+            .with_context("ctx");
+        assert_eq!(t.name, "Test");
+        assert_eq!(t.target_type, TargetType::Organization);
+    }
 }

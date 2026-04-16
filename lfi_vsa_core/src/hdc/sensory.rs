@@ -245,4 +245,44 @@ mod tests {
             "different raw_signal must produce different vectors");
         Ok(())
     }
+
+    /// INVARIANT: SensoryCortex has all known SensorGroups registered.
+    #[test]
+    fn invariant_cortex_has_all_groups() -> Result<(), HdcError> {
+        let cortex = SensoryCortex::new()?;
+        let groups = [
+            SensorGroup::Biometric, SensorGroup::IMU, SensorGroup::RF,
+            SensorGroup::Environmental, SensorGroup::Visual,
+            SensorGroup::Auditory, SensorGroup::Serial,
+        ];
+        for g in groups {
+            let found = cortex.group_base.iter().any(|(gg, _)| gg == &g);
+            assert!(found, "missing group {:?}", g);
+        }
+        Ok(())
+    }
+
+    /// INVARIANT: encode_frame never panics on arbitrary signal lengths.
+    #[test]
+    fn invariant_encode_frame_safe_on_any_length() -> Result<(), HdcError> {
+        let cortex = SensoryCortex::new()?;
+        for len in [0usize, 1, 10, 100, 1000] {
+            let frame = SensoryFrame {
+                group: SensorGroup::IMU,
+                timestamp: 1000,
+                raw_signal: vec![0.5; len],
+            };
+            let _ = cortex.encode_frame(&frame)?;
+        }
+        Ok(())
+    }
+
+    /// INVARIANT: encode_serial returns a valid HyperMemory.
+    #[test]
+    fn invariant_encode_serial_nonempty() {
+        for data in [vec![], vec![0x00], vec![0xFF; 100], (0..255u8).collect::<Vec<_>>()] {
+            let hv = SensoryEncoder::encode_serial(&data);
+            assert_eq!(hv.dimensions, crate::memory_bus::DIM_PROLETARIAT);
+        }
+    }
 }

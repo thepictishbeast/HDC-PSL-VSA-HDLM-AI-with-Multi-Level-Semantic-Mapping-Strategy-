@@ -611,4 +611,113 @@ mod tests {
         assert!(indicators.iter().any(|i| i.contains("Obfuscation") || i.contains("Code execution")),
             "Obfuscation patterns should fire: {:?}", indicators);
     }
+
+    // ============================================================
+    // Stress / invariant tests for SupplyChainAnalyzer
+    // ============================================================
+
+    /// INVARIANT: Levenshtein is symmetric and satisfies d(x,x) == 0.
+    #[test]
+    fn invariant_levenshtein_symmetric_and_reflexive() {
+        let pairs = [
+            ("react", "reactt"),
+            ("lodash", "lodash-io"),
+            ("", "abc"),
+            ("abc", ""),
+            ("identical", "identical"),
+        ];
+        for (a, b) in pairs {
+            assert_eq!(
+                TyposquattingDetector::levenshtein(a, b),
+                TyposquattingDetector::levenshtein(b, a),
+                "levenshtein not symmetric for ({:?}, {:?})", a, b,
+            );
+        }
+        for s in ["", "x", "hello", "abcdefghij"] {
+            assert_eq!(TyposquattingDetector::levenshtein(s, s), 0,
+                "levenshtein({:?},{:?}) should be 0", s, s);
+        }
+    }
+
+    /// INVARIANT: Levenshtein distance is bounded by max(len(a), len(b)).
+    #[test]
+    fn invariant_levenshtein_bounded_by_max_length() {
+        let pairs = [
+            ("", "abc"),
+            ("hello", "world"),
+            ("rust", "cargo"),
+            ("abcdef", ""),
+        ];
+        for (a, b) in pairs {
+            let d = TyposquattingDetector::levenshtein(a, b);
+            let max = a.len().max(b.len());
+            assert!(d <= max,
+                "levenshtein exceeds max length: d={}, max={}", d, max);
+        }
+    }
+
+    /// INVARIANT: check_typosquat never reports a 0-distance match as a
+    /// typosquat (exact match to the compared-against popular package is
+    /// never flagged). Note: the candidate may still be flagged if it's
+    /// close to a different popular package.
+    #[test]
+    fn invariant_typosquat_zero_distance_excluded() {
+        let sample = ["react", "lodash", "webpack", "next"];
+        for pop in &sample {
+            if let Some((resembled, distance)) =
+                TyposquattingDetector::check_typosquat(pop, &Ecosystem::Npm)
+            {
+                assert!(distance > 0,
+                    "typosquat returned distance=0 for {:?} → {:?}",
+                    pop, resembled);
+            }
+        }
+    }
+
+    /// INVARIANT: Very short candidates (<3 chars) are never flagged.
+    #[test]
+    fn invariant_short_candidates_never_flagged() {
+        for candidate in ["", "a", "ab"] {
+            assert!(
+                TyposquattingDetector::check_typosquat(candidate, &Ecosystem::Npm).is_none(),
+                "{:?} should not be flagged", candidate,
+            );
+        }
+    }
+
+    /// INVARIANT: analyze never panics on arbitrary scripts.
+    #[test]
+    fn invariant_install_analyzer_never_panics() {
+        let big = "x".repeat(10_000);
+        let inputs: [&str; 4] = [
+            "",
+            "αβγ",
+            "\x00\x01 control",
+            &big,
+        ];
+        for input in inputs {
+            let _ = InstallScriptAnalyzer::analyze(input);
+        }
+    }
+
+    /// INVARIANT: SupplyChainAnalyzer::new starts with zero detections.
+    #[test]
+    fn invariant_analyzer_starts_zero() {
+        let a = SupplyChainAnalyzer::new();
+        assert_eq!(a.detections, 0,
+            "new analyzer should have zero detections, got {}", a.detections);
+    }
+
+    /// INVARIANT: for_ecosystem returns empty vec for Unknown/Maven/RubyGems/Go.
+    #[test]
+    fn invariant_popular_packages_uncovered_ecosystems_empty() {
+        for eco in [
+            Ecosystem::Unknown, Ecosystem::GoModules,
+            Ecosystem::Maven, Ecosystem::RubyGems,
+        ] {
+            let pkgs = PopularPackages::for_ecosystem(&eco);
+            assert!(pkgs.is_empty(),
+                "expected empty popular list for {:?}, got {:?}", eco, pkgs);
+        }
+    }
 }

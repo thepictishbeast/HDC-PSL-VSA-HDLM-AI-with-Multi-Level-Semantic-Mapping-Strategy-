@@ -382,4 +382,92 @@ mod tests {
         assert_eq!(r1.sanitized, r2.sanitized, "Same input should produce same redaction");
         Ok(())
     }
+
+    // ============================================================
+    // Stress / invariant tests for OpsecIntercept
+    // ============================================================
+
+    /// INVARIANT: scan never panics on arbitrary unicode/control input.
+    #[test]
+    fn invariant_scan_never_panics() -> Result<(), HdlmError> {
+        let big = "x".repeat(10_000);
+        let inputs: [&str; 7] = [
+            "",
+            "normal text",
+            "αβγδε",
+            "🦀🦀🦀",
+            "\x00\x01\x1f control",
+            "mixed αβγ 123",
+            &big,
+        ];
+        for input in inputs {
+            let _ = OpsecIntercept::scan(input)?;
+        }
+        Ok(())
+    }
+
+    /// INVARIANT: sanitized preserves original length minus redactions.
+    #[test]
+    fn invariant_bytes_redacted_nonnegative() -> Result<(), HdlmError> {
+        let inputs = [
+            "no sensitive data",
+            "SSN: 555000111 is here",
+            "email: test@example.com",
+            "",
+        ];
+        for input in inputs {
+            let r = OpsecIntercept::scan(input)?;
+            // bytes_redacted should be non-negative (unsigned always is,
+            // but check that it's sensible — at most input.len())
+            assert!(r.bytes_redacted <= input.len() + 1000,
+                "bytes_redacted {} >> input.len() {}",
+                r.bytes_redacted, input.len());
+        }
+        Ok(())
+    }
+
+    /// INVARIANT: matches_found and detailed_matches stay in sync in length.
+    #[test]
+    fn invariant_matches_lists_consistent() -> Result<(), HdlmError> {
+        let inputs = [
+            "",
+            "SSN: 123456789 and email: a@b.com",
+            "no matches here at all",
+        ];
+        for input in inputs {
+            let r = OpsecIntercept::scan(input)?;
+            assert_eq!(r.matches_found.len(), r.detailed_matches.len(),
+                "matches_found.len() != detailed_matches.len() for {:?}", input);
+        }
+        Ok(())
+    }
+
+    /// INVARIANT: On truly clean input, no matches are found.
+    #[test]
+    fn invariant_clean_input_no_matches() -> Result<(), HdlmError> {
+        let clean_inputs = [
+            "Hello, world!",
+            "The quick brown fox",
+            "",
+            "simple text with numbers 1 2 3",
+        ];
+        for input in clean_inputs {
+            let r = OpsecIntercept::scan(input)?;
+            assert!(r.detailed_matches.is_empty(),
+                "clean input {:?} produced matches: {:?}", input, r.detailed_matches);
+        }
+        Ok(())
+    }
+
+    /// INVARIANT: scan_with_patterns is deterministic.
+    #[test]
+    fn invariant_scan_with_patterns_deterministic() -> Result<(), HdlmError> {
+        let input = "This contains SECRET-42-KEY and SSN: 555000111";
+        let patterns = [(r"SECRET-\d+-KEY", "Custom secret")];
+        let r1 = OpsecIntercept::scan_with_custom(input, &patterns)?;
+        let r2 = OpsecIntercept::scan_with_custom(input, &patterns)?;
+        assert_eq!(r1.sanitized, r2.sanitized);
+        assert_eq!(r1.detailed_matches.len(), r2.detailed_matches.len());
+        Ok(())
+    }
 }

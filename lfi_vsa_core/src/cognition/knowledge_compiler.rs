@@ -476,4 +476,151 @@ mod tests {
         assert_eq!(compiler.total_compilations, 10);
         Ok(())
     }
+
+    // ============================================================
+    // Stress / invariant tests for KnowledgeCompiler
+    // ============================================================
+
+    /// INVARIANT: retrieve() returns Ok with a finite quality value for any
+    /// input — the "no compiled entries" case yields a clean-vector result,
+    /// not a panic or non-finite score.
+    #[test]
+    fn invariant_retrieve_empty_returns_finite_quality() {
+        let compiler = KnowledgeCompiler::new();
+        let input = BipolarVector::from_seed(42);
+        let (vec, quality) = compiler.retrieve(&input)
+            .expect("retrieve on empty must not error");
+        assert_eq!(vec.dim(), input.dim(),
+            "retrieved vector must match input dim");
+        assert!(quality.is_finite() && (0.0..=1.0).contains(&quality),
+            "quality out of [0,1]: {}", quality);
+    }
+
+    /// INVARIANT: compiled_count grows exactly by 1 per successful compile()
+    /// above threshold.
+    #[test]
+    fn invariant_compile_grows_count_by_one() -> Result<(), HdcError> {
+        let mut compiler = KnowledgeCompiler::new();
+        for i in 0..10 {
+            let before = compiler.compiled_count();
+            let input = BipolarVector::from_seed(100 + i as u64);
+            let output = BipolarVector::from_seed(200 + i as u64);
+            compiler.compile(&CognitiveMode::Deep, &input, &output, 0.9,
+                &format!("entry {}", i))?;
+            assert_eq!(compiler.compiled_count(), before + 1,
+                "count must grow by 1 at iter {}", i);
+        }
+        Ok(())
+    }
+
+    /// INVARIANT: acceleration_metrics.escape_velocity_reached is a pure
+    /// function of the metrics — deterministic across calls.
+    #[test]
+    fn invariant_escape_velocity_deterministic() -> Result<(), HdcError> {
+        let mut compiler = KnowledgeCompiler::new();
+        for i in 0..30 {
+            let input = BipolarVector::from_seed(i as u64);
+            let output = BipolarVector::from_seed(1000 + i as u64);
+            compiler.compile(&CognitiveMode::Deep, &input, &output, 0.85, "x")?;
+        }
+        let m1 = compiler.acceleration_metrics();
+        let m2 = compiler.acceleration_metrics();
+        assert_eq!(m1.escape_velocity_reached(), m2.escape_velocity_reached(),
+            "escape_velocity_reached must be deterministic");
+        Ok(())
+    }
+
+    /// INVARIANT: current_hit_rate is in [0,1].
+    #[test]
+    fn invariant_hit_rate_in_unit_interval() -> Result<(), HdcError> {
+        let mut compiler = KnowledgeCompiler::new();
+        // Fresh compiler.
+        let r = compiler.current_hit_rate();
+        assert!(r.is_finite() && (0.0..=1.0).contains(&r),
+            "fresh hit rate out of [0,1]: {}", r);
+        // After recording some modes.
+        for i in 0..20 {
+            compiler.record_mode(if i % 2 == 0 { CognitiveMode::Fast }
+                else { CognitiveMode::Deep });
+        }
+        let r = compiler.current_hit_rate();
+        assert!(r.is_finite() && (0.0..=1.0).contains(&r),
+            "hit rate out of [0,1] after records: {}", r);
+        Ok(())
+    }
+
+    /// INVARIANT: set_min_confidence accepts arbitrary values but enforces
+    /// them — compiling below the threshold is rejected.
+    #[test]
+    fn invariant_min_confidence_threshold_respected() -> Result<(), HdcError> {
+        let mut compiler = KnowledgeCompiler::new();
+        compiler.set_min_confidence(0.9);
+        let input = BipolarVector::from_seed(1);
+        let output = BipolarVector::from_seed(2);
+        // Below threshold — should not compile.
+        compiler.compile(&CognitiveMode::Deep, &input, &output, 0.5, "low")?;
+        assert_eq!(compiler.compiled_count(), 0,
+            "below-threshold compile must be rejected");
+        // Above threshold — should compile.
+        compiler.compile(&CognitiveMode::Deep, &input, &output, 0.95, "high")?;
+        assert_eq!(compiler.compiled_count(), 1,
+            "above-threshold compile must succeed");
+        Ok(())
+    }
+
+    /// INVARIANT: current_hit_rate is finite (non-NaN) after many records.
+    #[test]
+    fn invariant_hit_rate_finite_after_records() {
+        let mut compiler = KnowledgeCompiler::new();
+        for _ in 0..5 {
+            compiler.record_mode(CognitiveMode::Fast);
+        }
+        for _ in 0..5 {
+            compiler.record_mode(CognitiveMode::Deep);
+        }
+        let rate = compiler.current_hit_rate();
+        assert!(rate.is_finite(),
+            "hit_rate not finite: {}", rate);
+    }
+
+    /// INVARIANT: fresh compiler has zero compilations and hit_rate is 0.
+    #[test]
+    fn invariant_fresh_compiler_zero_state() {
+        let compiler = KnowledgeCompiler::new();
+        assert_eq!(compiler.compiled_count(), 0);
+        let rate = compiler.current_hit_rate();
+        assert_eq!(rate, 0.0);
+    }
+
+    /// INVARIANT: AccelerationMetrics fields are finite after many records.
+    #[test]
+    fn invariant_acceleration_metrics_finite() {
+        let mut compiler = KnowledgeCompiler::new();
+        for i in 0..20 {
+            compiler.record_mode(if i % 2 == 0 { CognitiveMode::Fast } else { CognitiveMode::Deep });
+        }
+        let m = compiler.acceleration_metrics();
+        assert!(m.system1_hit_rate.is_finite());
+        assert!(m.d_hit_rate.is_finite());
+        assert!(m.d2_hit_rate.is_finite());
+        assert!(m.avg_deliberation_ms.is_finite() && m.avg_deliberation_ms >= 0.0);
+    }
+
+    /// INVARIANT: compiled_count monotonically increases on successful compiles.
+    #[test]
+    fn invariant_compiled_count_monotone() -> Result<(), HdcError> {
+        let mut compiler = KnowledgeCompiler::new();
+        compiler.set_min_confidence(0.5);
+        let mut prev = compiler.compiled_count();
+        for i in 0..10 {
+            let input = BipolarVector::from_seed(i);
+            let output = BipolarVector::from_seed(i + 1000);
+            compiler.compile(&CognitiveMode::Deep, &input, &output, 0.9, "t")?;
+            let cur = compiler.compiled_count();
+            assert!(cur >= prev,
+                "compiled_count decreased: {} -> {}", prev, cur);
+            prev = cur;
+        }
+        Ok(())
+    }
 }

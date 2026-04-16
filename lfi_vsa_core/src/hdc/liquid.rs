@@ -273,4 +273,38 @@ mod tests {
                 "tau went non-positive: {}", n.tau);
         }
     }
+
+    /// INVARIANT: step never panics under extreme input values.
+    #[test]
+    fn invariant_step_safe_on_extreme_inputs() -> Result<(), HdcError> {
+        let mut lnn = LiquidSensorium::new(5);
+        let inputs = [0.0, 1e9, -1e9, f64::INFINITY, f64::NEG_INFINITY];
+        for input in inputs {
+            let _ = lnn.step(input, 0.01);
+        }
+        Ok(())
+    }
+
+    /// INVARIANT: project_to_vsa always returns a BipolarVector with
+    /// correct dimensions regardless of neuron count.
+    #[test]
+    fn invariant_project_to_vsa_dim_correct() -> Result<(), HdcError> {
+        for count in [1, 5, 19, 100] {
+            let lnn = LiquidSensorium::new(count);
+            let v = lnn.project_to_vsa()?;
+            assert_eq!(v.dim(), 10_000,
+                "projection should be 10_000-dim regardless of neuron count");
+        }
+        Ok(())
+    }
+
+    /// INVARIANT: new() creates neurons with positive tau.
+    #[test]
+    fn invariant_new_neurons_positive_tau() {
+        let lnn = LiquidSensorium::new(20);
+        for n in &lnn.neurons {
+            assert!(n.tau > 0.0,
+                "fresh neuron should have positive tau: {}", n.tau);
+        }
+    }
 }

@@ -667,4 +667,159 @@ mod tests {
         assert!(final_conf < initial_conf, "Confidence should decay: {:.2} → {:.2}",
             initial_conf, final_conf);
     }
+
+    // ============================================================
+    // Stress / invariant tests for EpistemicFilter
+    // ============================================================
+
+    /// INVARIANT: every ingested claim has confidence in [0,1] AND the
+    /// confidence never exceeds the source-category's max trust ceiling.
+    /// Confidence > category cap means a downstream policy decision will
+    /// trust an unverified claim more than the source justifies.
+    #[test]
+    fn invariant_ingested_confidence_in_range() {
+        let mut filter = EpistemicFilter::new();
+        let categories = [
+            ("anon", SourceCategory::Anonymous),
+            ("comm", SourceCategory::Community),
+            ("journ", SourceCategory::Journalism),
+            ("std", SourceCategory::Standards),
+            ("peer", SourceCategory::PeerReviewed),
+            ("expert", SourceCategory::Expert),
+            ("proof", SourceCategory::FormalProof),
+        ];
+        for (name, cat) in &categories {
+            filter.register_source_default(name, cat.clone());
+        }
+        for (name, _cat) in &categories {
+            let result = filter.ingest_claim(&format!("test claim from {}", name), name);
+            assert!(result.confidence.is_finite() && (0.0..=1.0).contains(&result.confidence),
+                "confidence out of [0,1] for source {}: {}", name, result.confidence);
+        }
+    }
+
+    /// INVARIANT: the same claim ingested twice from the same source must
+    /// not silently grow confidence above 1.0. Re-ingestion should be
+    /// idempotent or strictly non-decreasing-but-clamped.
+    #[test]
+    fn invariant_repeated_ingest_clamped_to_one() {
+        let mut filter = EpistemicFilter::new();
+        filter.register_source_default("repeater", SourceCategory::Expert);
+        let claim = "repeated claim";
+        for _ in 0..50 {
+            let result = filter.ingest_claim(claim, "repeater");
+            assert!(result.confidence <= 1.0 + 1e-9,
+                "confidence escaped [0,1] under repeated ingest: {}", result.confidence);
+        }
+    }
+
+    /// INVARIANT: claims_at_tier returns a strict subset — none of the
+    /// returned claims are below the given tier (no false matches).
+    #[test]
+    fn invariant_claims_at_tier_respects_minimum() {
+        let mut filter = EpistemicFilter::new();
+        for src in ["proof_src", "expert_src", "comm_src", "anon_src"] {
+            let category = match src {
+                "proof_src" => SourceCategory::FormalProof,
+                "expert_src" => SourceCategory::Expert,
+                "comm_src" => SourceCategory::Community,
+                _ => SourceCategory::Anonymous,
+            };
+            filter.register_source_default(src, category);
+            filter.ingest_claim(&format!("claim from {}", src), src);
+        }
+        for min_tier in [
+            KnowledgeTier::Suspect,
+            KnowledgeTier::Unverified,
+            KnowledgeTier::Plausible,
+            KnowledgeTier::Corroborated,
+            KnowledgeTier::Consensus,
+            KnowledgeTier::Proof,
+        ] {
+            let claims = filter.claims_at_tier(&min_tier);
+            let min_rank = EpistemicFilter::tier_rank(&min_tier);
+            for c in &claims {
+                let claim_rank = EpistemicFilter::tier_rank(&c.tier);
+                assert!(claim_rank >= min_rank,
+                    "claims_at_tier({:?}) returned a {:?} claim", min_tier, c.tier);
+            }
+        }
+    }
+
+    /// INVARIANT: check() returns None for unknown claims, Some for ingested.
+    #[test]
+    fn invariant_check_matches_ingest() {
+        let mut filter = EpistemicFilter::new();
+        filter.register_source_default("src", SourceCategory::Expert);
+        assert!(filter.check("never ingested").is_none());
+        filter.ingest_claim("known claim", "src");
+        assert!(filter.check("known claim").is_some());
+    }
+
+    /// INVARIANT: apply_decay never produces negative confidence values.
+    #[test]
+    fn invariant_decay_non_negative() {
+        let mut filter = EpistemicFilter::new();
+        filter.register_source_default("src", SourceCategory::Anonymous);
+        for i in 0..10 {
+            filter.ingest_claim(&format!("claim {}", i), "src");
+        }
+        // Apply massive decay multiple times.
+        for _ in 0..10 {
+            filter.apply_decay(0.5);
+        }
+        for c in filter.claims.values() {
+            assert!(c.confidence >= 0.0,
+                "decay produced negative confidence: {}", c.confidence);
+            assert!(c.confidence.is_finite(),
+                "decay produced non-finite confidence: {}", c.confidence);
+        }
+    }
+
+    /// INVARIANT: SourceCategory::base_trust is in [0,1] for every category.
+    /// Category trust outside [0,1] would break confidence math everywhere.
+    #[test]
+    fn invariant_source_category_trust_in_unit_interval() {
+        for cat in [
+            SourceCategory::Anonymous,
+            SourceCategory::Community,
+            SourceCategory::Journalism,
+            SourceCategory::Standards,
+            SourceCategory::PeerReviewed,
+            SourceCategory::Expert,
+            SourceCategory::FormalProof,
+        ] {
+            let trust = cat.base_trust();
+            assert!(trust.is_finite() && (0.0..=1.0).contains(&trust),
+                "{:?} base_trust out of [0,1]: {}", cat, trust);
+        }
+    }
+
+    /// INVARIANT: KnowledgeTier max_confidence >= min_confidence for all tiers.
+    #[test]
+    fn invariant_tier_confidence_max_ge_min() {
+        for tier in [
+            KnowledgeTier::Proof,
+            KnowledgeTier::Consensus,
+            KnowledgeTier::Corroborated,
+            KnowledgeTier::Plausible,
+            KnowledgeTier::Unverified,
+            KnowledgeTier::Suspect,
+        ] {
+            let min: f64 = tier.min_confidence();
+            let max: f64 = tier.max_confidence();
+            assert!(max >= min,
+                "tier {:?}: max {} < min {}", tier, max, min);
+            assert!(min.is_finite() && max.is_finite());
+            assert!((0.0..=1.0).contains(&min));
+            assert!((0.0..=1.0).contains(&max));
+        }
+    }
+
+    /// INVARIANT: check() returns None for never-ingested claims.
+    #[test]
+    fn invariant_check_unknown_claim_none() {
+        let filter = EpistemicFilter::new();
+        assert!(filter.check("never_ingested_claim_xyz").is_none());
+    }
 }

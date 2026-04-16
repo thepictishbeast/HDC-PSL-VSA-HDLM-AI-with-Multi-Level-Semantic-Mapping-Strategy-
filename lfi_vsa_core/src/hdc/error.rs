@@ -69,4 +69,62 @@ mod tests {
         let cloned = original.clone();
         assert_eq!(original, cloned);
     }
+
+    // ============================================================
+    // Stress / invariant tests for HdcError
+    // ============================================================
+
+    /// INVARIANT: every variant has a non-empty Display message.
+    #[test]
+    fn invariant_all_variants_have_display() {
+        let variants = [
+            HdcError::DimensionMismatch { expected: 1, actual: 2 },
+            HdcError::InitializationFailed { reason: "r".into() },
+            HdcError::MemoryFull,
+            HdcError::InvalidBipolarValue,
+            HdcError::PersistenceFailure { detail: "d".into() },
+            HdcError::LogicFault { reason: "f".into() },
+            HdcError::EmptyBundle,
+        ];
+        for v in variants {
+            let s = format!("{}", v);
+            assert!(!s.is_empty(), "Display for {:?} is empty", v);
+        }
+    }
+
+    /// INVARIANT: equal variants have equal Display output.
+    #[test]
+    fn invariant_equal_errors_equal_display() {
+        let a = HdcError::DimensionMismatch { expected: 10, actual: 20 };
+        let b = HdcError::DimensionMismatch { expected: 10, actual: 20 };
+        assert_eq!(a, b);
+        assert_eq!(format!("{}", a), format!("{}", b));
+    }
+
+    /// INVARIANT: clone preserves all variant data.
+    #[test]
+    fn invariant_clone_preserves_all_variants() {
+        let variants = [
+            HdcError::DimensionMismatch { expected: 5, actual: 10 },
+            HdcError::InitializationFailed { reason: "very long reason string αβγ".into() },
+            HdcError::MemoryFull,
+            HdcError::InvalidBipolarValue,
+            HdcError::PersistenceFailure { detail: "disk error with emoji 🦀".into() },
+            HdcError::LogicFault { reason: "the logic broke".into() },
+            HdcError::EmptyBundle,
+        ];
+        for v in variants {
+            let cloned = v.clone();
+            assert_eq!(v, cloned, "clone not equal for {:?}", v);
+        }
+    }
+
+    /// INVARIANT: Display for DimensionMismatch includes both expected and actual.
+    #[test]
+    fn invariant_dim_mismatch_display_includes_both() {
+        let e = HdcError::DimensionMismatch { expected: 10000, actual: 5000 };
+        let s = format!("{}", e);
+        assert!(s.contains("10000"), "display missing expected: {}", s);
+        assert!(s.contains("5000"), "display missing actual: {}", s);
+    }
 }

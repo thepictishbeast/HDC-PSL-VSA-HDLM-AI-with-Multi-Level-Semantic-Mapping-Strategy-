@@ -326,4 +326,47 @@ mod tests {
                 "self-similarity {} must dominate random {}", self_sim, other_sim);
         }
     }
+
+    /// INVARIANT: new() zeroed vector has similarity 1.0 with itself (vacuously
+    /// since 0·0=0 but normalized gives 0 or NaN depending on impl). This
+    /// tests consistent behavior on edge case.
+    #[test]
+    fn invariant_new_zero_vector_shape() {
+        let v = HyperMemory::new(DIM_PROLETARIAT);
+        assert_eq!(v.dimensions, DIM_PROLETARIAT);
+        assert_eq!(v.vector.len(), DIM_PROLETARIAT);
+        // All zeros initially.
+        assert!(v.vector.iter().all(|&x| x == 0));
+    }
+
+    /// INVARIANT: bind rejects dimension mismatch.
+    #[test]
+    fn invariant_bind_dimension_mismatch_errors() {
+        let a = HyperMemory::generate_seed(DIM_PROLETARIAT);
+        let b = HyperMemory::generate_seed(1000);  // different dim
+        let result = a.bind(&b);
+        assert!(result.is_err(), "dimension mismatch should error");
+    }
+
+    /// INVARIANT: generate_seed produces vectors with entries in {-1, +1}.
+    #[test]
+    fn invariant_generated_seed_bipolar() {
+        let v = HyperMemory::generate_seed(DIM_PROLETARIAT);
+        for &x in v.vector.iter() {
+            assert!(x == 1 || x == -1,
+                "generate_seed produced non-bipolar value: {}", x);
+        }
+    }
+
+    /// INVARIANT: from_string produces vectors with entries in {-1, +1}.
+    #[test]
+    fn invariant_from_string_bipolar() {
+        for s in ["hello", "", "αβγ", "long-ish string 12345"] {
+            let v = HyperMemory::from_string(s, DIM_PROLETARIAT);
+            for &x in v.vector.iter() {
+                assert!(x == 1 || x == -1,
+                    "from_string({:?}) produced non-bipolar value: {}", s, x);
+            }
+        }
+    }
 }

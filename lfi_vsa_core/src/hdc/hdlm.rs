@@ -230,4 +230,43 @@ mod tests {
         assert!(map.get_pos_base(0).is_some());
         Ok(())
     }
+
+    /// INVARIANT: get_pos_base returns None for out-of-range indices.
+    #[test]
+    fn invariant_get_pos_base_out_of_range_none() -> HdlmResult<()> {
+        let map = SemanticMap::new()?;
+        assert!(map.get_pos_base(10).is_none());
+        assert!(map.get_pos_base(999).is_none());
+        assert!(map.get_pos_base(usize::MAX).is_none());
+        Ok(())
+    }
+
+    /// INVARIANT: ForensicNode enum serde round-trip.
+    #[test]
+    fn invariant_forensic_node_serde_roundtrip() {
+        let nodes = [
+            ForensicNode::Module, ForensicNode::Function,
+            ForensicNode::Statement, ForensicNode::Expression,
+            ForensicNode::Literal, ForensicNode::Identifier,
+            ForensicNode::Unknown,
+        ];
+        for n in nodes {
+            let json = serde_json::to_string(&n).unwrap();
+            let recovered: ForensicNode = serde_json::from_str(&json).unwrap();
+            assert_eq!(n, recovered);
+        }
+    }
+
+    /// INVARIANT: verify_forensic_integrity succeeds for a correctly-projected
+    /// node (returns Ok result without panic).
+    #[test]
+    fn invariant_verify_forensic_succeeds_on_valid() -> HdlmResult<()> {
+        let map = SemanticMap::new()?;
+        let decor = BipolarVector::new_random()?;
+        let v = map.project_node(ForensicNode::Function, &decor)?;
+        // verify_forensic_integrity takes (projected_vec, kind, decoration)
+        let result = map.verify_forensic_integrity(&v, ForensicNode::Function, &decor);
+        assert!(result.is_ok(), "valid integrity verification should succeed");
+        Ok(())
+    }
 }

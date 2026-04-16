@@ -560,4 +560,84 @@ mod tests {
         agent.set_entropy(false);
         // Should not panic on toggle.
     }
+
+    // ============================================================
+    // Stress / invariant tests for LfiAgent
+    // ============================================================
+
+    /// INVARIANT: conclusion_id_for_input is FNV-1a — stable across process
+    /// restarts (pure function).
+    #[test]
+    fn invariant_conclusion_id_pure() {
+        let inputs = ["", "hello", "αβγ", "a very long question with context"];
+        for input in inputs {
+            let a = LfiAgent::conclusion_id_for_input(input);
+            let b = LfiAgent::conclusion_id_for_input(input);
+            let c = LfiAgent::conclusion_id_for_input(input);
+            assert_eq!(a, b);
+            assert_eq!(b, c);
+        }
+    }
+
+    /// INVARIANT: audit_coercion returns confidence in [0,1] for any input.
+    #[test]
+    fn invariant_coercion_audit_in_unit_interval() -> Result<(), HdcError> {
+        let agent = LfiAgent::new()?;
+        let probes = [
+            (0.0, 0.0), (1.0, 1.0), (-0.5, 1.5),
+            (0.3, 0.5), (f64::NAN, 0.5),
+        ];
+        for (j, g) in probes {
+            let conf = agent.audit_coercion(j, g)?;
+            if conf.is_finite() {
+                assert!((0.0..=1.0).contains(&conf),
+                    "confidence out of [0,1]: {} for jitter={}, geo={}",
+                    conf, j, g);
+            }
+        }
+        Ok(())
+    }
+
+    /// INVARIANT: set_entropy results in entropy_level being either 0.9 or 0.1.
+    #[test]
+    fn invariant_set_entropy_binary() -> Result<(), HdcError> {
+        let mut agent = LfiAgent::new()?;
+        agent.set_entropy(true);
+        assert!((agent.entropy_level - 0.9).abs() < 0.001,
+            "set_entropy(true) should be ~0.9, got {}", agent.entropy_level);
+        agent.set_entropy(false);
+        assert!((agent.entropy_level - 0.1).abs() < 0.001,
+            "set_entropy(false) should be ~0.1, got {}", agent.entropy_level);
+        Ok(())
+    }
+
+    /// INVARIANT: two agents created back-to-back have identity proofs
+    /// that differ only if env vars differ. Given same env, commits match.
+    #[test]
+    fn invariant_new_reproducible_under_stable_env() -> Result<(), HdcError> {
+        // Env vars may be unset or stable; both agents will use same values.
+        let a = LfiAgent::new()?;
+        let b = LfiAgent::new()?;
+        assert_eq!(a.sovereign_identity.name_hash, b.sovereign_identity.name_hash);
+        assert_eq!(a.sovereign_identity.password_commitment,
+                   b.sovereign_identity.password_commitment);
+        Ok(())
+    }
+
+    /// INVARIANT: two different inputs yield two different conclusion IDs
+    /// (with overwhelming probability via FNV-1a avalanche).
+    #[test]
+    fn invariant_conclusion_id_avalanche() {
+        let pairs = [
+            ("a", "b"), ("hello", "world"),
+            ("question 1", "question 2"),
+            ("x", "X"), (" ", "  "),
+        ];
+        for (a, b) in pairs {
+            let ha = LfiAgent::conclusion_id_for_input(a);
+            let hb = LfiAgent::conclusion_id_for_input(b);
+            assert_ne!(ha, hb,
+                "different inputs {:?}/{:?} produced same cid", a, b);
+        }
+    }
 }

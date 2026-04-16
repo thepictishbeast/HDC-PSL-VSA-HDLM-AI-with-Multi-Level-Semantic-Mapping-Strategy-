@@ -47,6 +47,7 @@ pub mod crypto_epistemology;
 pub mod reasoning_provenance;
 pub mod diag;
 pub mod data_ingestion;
+pub mod persistence;
 
 // Re-export core public types
 pub use hdc::vector::BipolarVector;

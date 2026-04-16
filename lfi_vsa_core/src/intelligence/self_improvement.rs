@@ -702,4 +702,94 @@ mod tests {
         assert!(plateaued.contains(&"security".to_string()),
             "Security should be identified as plateaued");
     }
+
+    // ============================================================
+    // Stress / invariant tests for LearningCurve / SelfImprovement
+    // ============================================================
+
+    /// INVARIANT: `record` monotonically grows `measurement_count` by 1 per call.
+    #[test]
+    fn invariant_record_grows_count_by_one() {
+        let mut curve = LearningCurve::new();
+        for i in 0..20 {
+            let before = curve.measurement_count();
+            curve.record(0.5 + (i as f64) * 0.01);
+            assert_eq!(curve.measurement_count(), before + 1,
+                "measurement count must grow by 1 at iter {}", i);
+        }
+    }
+
+    /// INVARIANT: `velocity` returns 0.0 when there are < 2 measurements
+    /// (no slope can be computed). Otherwise returns a finite f64.
+    #[test]
+    fn invariant_velocity_zero_below_two_measurements_else_finite() {
+        let mut curve = LearningCurve::new();
+        assert_eq!(curve.velocity(), 0.0, "empty curve velocity must be 0");
+        curve.record(0.5);
+        assert_eq!(curve.velocity(), 0.0, "single-point curve velocity must be 0");
+        for i in 0..30 {
+            curve.record(0.5 + (i as f64) * 0.001);
+            assert!(curve.velocity().is_finite(),
+                "velocity must stay finite at iter {}", i);
+        }
+    }
+
+    /// INVARIANT: `is_plateaued` is FALSE for a curve with < 6 measurements
+    /// regardless of velocity (history.len() > 5 guard in implementation).
+    #[test]
+    fn invariant_is_plateaued_requires_min_history() {
+        let mut curve = LearningCurve::new();
+        for _ in 0..5 {
+            curve.record(0.5); // identical scores → velocity = 0 but len ≤ 5
+            assert!(!curve.is_plateaued(),
+                "is_plateaued must require > 5 measurements, len={}", curve.measurement_count());
+        }
+    }
+
+    /// INVARIANT: `domain_velocity` for an unrecorded domain is 0.0 — not NaN,
+    /// not Err. Downstream uses this in arithmetic; non-finite would propagate.
+    #[test]
+    fn invariant_domain_velocity_unknown_domain_zero() {
+        let curve = LearningCurve::new();
+        assert_eq!(curve.domain_velocity("never_recorded"), 0.0);
+        let mut curve = LearningCurve::new();
+        curve.record_domain("known", 0.5);
+        assert_eq!(curve.domain_velocity("never_recorded"), 0.0,
+            "unknown domain velocity must be 0 even with other domains recorded");
+    }
+
+    /// INVARIANT: `plateaued_domains` contains only currently-recorded domains.
+    /// No spurious entries.
+    #[test]
+    fn invariant_plateaued_domains_subset_of_recorded() {
+        let mut curve = LearningCurve::new();
+        for d in ["alpha", "beta", "gamma"] {
+            for _ in 0..3 {
+                curve.record_domain(d, 0.4); // flat → plateaued
+            }
+        }
+        let plateaued = curve.plateaued_domains();
+        for p in &plateaued {
+            assert!(["alpha", "beta", "gamma"].contains(&p.as_str()),
+                "plateaued domain '{}' was never recorded", p);
+        }
+    }
+
+    /// INVARIANT: an improving curve has positive velocity, a regressing
+    /// curve has negative velocity. Sign correctness matters for the
+    /// engine's plan-vs-keep decisions.
+    #[test]
+    fn invariant_velocity_sign_matches_trend() {
+        let mut up = LearningCurve::new();
+        for i in 0..6 {
+            up.record(0.1 + (i as f64) * 0.1);
+        }
+        assert!(up.velocity() > 0.0, "monotonic-up curve must have positive velocity");
+
+        let mut down = LearningCurve::new();
+        for i in 0..6 {
+            down.record(0.9 - (i as f64) * 0.1);
+        }
+        assert!(down.velocity() < 0.0, "monotonic-down curve must have negative velocity");
+    }
 }

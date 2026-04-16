@@ -390,4 +390,72 @@ mod tests {
             critical_faults.iter().map(|f| format!("{}: {}", f.component, f.details)).collect::<Vec<_>>()
         );
     }
+
+    // ============================================================
+    // Stress / invariant tests for DiagnosticEngine
+    // ============================================================
+
+    /// INVARIANT: run_full_suite always produces exactly 6 test results
+    /// (matches documented test count).
+    #[test]
+    fn invariant_full_suite_test_count() {
+        for _ in 0..3 {
+            let results = DiagnosticEngine::run_full_suite();
+            assert_eq!(results.len(), 6,
+                "run_full_suite should produce 6 results, got {}", results.len());
+        }
+    }
+
+    /// INVARIANT: every TestResult has a non-empty component name, status,
+    /// details, and timestamp.
+    #[test]
+    fn invariant_all_results_well_formed() {
+        let results = DiagnosticEngine::run_full_suite();
+        for r in &results {
+            assert!(!r.component.is_empty(),
+                "empty component name: {:?}", r);
+            assert!(!r.status.is_empty(),
+                "empty status for {}", r.component);
+            assert!(!r.timestamp.is_empty(),
+                "empty timestamp for {}", r.component);
+            assert!(!r.details.is_empty(),
+                "empty details for {}", r.component);
+        }
+    }
+
+    /// INVARIANT: status is one of three expected values.
+    #[test]
+    fn invariant_status_from_allowed_set() {
+        let results = DiagnosticEngine::run_full_suite();
+        for r in &results {
+            let allowed = ["NOMINAL", "FAULT", "DEGRADED"];
+            assert!(allowed.contains(&r.status.as_str()),
+                "unexpected status for {}: {:?}", r.component, r.status);
+        }
+    }
+
+    /// INVARIANT: run_full_suite is pure w.r.t. component names/order.
+    #[test]
+    fn invariant_suite_component_set_stable() {
+        let a = DiagnosticEngine::run_full_suite();
+        let b = DiagnosticEngine::run_full_suite();
+        let names_a: Vec<_> = a.iter().map(|r| r.component.clone()).collect();
+        let names_b: Vec<_> = b.iter().map(|r| r.component.clone()).collect();
+        assert_eq!(names_a, names_b,
+            "component order should be deterministic");
+    }
+
+    /// INVARIANT: TestResult serde roundtrip.
+    #[test]
+    fn invariant_test_result_serde_roundtrip() {
+        let results = DiagnosticEngine::run_full_suite();
+        for r in &results {
+            let json = serde_json::to_string(r).unwrap();
+            let recovered: TestResult = serde_json::from_str(&json).unwrap();
+            assert_eq!(recovered.component, r.component);
+            assert_eq!(recovered.status, r.status);
+            assert_eq!(recovered.details, r.details);
+            assert_eq!(recovered.timestamp, r.timestamp);
+        }
+    }
 }

@@ -274,4 +274,48 @@ mod tests {
         let _ = mem.probe(&key); // Just must not panic.
         Ok(())
     }
+
+    /// INVARIANT: new() starts with association_count == 0.
+    #[test]
+    fn invariant_new_empty_association_count() {
+        let mem = HolographicMemory::new();
+        assert_eq!(mem.association_count(), 0);
+    }
+
+    /// INVARIANT: clear() resets association count to 0.
+    #[test]
+    fn invariant_clear_resets_count() -> Result<(), HdcError> {
+        let mut mem = HolographicMemory::new();
+        for _ in 0..5 {
+            let k = BipolarVector::new_random()?;
+            let v = BipolarVector::new_random()?;
+            mem.associate(&k, &v)?;
+        }
+        assert!(mem.association_count() > 0);
+        mem.clear();
+        assert_eq!(mem.association_count(), 0);
+        Ok(())
+    }
+
+    /// INVARIANT: associate grows association_count by exactly 1 each call.
+    #[test]
+    fn invariant_associate_grows_by_one() -> Result<(), HdcError> {
+        let mut mem = HolographicMemory::new();
+        for i in 0..5 {
+            let k = BipolarVector::new_random()?;
+            let v = BipolarVector::new_random()?;
+            mem.associate(&k, &v)?;
+            assert_eq!(mem.association_count(), i + 1);
+        }
+        Ok(())
+    }
+
+    /// INVARIANT: capacity_estimate returns finite (usage_fraction, capacity).
+    #[test]
+    fn invariant_capacity_estimate_finite() {
+        let mem = HolographicMemory::new();
+        let (usage, cap) = mem.capacity_estimate();
+        assert!(usage.is_finite());
+        assert!(cap > 0);
+    }
 }

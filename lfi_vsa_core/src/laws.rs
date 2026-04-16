@@ -159,4 +159,91 @@ mod tests {
         // Only Primary level checks for deception.
         assert!(!PrimaryLaw::permits("deceive at primary", LawLevel::Primary));
     }
+
+    // ============================================================
+    // Stress / invariant tests for PrimaryLaw
+    // ============================================================
+
+    /// INVARIANT: LawLevel ordering is total: Ternary < Secondary < Primary.
+    #[test]
+    fn invariant_law_level_ordering_total() {
+        let levels = [LawLevel::Ternary, LawLevel::Secondary, LawLevel::Primary];
+        for i in 0..levels.len() {
+            for j in 0..levels.len() {
+                if i < j {
+                    assert!(levels[i] < levels[j],
+                        "{:?} should be < {:?}", levels[i], levels[j]);
+                }
+                if i == j {
+                    assert_eq!(levels[i], levels[j]);
+                }
+            }
+        }
+    }
+
+    /// INVARIANT: overrides is strict — a level never overrides itself.
+    #[test]
+    fn invariant_overrides_irreflexive() {
+        for lvl in [LawLevel::Ternary, LawLevel::Secondary, LawLevel::Primary] {
+            assert!(!PrimaryLaw::overrides(lvl, lvl),
+                "{:?} should not override itself", lvl);
+        }
+    }
+
+    /// INVARIANT: permits never panics on arbitrary input.
+    #[test]
+    fn invariant_permits_never_panics() {
+        let inputs = [
+            "", "normal action", "αβγ", "\x00\x01",
+            "very long action description with many words here",
+            "deceive the user harmfully",
+        ];
+        for input in inputs {
+            for lvl in [LawLevel::Ternary, LawLevel::Secondary, LawLevel::Primary] {
+                let _ = PrimaryLaw::permits(input, lvl);
+            }
+        }
+    }
+
+    /// INVARIANT: highest_applicable_constraint is pure.
+    #[test]
+    fn invariant_highest_applicable_constraint_pure() {
+        let inputs = ["", "deceive", "harm", "self-destruct", "optimize", "analyze"];
+        for input in inputs {
+            let a = PrimaryLaw::highest_applicable_constraint(input);
+            let b = PrimaryLaw::highest_applicable_constraint(input);
+            assert_eq!(a, b,
+                "highest_applicable_constraint not pure for {:?}", input);
+        }
+    }
+
+    /// INVARIANT: Primary actions with "deceive" or "harm" are always blocked.
+    #[test]
+    fn invariant_primary_blocks_keywords() {
+        let blocked = [
+            "deceive everyone", "harm the system",
+            "will deceive", "plan to harm users",
+        ];
+        for action in blocked {
+            assert!(!PrimaryLaw::permits(action, LawLevel::Primary),
+                "action containing deceive/harm should be blocked: {:?}", action);
+        }
+    }
+
+    /// INVARIANT: LawLevel::as u8 encoding is stable (0/1/2).
+    #[test]
+    fn invariant_law_level_numeric_values() {
+        assert_eq!(LawLevel::Ternary as u8, 0);
+        assert_eq!(LawLevel::Secondary as u8, 1);
+        assert_eq!(LawLevel::Primary as u8, 2);
+    }
+
+    /// INVARIANT: All mandates have non-empty descriptions.
+    #[test]
+    fn invariant_mandates_have_descriptions() {
+        for mandate in PrimaryLaw::get_mandates() {
+            assert!(!mandate.description.is_empty(),
+                "mandate at {:?} has empty description", mandate.level);
+        }
+    }
 }

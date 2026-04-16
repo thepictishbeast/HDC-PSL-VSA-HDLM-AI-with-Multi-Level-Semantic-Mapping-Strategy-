@@ -355,4 +355,147 @@ mod tests {
         let recovered: KnowledgeStore = serde_json::from_str(&json).expect("deserialize");
         assert_eq!(recovered.version, store.version);
     }
+
+    // ============================================================
+    // Stress / invariant tests for KnowledgeStore
+    // ============================================================
+
+    /// INVARIANT: get_fact returns None for keys never inserted, Some for
+    /// inserted keys.
+    #[test]
+    fn invariant_get_fact_matches_upsert() {
+        let mut store = KnowledgeStore::new();
+        assert!(store.get_fact("nonexistent").is_none());
+        store.upsert_fact("k1", "v1");
+        assert_eq!(store.get_fact("k1"), Some("v1"));
+        assert!(store.get_fact("k2").is_none());
+    }
+
+    /// INVARIANT: upsert_fact overwrites when the key already exists —
+    /// no silent duplicates, no rejection.
+    #[test]
+    fn invariant_upsert_fact_overwrites() {
+        let mut store = KnowledgeStore::new();
+        store.upsert_fact("color", "red");
+        assert_eq!(store.get_fact("color"), Some("red"));
+        store.upsert_fact("color", "blue");
+        assert_eq!(store.get_fact("color"), Some("blue"));
+        store.upsert_fact("color", "");
+        assert_eq!(store.get_fact("color"), Some(""));
+    }
+
+    /// INVARIANT: mark_searched followed by has_searched returns true for
+    /// the same topic, false for unmarked topics.
+    #[test]
+    fn invariant_mark_searched_consistent_with_has_searched() {
+        let mut store = KnowledgeStore::new();
+        assert!(!store.has_searched("topic_a"));
+        store.mark_searched("topic_a");
+        assert!(store.has_searched("topic_a"));
+        assert!(!store.has_searched("topic_b"),
+            "marking 'topic_a' must not flag 'topic_b'");
+        // Idempotent: marking twice doesn't change observable state.
+        store.mark_searched("topic_a");
+        assert!(store.has_searched("topic_a"));
+    }
+
+    /// INVARIANT: KnowledgeStore round-trips through JSON serialization
+    /// preserving facts, searched topics, and learning log.
+    #[test]
+    fn invariant_serialize_roundtrip_preserves_state() {
+        let mut store = KnowledgeStore::new();
+        store.upsert_fact("k1", "v1");
+        store.upsert_fact("k2", "v2");
+        store.mark_searched("topic_x");
+        store.log_learning("learned X");
+        let json = serde_json::to_string(&store).expect("serialize");
+        let recovered: KnowledgeStore = serde_json::from_str(&json).expect("deserialize");
+        assert_eq!(recovered.get_fact("k1"), Some("v1"));
+        assert_eq!(recovered.get_fact("k2"), Some("v2"));
+        assert!(recovered.has_searched("topic_x"));
+    }
+
+    /// INVARIANT: loading a corrupt JSON file returns Err — caller can
+    /// distinguish corruption from an absent (first-run) file. Missing
+    /// files are intentionally treated as empty-store (first-run UX).
+    #[test]
+    fn invariant_load_corrupt_file_is_err() {
+        let path = std::env::temp_dir().join("lfi_persistence_corrupt.json");
+        std::fs::write(&path, b"not valid json {{{}}}}").expect("write");
+        let result = KnowledgeStore::load(&path);
+        assert!(result.is_err(),
+            "loading corrupt JSON must return Err");
+        let _ = std::fs::remove_file(&path);
+    }
+
+    /// INVARIANT: loading a missing path returns Ok(empty) — first-run UX
+    /// is to treat absent state as fresh start, not as a fatal error.
+    #[test]
+    fn invariant_load_missing_path_returns_empty_ok() {
+        let bad_path = PathBuf::from("/nonexistent/lfi_test_path_xyz_unique.json");
+        let result = KnowledgeStore::load(&bad_path);
+        assert!(result.is_ok(), "missing file must return Ok(empty), not Err");
+        let store = result.unwrap();
+        assert!(store.get_fact("anything").is_none());
+    }
+
+    /// INVARIANT: save() then load() returns a store equal to the original
+    /// for arbitrary fact/topic content (round-trip via disk).
+    #[test]
+    fn invariant_save_load_disk_roundtrip() -> Result<(), HdcError> {
+        let mut store = KnowledgeStore::new();
+        for i in 0..20 {
+            store.upsert_fact(&format!("k_{}", i), &format!("v_{}", i));
+        }
+        for i in 0..10 {
+            store.mark_searched(&format!("topic_{}", i));
+        }
+        let path = std::env::temp_dir().join("lfi_persistence_invariant_test.json");
+        store.save(&path)?;
+        let loaded = KnowledgeStore::load(&path)?;
+        for i in 0..20 {
+            assert_eq!(loaded.get_fact(&format!("k_{}", i)),
+                Some(format!("v_{}", i).as_str()),
+                "fact k_{} not preserved through disk roundtrip", i);
+        }
+        for i in 0..10 {
+            assert!(loaded.has_searched(&format!("topic_{}", i)),
+                "topic_{} not preserved through disk roundtrip", i);
+        }
+        let _ = std::fs::remove_file(&path);
+        Ok(())
+    }
+
+    /// INVARIANT: get_fact returns None for missing key.
+    #[test]
+    fn invariant_get_fact_missing_none() {
+        let store = KnowledgeStore::new();
+        assert!(store.get_fact("nonexistent_key_xxx").is_none());
+    }
+
+    /// INVARIANT: default_path is absolute and stable.
+    #[test]
+    fn invariant_default_path_absolute_and_stable() {
+        let a = KnowledgeStore::default_path();
+        let b = KnowledgeStore::default_path();
+        assert_eq!(a, b, "default_path should be deterministic");
+        assert!(a.is_absolute(), "default_path should be absolute: {:?}", a);
+    }
+
+    /// INVARIANT: has_searched returns false for unseen topics.
+    #[test]
+    fn invariant_has_searched_unseen_false() {
+        let store = KnowledgeStore::new();
+        assert!(!store.has_searched("UnseenTopic12345"));
+    }
+
+    /// INVARIANT: mark_searched is idempotent.
+    #[test]
+    fn invariant_mark_searched_idempotent() {
+        let mut store = KnowledgeStore::new();
+        store.mark_searched("topic");
+        store.mark_searched("topic");
+        store.mark_searched("topic");
+        assert!(store.has_searched("topic"));
+    }
 }

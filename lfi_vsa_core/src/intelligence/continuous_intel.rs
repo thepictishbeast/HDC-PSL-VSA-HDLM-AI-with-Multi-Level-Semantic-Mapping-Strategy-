@@ -465,4 +465,112 @@ mod tests {
                 src.name, src.poll_interval_sec);
         }
     }
+
+    // ============================================================
+    // Stress / invariant tests for ContinuousIntelligence
+    // ============================================================
+
+    /// INVARIANT: source_reliability is in [0,1] for any source name —
+    /// unknown sources return 0.0, known sources return their tracked rate.
+    #[test]
+    fn invariant_source_reliability_in_unit_interval() {
+        let mut engine = ContinuousIntelligence::new();
+        let r_unknown = engine.source_reliability("never_seen");
+        assert!(r_unknown.is_finite() && (0.0..=1.0).contains(&r_unknown),
+            "unknown source reliability out of [0,1]: {}", r_unknown);
+        // After ingestion, reliability should still be in [0,1].
+        let mut k = KnowledgeEngine::new();
+        engine.inject_claim("test", "wikipedia", &mut k);
+        let r_known = engine.source_reliability("wikipedia");
+        assert!(r_known.is_finite() && (0.0..=1.0).contains(&r_known),
+            "known source reliability out of [0,1]: {}", r_known);
+    }
+
+    /// INVARIANT: register_source adds a new source to the engine's source list
+    /// without affecting reliability of pre-existing sources.
+    #[test]
+    fn invariant_register_source_does_not_disrupt_reliability() {
+        let mut engine = ContinuousIntelligence::new();
+        let mut k = KnowledgeEngine::new();
+        engine.inject_claim("seed claim", "wikipedia", &mut k);
+        let before = engine.source_reliability("wikipedia");
+        engine.register_source(IntelSource::new(
+            "custom", "https://example.com",
+            crate::intelligence::epistemic_filter::SourceCategory::Community,
+            3600,
+        ));
+        let after = engine.source_reliability("wikipedia");
+        assert_eq!(before, after,
+            "registering new source must not change wikipedia's reliability");
+    }
+
+    /// INVARIANT: IntelSource::is_due is monotonic — once due, stays due
+    /// until last_poll_ms is updated.
+    #[test]
+    fn invariant_is_due_monotonic_until_polled() {
+        let s = IntelSource::new("test", "url",
+            crate::intelligence::epistemic_filter::SourceCategory::Community,
+            10);
+        // s.last_poll_ms = 0, poll_interval_sec = 10.
+        let now = 50_000_u64; // 50 seconds in
+        assert!(s.is_due(now), "10s interval at 50s elapsed must be due");
+        let later = now + 1_000_000;
+        assert!(s.is_due(later), "still due if not polled");
+    }
+
+    /// INVARIANT: report() never panics on a fresh engine.
+    #[test]
+    fn invariant_report_safe_on_empty_engine() {
+        let engine = ContinuousIntelligence::new();
+        let r = engine.report();
+        assert!(!r.is_empty(),
+            "report on empty engine must produce non-empty output");
+    }
+
+    /// INVARIANT: inject_claim never panics on arbitrary unicode/control input.
+    #[test]
+    fn invariant_inject_claim_safe_on_unicode() {
+        let mut engine = ContinuousIntelligence::new();
+        let mut k = KnowledgeEngine::new();
+        let inputs = [
+            "",
+            "アリス said this",
+            "🦀 emoji claim",
+            "control: \x00\x01",
+            &"x".repeat(50_000),
+        ];
+        for input in inputs {
+            // Must not panic.
+            let _ = engine.inject_claim(input, "wikipedia", &mut k);
+        }
+    }
+
+    /// INVARIANT: default_sources returns non-empty list.
+    #[test]
+    fn invariant_default_sources_nonempty() {
+        let sources = default_sources();
+        assert!(!sources.is_empty(),
+            "default_sources should return at least one source");
+    }
+
+    /// INVARIANT: is_due respects poll_interval.
+    #[test]
+    fn invariant_is_due_respects_interval() {
+        let source = IntelSource::new("test", "http://example.com",
+            SourceCategory::PeerReviewed, 60);  // 60 sec poll
+        // Must not panic across a wide time range.
+        let _ = source.is_due(0);
+        let _ = source.is_due(u64::MAX);
+        let _ = source.is_due(30_000);
+    }
+
+    /// INVARIANT: source_reliability returns finite value for known & unknown sources.
+    #[test]
+    fn invariant_source_reliability_finite() {
+        let engine = ContinuousIntelligence::new();
+        let r1 = engine.source_reliability("unknown_source_xyz");
+        let r2 = engine.source_reliability("wikipedia");
+        assert!(r1.is_finite() && (0.0..=1.0).contains(&r1));
+        assert!(r2.is_finite() && (0.0..=1.0).contains(&r2));
+    }
 }

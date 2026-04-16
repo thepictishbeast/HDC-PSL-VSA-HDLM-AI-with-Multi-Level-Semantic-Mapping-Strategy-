@@ -118,4 +118,45 @@ mod tests {
         assert_eq!(hv.dim(), 10000);
         Ok(())
     }
+
+    // ============================================================
+    // Stress / invariant tests for BinaryTransducer
+    // ============================================================
+
+    /// INVARIANT: project always produces a 10k-dim vector for non-empty
+    /// input across a range of sizes.
+    #[test]
+    fn invariant_project_dim_constant() -> Result<(), HdcError> {
+        for size in [1usize, 16, 256, 1024, 8192] {
+            let data: Vec<u8> = (0..size).map(|i| (i % 256) as u8).collect();
+            let v = BinaryTransducer::project(&data)?;
+            assert_eq!(v.dim(), 10_000,
+                "{}-byte projection must be 10k dim", size);
+        }
+        Ok(())
+    }
+
+    /// INVARIANT: empty input always errors — never silently produces a
+    /// zero vector that downstream might confuse with valid data.
+    #[test]
+    fn invariant_empty_input_errors() {
+        assert!(BinaryTransducer::project(&[]).is_err(),
+            "empty data must return Err");
+    }
+
+    /// INVARIANT: project handles arbitrary byte values without panic,
+    /// including all 256 distinct byte values and the boundaries 0/255.
+    #[test]
+    fn invariant_project_all_byte_values_safe() -> Result<(), HdcError> {
+        // All 256 distinct bytes in one buffer.
+        let all_bytes: Vec<u8> = (0..=255u8).collect();
+        let _ = BinaryTransducer::project(&all_bytes)?;
+        // Pure zero buffer.
+        let zeros = vec![0u8; 1024];
+        let _ = BinaryTransducer::project(&zeros)?;
+        // Pure 0xFF buffer.
+        let ones = vec![0xFFu8; 1024];
+        let _ = BinaryTransducer::project(&ones)?;
+        Ok(())
+    }
 }

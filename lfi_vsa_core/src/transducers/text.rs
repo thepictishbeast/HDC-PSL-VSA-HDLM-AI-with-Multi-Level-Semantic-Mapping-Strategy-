@@ -267,4 +267,55 @@ mod tests {
         assert_eq!(hv.dim(), 10000);
         Ok(())
     }
+
+    // ============================================================
+    // Stress / invariant tests for TextTransducer
+    // ============================================================
+
+    /// INVARIANT: project produces 10k-dim vector for any non-empty text.
+    #[test]
+    fn invariant_project_produces_10k_dim() -> Result<(), HdcError> {
+        let mut td = TextTransducer::new()?;
+        for input in ["a", "hello", "the quick brown fox", "アリス", "🦀"] {
+            let v = td.project(input)?;
+            assert_eq!(v.dim(), 10_000,
+                "projection for {:?} must be 10k dim", input);
+        }
+        Ok(())
+    }
+
+    /// INVARIANT: project never panics on arbitrary unicode / control input.
+    #[test]
+    fn invariant_project_safe_on_arbitrary_unicode() -> Result<(), HdcError> {
+        let mut td = TextTransducer::new()?;
+        let big = "x".repeat(10_000);
+        let inputs: [&str; 5] = [
+            "アリスは猫を見た",
+            "🦀🦀🦀",
+            "control:\x00\x01\x1f",
+            "mixed: ASCII日本語🦀",
+            &big,
+        ];
+        for input in inputs {
+            // Must not panic.
+            let _ = td.project(input)?;
+        }
+        Ok(())
+    }
+
+    /// INVARIANT: new() and with_ngram_size reject invalid ngram sizes (0).
+    #[test]
+    fn invariant_zero_ngram_rejected() {
+        assert!(TextTransducer::with_ngram_size(0).is_err(),
+            "zero ngram_size must error");
+    }
+
+    /// INVARIANT: with_ngram_size accepts reasonable sizes (1..20).
+    #[test]
+    fn invariant_reasonable_ngram_sizes_accepted() -> Result<(), HdcError> {
+        for n in [1usize, 2, 3, 5, 8, 20] {
+            let _ = TextTransducer::with_ngram_size(n)?;
+        }
+        Ok(())
+    }
 }

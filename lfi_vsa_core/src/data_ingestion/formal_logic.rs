@@ -393,4 +393,63 @@ mod tests {
         assert_eq!(result, 0);
         let _ = std::fs::remove_file(path);
     }
+
+    // ============================================================
+    // Stress / invariant tests for FormalLogicIngestor
+    // ============================================================
+
+    /// INVARIANT: new_empty() creates an ingestor with zero state.
+    #[test]
+    fn invariant_new_empty_zero_state() {
+        let ingestor = FormalLogicIngestor::new_empty();
+        assert_eq!(ingestor.total_relations(), 0);
+        assert_eq!(ingestor.total_statements(), 0);
+        assert_eq!(ingestor.relation_count, 0);
+    }
+
+    /// INVARIANT: total_relations grows monotonically with each ingest_rule.
+    #[test]
+    fn invariant_relations_count_monotone() -> Result<(), Box<dyn std::error::Error>> {
+        let mut ingestor = FormalLogicIngestor::new_empty();
+        let mut prev = 0;
+        for i in 0..10 {
+            ingestor.ingest_rule(&[&format!("p{}", i)], &format!("c{}", i))?;
+            let cur = ingestor.total_relations();
+            assert!(cur >= prev,
+                "relations count decreased: {} -> {}", prev, cur);
+            prev = cur;
+        }
+        Ok(())
+    }
+
+    /// INVARIANT: ingest_lean_module on non-existent path errors cleanly.
+    #[test]
+    fn invariant_lean_missing_path_errors() {
+        let mut ingestor = FormalLogicIngestor::new_empty();
+        let result = ingestor.ingest_lean_module("/nonexistent/path/xyz.lean");
+        assert!(result.is_err(), "missing file should error");
+    }
+
+    /// INVARIANT: ingest_axiom adds a statement.
+    #[test]
+    fn invariant_axiom_adds_statement() -> Result<(), Box<dyn std::error::Error>> {
+        let mut ingestor = FormalLogicIngestor::new_empty();
+        let before = ingestor.total_statements();
+        ingestor.ingest_axiom("the sky is blue")?;
+        let after = ingestor.total_statements();
+        assert!(after > before, "ingest_axiom should add a statement");
+        Ok(())
+    }
+
+    /// INVARIANT: query returns finite similarity in [-1, 1].
+    #[test]
+    fn invariant_query_similarity_in_cosine_range() {
+        let mut ingestor = FormalLogicIngestor::new_empty();
+        let _ = ingestor.ingest_axiom("test axiom");
+        let result = ingestor.query("test query");
+        assert!(result.similarity.is_finite()
+            && result.similarity >= -1.0 - 1e-6
+            && result.similarity <= 1.0 + 1e-6,
+            "similarity out of [-1,1]: {}", result.similarity);
+    }
 }

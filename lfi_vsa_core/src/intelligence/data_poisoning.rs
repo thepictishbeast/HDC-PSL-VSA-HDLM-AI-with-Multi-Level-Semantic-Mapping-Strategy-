@@ -548,4 +548,114 @@ mod tests {
             "Case/whitespace variations should dedup: {:?}",
             threats.iter().map(|t| &t.sample_id).collect::<Vec<_>>());
     }
+
+    // ============================================================
+    // Stress / invariant tests for data_poisoning
+    // ============================================================
+
+    /// INVARIANT: empty dataset produces zero threats from every detector
+    /// (no false alarms on absence of data).
+    #[test]
+    fn invariant_empty_input_no_threats() {
+        let empty: Vec<TrainingSample> = vec![];
+        assert_eq!(ClassImbalanceDetector::analyze(&empty).len(), 0);
+        assert_eq!(DuplicateDetector::analyze(&empty).len(), 0);
+        assert_eq!(TriggerPatternDetector::analyze(&empty).len(), 0);
+        assert_eq!(DistributionalOutlierDetector::analyze(&empty).len(), 0);
+    }
+
+    /// INVARIANT: every threat returned has a finite confidence in [0,1].
+    #[test]
+    fn invariant_threat_confidence_in_unit_interval() {
+        let samples: Vec<TrainingSample> = (0..50)
+            .map(|i| sample(&format!("s{}", i),
+                if i % 7 == 0 { "[BACKDOOR] poisoned" } else { "normal text" },
+                if i % 3 == 0 { "X" } else { "Y" }))
+            .collect();
+        let analyzer = DataPoisoningAnalyzer::new();
+        for t in analyzer.analyze(&samples) {
+            assert!(t.confidence.is_finite() && (0.0..=1.0).contains(&t.confidence),
+                "threat confidence out of [0,1]: {} for {:?}", t.confidence, t.kind);
+        }
+    }
+
+    /// INVARIANT: known-trigger detection is robust to surrounding text —
+    /// embedding `[BACKDOOR]` anywhere flags the sample.
+    #[test]
+    fn invariant_known_triggers_flagged_anywhere() {
+        let positions = vec![
+            "[BACKDOOR] at start",
+            "in the middle [BACKDOOR] here",
+            "at the end [BACKDOOR]",
+        ];
+        for text in positions {
+            let s = vec![sample("test", text, "A")];
+            let threats = TriggerPatternDetector::analyze(&s);
+            assert!(!threats.is_empty(),
+                "known trigger missed in {:?}", text);
+        }
+    }
+
+    /// INVARIANT: detectors never panic on arbitrary unicode or control bytes.
+    #[test]
+    fn invariant_detectors_safe_on_unicode_and_control() {
+        let inputs = vec![
+            sample("u1", "アリス", "A"),
+            sample("u2", "🦀🦀🦀", "A"),
+            sample("u3", "control: \x00\x01\x1f", "A"),
+            sample("u4", "", "A"),
+            sample("u5", &"x".repeat(100_000), "A"),
+        ];
+        // None of these should panic.
+        let _ = ClassImbalanceDetector::analyze(&inputs);
+        let _ = DuplicateDetector::analyze(&inputs);
+        let _ = TriggerPatternDetector::analyze(&inputs);
+        let _ = DistributionalOutlierDetector::analyze(&inputs);
+    }
+
+    /// INVARIANT: the full analyzer's output count never exceeds the
+    /// per-detector output sum (it's just a union, no inflation).
+    #[test]
+    fn invariant_analyzer_output_bounded_by_detector_sum() {
+        let samples: Vec<TrainingSample> = (0..30)
+            .map(|i| sample(&format!("s{}", i),
+                if i == 0 { "[BACKDOOR]" } else { "ok" },
+                "X"))
+            .collect();
+        let per_sum =
+            ClassImbalanceDetector::analyze(&samples).len() +
+            DuplicateDetector::analyze(&samples).len() +
+            TriggerPatternDetector::analyze(&samples).len() +
+            DistributionalOutlierDetector::analyze(&samples).len();
+        let analyzer = DataPoisoningAnalyzer::new();
+        let combined = analyzer.analyze(&samples).len();
+        assert!(combined <= per_sum,
+            "analyzer combined ({}) must be ≤ per-detector sum ({})", combined, per_sum);
+    }
+
+    /// INVARIANT: empty sample list produces no threats.
+    #[test]
+    fn invariant_empty_samples_no_threats() {
+        let analyzer = DataPoisoningAnalyzer::new();
+        let threats = analyzer.analyze(&[]);
+        assert!(threats.is_empty(),
+            "empty samples should yield no threats");
+    }
+
+    /// INVARIANT: known_triggers returns non-empty list.
+    #[test]
+    fn invariant_known_triggers_nonempty() {
+        let triggers = TriggerPatternDetector::known_triggers();
+        assert!(!triggers.is_empty(),
+            "known_triggers should return at least one trigger");
+    }
+
+    /// INVARIANT: summarize produces a consistent summary.
+    #[test]
+    fn invariant_summarize_safe_on_empty() {
+        let analyzer = DataPoisoningAnalyzer::new();
+        let summary = analyzer.summarize(&[]);
+        // Just verifies no panic on empty.
+        let _ = format!("{:?}", summary);
+    }
 }

@@ -6,9 +6,13 @@ use serde::{Serialize, Deserialize};
 use std::fs;
 use tracing::info;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct SubstrateStats {
     pub ram_available_mb: u64,
+    #[serde(default)]
+    pub ram_total_mb: u64,
+    #[serde(default)]
+    pub ram_used_mb: u64,
     pub cpu_temp_c: f32,
     pub is_throttled: bool,
     // Level 2: Semantic Metrics
@@ -31,11 +35,14 @@ pub struct MaterialAuditor;
 impl MaterialAuditor {
     /// AUDIT: Scans the material and semantic base for forensic visibility.
     pub fn get_stats(vsa_ortho: f64, pass_rate: f64) -> SubstrateStats {
-        let ram = Self::read_available_memory();
+        let (avail, total) = Self::read_memory();
+        let used = total.saturating_sub(avail);
         let temp = Self::read_thermal_state();
-        
+
         let stats = SubstrateStats {
-            ram_available_mb: ram,
+            ram_available_mb: avail,
+            ram_total_mb: total,
+            ram_used_mb: used,
             cpu_temp_c: temp,
             is_throttled: temp > 80.0,
             vsa_orthogonality: vsa_ortho,
@@ -44,24 +51,34 @@ impl MaterialAuditor {
         };
 
         info!(
-            "// FORENSIC: RAM={}MB, Temp={}C, VSA_Ortho={:.4}, PSL_Pass={:.2}%", 
-            stats.ram_available_mb, stats.cpu_temp_c, stats.vsa_orthogonality, stats.axiom_pass_rate * 100.0
+            "// FORENSIC: RAM={}/{}MB used, Temp={}C, VSA_Ortho={:.4}, PSL_Pass={:.2}%",
+            stats.ram_used_mb, stats.ram_total_mb,
+            stats.cpu_temp_c, stats.vsa_orthogonality, stats.axiom_pass_rate * 100.0
         );
         stats
     }
 
     fn read_available_memory() -> u64 {
+        Self::read_memory().0
+    }
+
+    /// Returns (available_mb, total_mb). Both derived from /proc/meminfo
+    /// with a conservative fallback so the UI still has non-zero numbers if
+    /// /proc is unavailable (tests, containers without procfs).
+    fn read_memory() -> (u64, u64) {
+        let mut avail: u64 = 2048;
+        let mut total: u64 = 2048;
         if let Ok(content) = fs::read_to_string("/proc/meminfo") {
             for line in content.lines() {
-                if line.starts_with("MemAvailable:") {
-                    let parts: Vec<&str> = line.split_whitespace().collect();
-                    if parts.len() >= 2 {
-                        return parts[1].parse::<u64>().unwrap_or(0) / 1024;
-                    }
-                }
+                let parts: Vec<&str> = line.split_whitespace().collect();
+                if parts.len() < 2 { continue; }
+                let kb = parts[1].parse::<u64>().unwrap_or(0);
+                if line.starts_with("MemAvailable:") { avail = kb / 1024; }
+                else if line.starts_with("MemTotal:") { total = kb / 1024; }
             }
         }
-        2048
+        if total < avail { total = avail; }
+        (avail, total)
     }
 
     fn read_thermal_state() -> f32 {
@@ -90,6 +107,8 @@ mod tests {
         // Temperature > 80 should trigger throttle.
         let stats_hot = SubstrateStats {
             ram_available_mb: 4000,
+            ram_total_mb: 64000,
+            ram_used_mb: 60000,
             cpu_temp_c: 85.0,
             is_throttled: 85.0 > 80.0,
             vsa_orthogonality: 0.05,
@@ -177,5 +196,43 @@ mod tests {
         assert!((s1.cpu_temp_c - s2.cpu_temp_c).abs() < 5.0,
             "Temp should not drift > 5C in a few µs: {} vs {}",
             s1.cpu_temp_c, s2.cpu_temp_c);
+    }
+
+    /// INVARIANT: logic_density is always 0.0 from get_stats (calculated
+    /// externally during reasoning turns).
+    #[test]
+    fn invariant_logic_density_zero_on_get_stats() {
+        let s = MaterialAuditor::get_stats(0.05, 0.95);
+        assert_eq!(s.logic_density, 0.0,
+            "get_stats should not populate logic_density, got {}", s.logic_density);
+    }
+
+    /// INVARIANT: serde roundtrip preserves throttle flag.
+    #[test]
+    fn invariant_stats_serde_preserves_throttle() {
+        let stats = SubstrateStats {
+            ram_available_mb: 4096,
+            ram_total_mb: 64000,
+            ram_used_mb: 59904,
+            cpu_temp_c: 85.0,
+            is_throttled: true,
+            vsa_orthogonality: 0.1,
+            axiom_pass_rate: 0.9,
+            logic_density: 3.5,
+        };
+        let json = serde_json::to_string(&stats).unwrap();
+        let recovered: SubstrateStats = serde_json::from_str(&json).unwrap();
+        assert_eq!(recovered.is_throttled, stats.is_throttled);
+        assert_eq!(recovered.ram_available_mb, stats.ram_available_mb);
+        assert!((recovered.logic_density - 3.5).abs() < 0.001);
+    }
+
+    /// INVARIANT: get_logs always returns at least one entry.
+    #[test]
+    fn invariant_get_logs_nonempty() {
+        for _ in 0..5 {
+            let logs = get_logs();
+            assert!(!logs.is_empty());
+        }
     }
 }

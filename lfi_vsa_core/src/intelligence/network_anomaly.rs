@@ -631,4 +631,105 @@ mod tests {
             assert!(!t.mitigation.is_empty());
         }
     }
+
+    // ============================================================
+    // Stress / invariant tests for network_anomaly
+    // ============================================================
+
+    /// INVARIANT: every detector returns confidence in [0,1] for any input.
+    #[test]
+    fn invariant_threat_confidence_in_unit_interval() {
+        let conns: Vec<ConnectionAttempt> = (0..30)
+            .map(|i| conn(
+                &format!("10.0.0.{}", i),
+                if i % 5 == 0 { "very-suspicious-encoded-data-domain.com" } else { "example.com" },
+                if i % 3 == 0 { 22 } else { 443 },
+                1000 + i as u64 * 100,
+            ))
+            .collect();
+        let queries: Vec<DnsQuery> = (0..30)
+            .map(|i| DnsQuery {
+                source_ip: "10.0.0.1".into(),
+                domain: format!("query{}.example.com", i),
+                timestamp_ms: 1000 + i as u64 * 100,
+                query_type: "A".into(),
+            })
+            .collect();
+        let mut combined: Vec<NetworkThreat> = Vec::new();
+        combined.extend(PortScanDetector::analyze(&conns));
+        combined.extend(TlsAnomalyDetector::analyze(&conns));
+        combined.extend(BeaconDetector::analyze(&conns));
+        combined.extend(DnsTunnelingDetector::check_query_rate(&queries));
+        for t in &combined {
+            assert!(t.confidence.is_finite() && (0.0..=1.0).contains(&t.confidence),
+                "threat confidence out of [0,1]: {} for {:?}", t.confidence, t.kind);
+        }
+    }
+
+    /// INVARIANT: empty input yields empty threats list (no false alarms).
+    #[test]
+    fn invariant_empty_input_no_threats() {
+        let empty_conns: Vec<ConnectionAttempt> = vec![];
+        let empty_queries: Vec<DnsQuery> = vec![];
+        assert_eq!(PortScanDetector::analyze(&empty_conns).len(), 0);
+        assert_eq!(TlsAnomalyDetector::analyze(&empty_conns).len(), 0);
+        assert_eq!(BeaconDetector::analyze(&empty_conns).len(), 0);
+        assert_eq!(DnsTunnelingDetector::check_query_rate(&empty_queries).len(), 0);
+    }
+
+    /// INVARIANT: subdomain length detector returns Some only when > 60 chars
+    /// (the implementation's threshold) — short legitimate names pass.
+    #[test]
+    fn invariant_short_subdomain_not_flagged() {
+        let safe = ["example.com", "api.example.com", "sub.deep.api.example.com",
+                    "long-but-fine-subdomain.example.com"];
+        for d in safe {
+            assert!(DnsTunnelingDetector::check_subdomain_length(d).is_none(),
+                "short legitimate subdomain falsely flagged: {}", d);
+        }
+    }
+
+    /// INVARIANT: detectors never panic on arbitrary unicode domain strings.
+    #[test]
+    fn invariant_detectors_safe_on_unicode_domains() {
+        let big = "x".repeat(1000);
+        let weird: [&str; 5] = [
+            "アリス.example.com",
+            "🦀.com",
+            "control\x00.example.com",
+            "",
+            &big,
+        ];
+        for d in weird {
+            // Must not panic — return value irrelevant.
+            let _ = DnsTunnelingDetector::check_subdomain_length(d);
+        }
+    }
+
+    /// INVARIANT: analyze_connections safe on empty connection list.
+    #[test]
+    fn invariant_empty_connections_no_crash() {
+        let analyzer = NetworkAnomalyAnalyzer::new();
+        let threats = analyzer.analyze_connections(&[]);
+        assert!(threats.is_empty(),
+            "empty connections should yield empty threats");
+    }
+
+    /// INVARIANT: analyze_dns safe on empty query list.
+    #[test]
+    fn invariant_empty_dns_queries_no_crash() {
+        let analyzer = NetworkAnomalyAnalyzer::new();
+        let threats = analyzer.analyze_dns(&[]);
+        assert!(threats.is_empty(),
+            "empty DNS queries should yield empty threats");
+    }
+
+    /// INVARIANT: with_allowlist + with_bad_destinations compose as expected.
+    #[test]
+    fn invariant_builder_methods_chainable() {
+        let _analyzer = NetworkAnomalyAnalyzer::new()
+            .with_bad_destinations(vec!["evil.example.com".into()]);
+        let _analyzer2 = NetworkAnomalyAnalyzer::with_allowlist(vec!["good.com".into()])
+            .with_bad_destinations(vec!["bad.com".into()]);
+    }
 }

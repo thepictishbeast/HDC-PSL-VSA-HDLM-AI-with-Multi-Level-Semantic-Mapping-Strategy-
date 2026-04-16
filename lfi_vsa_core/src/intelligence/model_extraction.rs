@@ -575,4 +575,172 @@ mod tests {
         // but test validates the method runs.
         assert_eq!(threat.identity, "attacker");
     }
+
+    // ============================================================
+    // Stress / invariant tests for ModelExtractionDetector
+    // ============================================================
+
+    /// INVARIANT: assess() for an unknown identity returns a non-panicking
+    /// threat (zero or low severity). Avoids leaking failure to fresh callers.
+    #[test]
+    fn invariant_assess_unknown_identity_safe() {
+        let detector = ModelExtractionDetector::new();
+        let threat = detector.assess("never_recorded");
+        assert_eq!(threat.identity, "never_recorded");
+        // Severity should be at the bottom of the ordering for empty history.
+        assert!(threat.confidence.is_finite() && (0.0..=1.0).contains(&threat.confidence),
+            "confidence out of [0,1]: {}", threat.confidence);
+    }
+
+    /// INVARIANT: tracked_count grows monotonically by 1 per new identity,
+    /// and never grows when re-recording for an existing identity.
+    #[test]
+    fn invariant_tracked_count_monotonic_per_identity() {
+        let mut detector = ModelExtractionDetector::new();
+        for i in 0..10 {
+            let id = format!("user_{}", i);
+            let before = detector.tracked_count();
+            detector.record(QueryRecord {
+                identity: id.clone(),
+                query: "q".into(),
+                timestamp_ms: 1_000_000 + i as u64,
+                response_length: 100,
+                similarity_to_previous: None,
+            });
+            assert_eq!(detector.tracked_count(), before + 1,
+                "first record for {} must grow tracked_count by 1", id);
+            // Second record for same identity → NO growth.
+            detector.record(QueryRecord {
+                identity: id.clone(),
+                query: "q2".into(),
+                timestamp_ms: 1_000_000 + i as u64 + 1,
+                response_length: 100,
+                similarity_to_previous: None,
+            });
+            assert_eq!(detector.tracked_count(), before + 1,
+                "duplicate identity {} must NOT grow tracked_count", id);
+        }
+    }
+
+    /// INVARIANT: reset() returns one identity's tracking to zero without
+    /// affecting others.
+    #[test]
+    fn invariant_reset_isolated_to_one_identity() {
+        let mut detector = ModelExtractionDetector::new();
+        for id in ["alice", "bob", "carol"] {
+            for i in 0..5 {
+                detector.record(QueryRecord {
+                    identity: id.into(),
+                    query: format!("q{}", i),
+                    timestamp_ms: 1_000_000 + i as u64 * 100,
+                    response_length: 100,
+                    similarity_to_previous: None,
+                });
+            }
+        }
+        let before = detector.tracked_count();
+        detector.reset("alice");
+        // alice's threat should be empty; bob/carol unaffected.
+        assert!(detector.tracked_count() <= before);
+        let bob = detector.assess("bob");
+        let carol = detector.assess("carol");
+        assert_eq!(bob.identity, "bob");
+        assert_eq!(carol.identity, "carol");
+    }
+
+    /// INVARIANT: top_threats(n) returns ≤ n entries, sorted descending
+    /// by confidence (most threatening first).
+    #[test]
+    fn invariant_top_threats_respects_limit_and_sorted() {
+        let mut detector = ModelExtractionDetector::new();
+        for i in 0..20 {
+            let id = format!("ident_{}", i);
+            for j in 0..(i + 1) {
+                detector.record(QueryRecord {
+                    identity: id.clone(),
+                    query: format!("q{}", j),
+                    timestamp_ms: 2_000_000 + j as u64 * 100,
+                    response_length: 100,
+                    similarity_to_previous: None,
+                });
+            }
+        }
+        for n in [0usize, 1, 5, 10, 100] {
+            let top = detector.top_threats(n);
+            assert!(top.len() <= n,
+                "top_threats({}) returned {} entries", n, top.len());
+            for w in top.windows(2) {
+                assert!(w[0].confidence >= w[1].confidence,
+                    "top_threats not sorted desc: {} then {}", w[0].confidence, w[1].confidence);
+            }
+        }
+    }
+
+    /// INVARIANT: every threat assessment carries finite confidence in [0,1]
+    /// and a non-empty identity field, regardless of recorded query mix.
+    #[test]
+    fn invariant_threat_confidence_well_formed_under_load() {
+        let mut detector = ModelExtractionDetector::new();
+        for i in 0..50 {
+            detector.record(QueryRecord {
+                identity: "stress".into(),
+                query: format!("query_{}", i),
+                timestamp_ms: 5_000_000 + i as u64 * 50,
+                response_length: 50 + (i % 500) as usize,
+                similarity_to_previous: if i > 0 { Some((i % 10) as f64 / 10.0) } else { None },
+            });
+        }
+        let threat = detector.assess("stress");
+        assert!(!threat.identity.is_empty());
+        assert!(threat.confidence.is_finite() && (0.0..=1.0).contains(&threat.confidence),
+            "confidence out of [0,1]: {}", threat.confidence);
+    }
+
+    /// INVARIANT: new() starts with zero tracked identities.
+    #[test]
+    fn invariant_new_zero_tracked() {
+        let d = ModelExtractionDetector::new();
+        assert_eq!(d.tracked_count(), 0);
+    }
+
+    /// INVARIANT: reset(identity) removes only that identity's state.
+    #[test]
+    fn invariant_reset_is_scoped() {
+        let mut d = ModelExtractionDetector::new();
+        // Record for two identities
+        d.record(QueryRecord {
+            identity: "alice".into(), query: "q".into(),
+            timestamp_ms: 1000, response_length: 10,
+            similarity_to_previous: None,
+        });
+        d.record(QueryRecord {
+            identity: "bob".into(), query: "q".into(),
+            timestamp_ms: 1000, response_length: 10,
+            similarity_to_previous: None,
+        });
+        let before = d.tracked_count();
+        d.reset("alice");
+        let after = d.tracked_count();
+        assert!(after < before, "reset(alice) should reduce tracked_count: {} -> {}",
+            before, after);
+    }
+
+    /// INVARIANT: top_threats returns at most n results.
+    #[test]
+    fn invariant_top_threats_bounded() {
+        let mut d = ModelExtractionDetector::new();
+        for i in 0..20 {
+            d.record(QueryRecord {
+                identity: format!("u{}", i),
+                query: "q".into(),
+                timestamp_ms: 1000,
+                response_length: 50,
+                similarity_to_previous: None,
+            });
+        }
+        for n in [0, 1, 5, 10, 100] {
+            let top = d.top_threats(n);
+            assert!(top.len() <= n, "top_threats({}) returned {}", n, top.len());
+        }
+    }
 }

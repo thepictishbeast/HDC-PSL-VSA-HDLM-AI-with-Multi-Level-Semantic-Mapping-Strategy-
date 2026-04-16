@@ -768,4 +768,39 @@ mod tests {
             "second record on existing domain must not grow count");
         Ok(())
     }
+
+    /// INVARIANT: is_strong and is_weak are mutually exclusive for the same domain.
+    #[test]
+    fn invariant_strong_and_weak_mutually_exclusive() -> Result<(), HdcError> {
+        let mut profiler = MetaCognitiveProfiler::new();
+        for i in 0..5 {
+            profiler.record(&PerformanceRecord {
+                domain: CognitiveDomain::Coding,
+                success: i > 2,
+                confidence: 0.5,
+                task_vector: BipolarVector::new_random()?,
+                description: "t".into(),
+            })?;
+        }
+        let strong = profiler.is_strong(&CognitiveDomain::Coding);
+        let weak = profiler.is_weak(&CognitiveDomain::Coding);
+        assert!(!(strong && weak),
+            "domain cannot be both strong and weak at once");
+        Ok(())
+    }
+
+    /// INVARIANT: CognitiveDomain::seed is deterministic — same domain always
+    /// produces same seed.
+    #[test]
+    fn invariant_domain_seed_deterministic() {
+        for d in [
+            CognitiveDomain::Coding,
+            CognitiveDomain::Mathematics,
+            CognitiveDomain::Custom("test".into()),
+        ] {
+            let s1 = d.seed();
+            let s2 = d.seed();
+            assert_eq!(s1, s2, "seed not deterministic for {:?}", d);
+        }
+    }
 }

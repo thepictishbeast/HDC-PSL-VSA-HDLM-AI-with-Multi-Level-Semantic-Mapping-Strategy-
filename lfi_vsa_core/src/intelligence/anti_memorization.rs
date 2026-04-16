@@ -411,4 +411,140 @@ mod tests {
         assert!(formatted.contains("Test accuracy:  50.0%"));
         assert!(formatted.contains("YES - memorization"));
     }
+
+    // ============================================================
+    // Stress / invariant tests for anti_memorization
+    // ============================================================
+
+    fn ex(input: &str, domain: &str) -> crate::intelligence::training_data::TrainingExample {
+        crate::intelligence::training_data::TrainingExample::new(
+            domain, input, "expected", 0.5, &[]
+        )
+    }
+
+    /// INVARIANT: the same examples and seed always produce the same split.
+    /// Reproducibility is essential for fair comparisons across runs.
+    #[test]
+    fn invariant_split_deterministic_per_seed() {
+        let examples: Vec<_> = (0..200)
+            .map(|i| ex(&format!("input_{}", i), if i % 2 == 0 { "math" } else { "logic" }))
+            .collect();
+        let s1 = DatasetSplit::deterministic_split(&examples, 0.3, 42);
+        let s2 = DatasetSplit::deterministic_split(&examples, 0.3, 42);
+        assert_eq!(s1.train.len(), s2.train.len(),
+            "same seed must yield same train size");
+        assert_eq!(s1.test.len(), s2.test.len(),
+            "same seed must yield same test size");
+        // Cross-check actual contents — order may differ if hashes happen to
+        // collide on push order, but content sets must match.
+        let s1_train_ids: std::collections::HashSet<_> = s1.train.iter()
+            .map(|e| (e.input.clone(), e.domain.clone())).collect();
+        let s2_train_ids: std::collections::HashSet<_> = s2.train.iter()
+            .map(|e| (e.input.clone(), e.domain.clone())).collect();
+        assert_eq!(s1_train_ids, s2_train_ids,
+            "same seed must yield identical train set contents");
+    }
+
+    /// INVARIANT: split conserves all input examples — train + test = total.
+    #[test]
+    fn invariant_split_conserves_examples() {
+        let examples: Vec<_> = (0..150)
+            .map(|i| ex(&format!("input_{}", i), "domain"))
+            .collect();
+        for ratio in [0.1, 0.2, 0.5, 0.8] {
+            let s = DatasetSplit::deterministic_split(&examples, ratio, 7);
+            assert_eq!(s.train.len() + s.test.len(), examples.len(),
+                "split must conserve total at ratio {}: train={} + test={} != {}",
+                ratio, s.train.len(), s.test.len(), examples.len());
+        }
+    }
+
+    /// INVARIANT: train and test are always disjoint after a deterministic split
+    /// over distinct inputs (no leakage from same-key duplication).
+    #[test]
+    fn invariant_split_is_disjoint() {
+        let examples: Vec<_> = (0..100)
+            .map(|i| ex(&format!("input_{}", i), "x"))
+            .collect();
+        for ratio in [0.1, 0.3, 0.7, 0.9] {
+            for seed in [1u64, 42, 999] {
+                let s = DatasetSplit::deterministic_split(&examples, ratio, seed);
+                assert!(s.is_disjoint(),
+                    "leakage detected at ratio={}, seed={}", ratio, seed);
+            }
+        }
+    }
+
+    /// INVARIANT: split with test_ratio=0.0 puts everything in train.
+    /// With test_ratio=1.0 everything goes to test. Boundary safety.
+    #[test]
+    fn invariant_split_extreme_ratios() {
+        let examples: Vec<_> = (0..50)
+            .map(|i| ex(&format!("e_{}", i), "d"))
+            .collect();
+        let s_zero = DatasetSplit::deterministic_split(&examples, 0.0, 1);
+        assert_eq!(s_zero.test.len(), 0,
+            "test_ratio=0 must produce empty test set");
+        assert_eq!(s_zero.train.len(), examples.len());
+
+        let s_one = DatasetSplit::deterministic_split(&examples, 1.0, 1);
+        assert_eq!(s_one.train.len(), 0,
+            "test_ratio=1.0 must produce empty train set");
+        assert_eq!(s_one.test.len(), examples.len());
+    }
+
+    /// INVARIANT: MemorizationReport.is_overfit is consistent with the gap —
+    /// large train-test gap ⇒ overfit; small gap ⇒ not overfit.
+    #[test]
+    fn invariant_overfit_consistent_with_gap() {
+        for &(train, test, expected) in &[
+            (0.95f64, 0.95, false),  // no gap
+            (0.95, 0.50, true),      // huge gap
+            (0.30, 0.30, false),     // both bad, no gap → not overfit
+            (0.95, 0.93, false),     // tiny gap → not overfit
+        ] {
+            let report = MemorizationReport {
+                train_accuracy: train,
+                test_accuracy: test,
+                gap: train - test,
+                variation_accuracy: None,
+                verdict: if expected {
+                    LearningVerdict::RoteMemorization
+                } else {
+                    LearningVerdict::Understanding
+                },
+                per_domain: HashMap::new(),
+            };
+            assert_eq!(report.is_overfit(), expected,
+                "is_overfit mismatch at train={} test={} gap={}", train, test, report.gap);
+        }
+    }
+
+    /// INVARIANT: deterministic_split is deterministic across calls.
+    #[test]
+    fn invariant_deterministic_split_is_deterministic() {
+        use crate::intelligence::training_data::TrainingExample;
+        let examples: Vec<TrainingExample> = (0..50)
+            .map(|i| TrainingExample::new("test", &format!("q{}", i), &format!("a{}", i), 0.5, &["tag"]))
+            .collect();
+        let split1 = DatasetSplit::deterministic_split(&examples, 0.7, 42);
+        let split2 = DatasetSplit::deterministic_split(&examples, 0.7, 42);
+        assert_eq!(split1.train.len(), split2.train.len());
+        assert_eq!(split1.test.len(), split2.test.len());
+    }
+
+    /// INVARIANT: train + test sizes sum to input size.
+    #[test]
+    fn invariant_split_sizes_sum_to_total() {
+        use crate::intelligence::training_data::TrainingExample;
+        let examples: Vec<TrainingExample> = (0..100)
+            .map(|i| TrainingExample::new("test", &format!("q{}", i), &format!("a{}", i), 0.5, &[]))
+            .collect();
+        for ratio in [0.5, 0.7, 0.9] {
+            let split = DatasetSplit::deterministic_split(&examples, ratio, 7);
+            assert_eq!(split.train.len() + split.test.len(), examples.len(),
+                "ratio {}: train({}) + test({}) != {}",
+                ratio, split.train.len(), split.test.len(), examples.len());
+        }
+    }
 }

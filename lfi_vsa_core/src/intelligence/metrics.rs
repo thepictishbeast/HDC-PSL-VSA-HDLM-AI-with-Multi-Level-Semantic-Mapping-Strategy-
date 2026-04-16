@@ -469,4 +469,89 @@ mod tests {
         for h in handles { h.join().unwrap(); }
         assert_eq!(m.counter_value("concurrent", &[]), 1000);
     }
+
+    // ============================================================
+    // Stress / invariant tests for LfiMetrics
+    // ============================================================
+
+    /// INVARIANT: counter_value is monotonically non-decreasing across
+    /// inc_counter calls.
+    #[test]
+    fn invariant_counter_monotone() {
+        let m = LfiMetrics::new();
+        let mut prev = 0u64;
+        for i in 1..=10 {
+            m.inc_counter("test", &[], i);
+            let now = m.counter_value("test", &[]);
+            assert!(now >= prev, "counter decreased: {} -> {}", prev, now);
+            prev = now;
+        }
+    }
+
+    /// INVARIANT: reset() sets all counters to 0 (or removes them),
+    /// gauge_value returns 0 for unknown.
+    #[test]
+    fn invariant_reset_clears_state() {
+        let m = LfiMetrics::new();
+        m.inc_counter("c", &[], 42);
+        m.set_gauge("g", &[], 3.14);
+        m.observe_histogram("h", &[], 100.0);
+        m.reset();
+        assert_eq!(m.counter_value("c", &[]), 0);
+        assert_eq!(m.gauge_value("g", &[]), 0.0);
+        // Output after reset should not contain the stale value
+        let text = m.render_prometheus();
+        assert!(!text.contains("42"),
+            "stale counter value 42 in rendered output: {}", text);
+    }
+
+    /// INVARIANT: gauge_value reflects most-recent set_gauge.
+    #[test]
+    fn invariant_gauge_reflects_last_set() {
+        let m = LfiMetrics::new();
+        for v in [1.0, 5.5, 3.0, -2.0, 100.0] {
+            m.set_gauge("g", &[], v);
+            assert_eq!(m.gauge_value("g", &[]), v,
+                "gauge should reflect last set: got {}", m.gauge_value("g", &[]));
+        }
+    }
+
+    /// INVARIANT: adjust_gauge delta applies correctly.
+    #[test]
+    fn invariant_adjust_gauge_composes() {
+        let m = LfiMetrics::new();
+        m.set_gauge("g", &[], 10.0);
+        m.adjust_gauge("g", &[], 5.0);
+        assert!((m.gauge_value("g", &[]) - 15.0).abs() < 0.001);
+        m.adjust_gauge("g", &[], -3.0);
+        assert!((m.gauge_value("g", &[]) - 12.0).abs() < 0.001);
+    }
+
+    /// INVARIANT: labels are treated as a set — same labels in different
+    /// order resolve to the same metric.
+    #[test]
+    fn invariant_label_order_independent() {
+        let m = LfiMetrics::new();
+        m.inc_counter("c", &[("x", "1"), ("y", "2")], 1);
+        m.inc_counter("c", &[("y", "2"), ("x", "1")], 1);
+        assert_eq!(m.counter_value("c", &[("x", "1"), ("y", "2")]), 2,
+            "label order should not matter");
+    }
+
+    /// INVARIANT: render_prometheus never panics and produces parseable output.
+    #[test]
+    fn invariant_render_prometheus_safe() {
+        let m = LfiMetrics::new();
+        m.inc_counter("requests_total", &[("endpoint", "/x")], 5);
+        m.set_gauge("sessions", &[], 10.0);
+        m.observe_histogram("latency_ms", &[], 50.0);
+        // Test escaping of special chars
+        m.inc_counter("weird", &[("path", "a\"b\\c\n")], 1);
+
+        let text = m.render_prometheus();
+        assert!(!text.is_empty());
+        assert!(text.contains("requests_total"));
+        assert!(text.contains("sessions"));
+        assert!(text.contains("latency_ms"));
+    }
 }

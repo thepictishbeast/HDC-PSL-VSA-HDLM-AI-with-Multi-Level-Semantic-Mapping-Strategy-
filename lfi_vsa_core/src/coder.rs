@@ -478,4 +478,66 @@ mod tests {
                "Should warn about resource constraints");
         Ok(())
     }
+
+    // ============================================================
+    // Stress / invariant tests for LfiCoder
+    // ============================================================
+
+    /// INVARIANT: synthesize with an empty construct list produces a valid
+    /// AST with at least the root node.
+    #[test]
+    fn invariant_empty_constructs_valid_ast() -> Result<(), String> {
+        let coder = LfiCoder::new();
+        let ast = coder.synthesize(LanguageId::Rust, &[])?;
+        assert!(ast.node_count() >= 1, "empty synthesis should still have root");
+        Ok(())
+    }
+
+    /// INVARIANT: synthesize_code produces a CodeOutput with finite quality_score.
+    #[test]
+    fn invariant_synthesize_code_quality_score_finite() -> Result<(), String> {
+        let coder = LfiCoder::new();
+        let constraints = ResourceConstraints::default();
+        for lang in [LanguageId::Rust, LanguageId::Python, LanguageId::JavaScript] {
+            let output = coder.synthesize_code(
+                lang.clone(),
+                &[UniversalConstruct::FunctionDefinition, UniversalConstruct::ForLoop],
+                &constraints,
+            )?;
+            assert!(output.quality_score.is_finite(),
+                "quality_score not finite for {:?}: {}", lang, output.quality_score);
+            assert_eq!(output.language, lang);
+        }
+        Ok(())
+    }
+
+    /// INVARIANT: Default ResourceConstraints has environment=Server,
+    /// no memory/core limits.
+    #[test]
+    fn invariant_default_constraints_sane() {
+        let c = ResourceConstraints::default();
+        assert_eq!(c.environment, ExecutionEnvironment::Server);
+        assert_eq!(c.max_memory_mb, 0);
+        assert_eq!(c.max_cores, 0);
+    }
+
+    /// INVARIANT: synthesize_code for each registered language succeeds with
+    /// a small construct list.
+    #[test]
+    fn invariant_synthesize_all_supported_langs() -> Result<(), String> {
+        let coder = LfiCoder::new();
+        let constraints = ResourceConstraints::default();
+        for lang in [
+            LanguageId::Rust, LanguageId::Python, LanguageId::JavaScript,
+            LanguageId::TypeScript, LanguageId::Go, LanguageId::C,
+        ] {
+            let out = coder.synthesize_code(
+                lang.clone(),
+                &[UniversalConstruct::VariableBinding],
+                &constraints,
+            )?;
+            assert!(!out.source.is_empty() || out.ast.node_count() > 0);
+        }
+        Ok(())
+    }
 }

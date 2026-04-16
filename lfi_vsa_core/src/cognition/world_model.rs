@@ -523,4 +523,54 @@ mod tests {
             "predict_sequence(7 actions) must return 7 states, got {}", states.len());
         Ok(())
     }
+
+    /// INVARIANT: new() starts with zero predictions and zero causal links.
+    #[test]
+    fn invariant_new_zero_counters() {
+        let state = HyperMemory::generate_seed(DIM_PROLETARIAT);
+        let model = WorldModel::new(state);
+        assert_eq!(model.prediction_count(), 0);
+        assert_eq!(model.causal_link_count(), 0);
+    }
+
+    /// INVARIANT: causal_link_count grows monotonically with distinct record_effect calls.
+    #[test]
+    fn invariant_causal_link_count_monotone() {
+        let state = HyperMemory::generate_seed(DIM_PROLETARIAT);
+        let mut model = WorldModel::new(state);
+        let prev = model.causal_link_count();
+        for i in 0..5 {
+            let a = HyperMemory::from_string(&format!("action_{}", i), DIM_PROLETARIAT);
+            let e = HyperMemory::from_string(&format!("effect_{}", i), DIM_PROLETARIAT);
+            model.record_effect(a, e);
+            let cur = model.causal_link_count();
+            assert!(cur >= prev,
+                "causal_link_count should be monotone: {} -> {}", prev, cur);
+        }
+    }
+
+    /// INVARIANT: prediction_accuracy is in [0,1] on a fresh model (0 before
+    /// any predictions run).
+    #[test]
+    fn invariant_prediction_accuracy_fresh_in_unit_interval() {
+        let state = HyperMemory::generate_seed(DIM_PROLETARIAT);
+        let model = WorldModel::new(state);
+        let acc = model.prediction_accuracy();
+        assert!(acc.is_finite() && (0.0..=1.0).contains(&acc),
+            "prediction_accuracy out of [0,1]: {}", acc);
+    }
+
+    /// INVARIANT: predict_next_state is pure — same action produces same prediction.
+    #[test]
+    fn invariant_predict_pure() -> Result<(), Box<dyn std::error::Error>> {
+        let state = HyperMemory::generate_seed(DIM_PROLETARIAT);
+        let model = WorldModel::new(state);
+        let action = HyperMemory::generate_seed(DIM_PROLETARIAT);
+        let p1 = model.predict_next_state(&action)?;
+        let p2 = model.predict_next_state(&action)?;
+        let sim = p1.similarity(&p2);
+        assert!((sim - 1.0).abs() < 0.001,
+            "predict_next_state not pure: sim={}", sim);
+        Ok(())
+    }
 }

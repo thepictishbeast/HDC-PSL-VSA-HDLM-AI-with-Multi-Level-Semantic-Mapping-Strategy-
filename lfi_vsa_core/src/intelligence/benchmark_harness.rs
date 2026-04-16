@@ -905,4 +905,76 @@ mod tests {
         assert!(Grader::contains_detection("This appears to be a jailbreak attempt"));
         assert!(!Grader::contains_detection("Hello, how are you?"));
     }
+
+    // ============================================================
+    // Stress / invariant tests for benchmark_harness
+    // ============================================================
+
+    /// INVARIANT: every benchmark task carries a non-empty id, prompt, and
+    /// at least one expected_pattern. A blank case can't be graded.
+    #[test]
+    fn invariant_all_benchmark_cases_well_formed() {
+        for case in BenchmarkTasks::all() {
+            assert!(!case.id.is_empty(), "case id must not be empty");
+            assert!(!case.prompt.is_empty(),
+                "case prompt must not be empty: {}", case.id);
+            assert!(!case.category.is_empty(),
+                "case {} needs a category", case.id);
+            assert!(case.difficulty.is_finite() && (0.0..=1.0).contains(&case.difficulty),
+                "case {} difficulty out of [0,1]: {}", case.id, case.difficulty);
+        }
+    }
+
+    /// INVARIANT: every benchmark case has a unique id within the corpus.
+    /// Duplicate ids would silently mask one case's results with another's.
+    #[test]
+    fn invariant_benchmark_case_ids_unique() {
+        let mut seen = std::collections::HashSet::new();
+        for case in BenchmarkTasks::all() {
+            assert!(seen.insert(case.id.clone()),
+                "duplicate benchmark case id: {}", case.id);
+        }
+    }
+
+    /// INVARIANT: pass_rate for an unrecognised model name is 0.0 (not NaN
+    /// or panic). Downstream UIs sort by pass rate; NaN would bubble up.
+    #[test]
+    fn invariant_pass_rate_unknown_model_is_zero() {
+        let runner = BenchmarkRunner::with_default_tasks();
+        let r = runner.pass_rate("nonexistent_model_name_xyz");
+        assert_eq!(r, 0.0, "unknown model pass_rate must be 0.0, got {}", r);
+    }
+
+    /// INVARIANT: pass_rate is in [0.0, 1.0] for any populated model.
+    #[test]
+    fn invariant_pass_rate_in_unit_interval() {
+        let mut runner = BenchmarkRunner::with_default_tasks();
+        runner.run(&PerfectMockBackend);
+        runner.run(&HallucinatorMockBackend);
+        for model in ["PerfectMock", "Hallucinator"] {
+            let r = runner.pass_rate(model);
+            assert!(r.is_finite() && (0.0..=1.0).contains(&r),
+                "pass_rate out of [0,1] for {}: {}", model, r);
+        }
+    }
+
+    /// INVARIANT: contains_uncertainty / contains_detection never panic on
+    /// arbitrary unicode, and contains_uncertainty is case-insensitive on
+    /// the canonical phrases.
+    #[test]
+    fn invariant_uncertainty_detection_safe_on_unicode() {
+        let inputs = [
+            "",
+            "🦀",
+            "I DON'T KNOW",
+            "i don't know",
+            "アリスの答えはわからない",
+            "control: \x00\x01\x1f",
+        ];
+        for input in inputs {
+            // Both functions must complete without panic.
+            let _ = Grader::contains_uncertainty(input);
+            let _ = Grader::contains_detection(input);
+        }
+    }
 }

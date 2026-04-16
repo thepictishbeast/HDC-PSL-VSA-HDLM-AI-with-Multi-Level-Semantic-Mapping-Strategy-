@@ -922,4 +922,79 @@ mod axiom_tests {
         assert!(!verdict.level.permits_execution(), "SSH key path should be blocked");
         Ok(())
     }
+
+    // ============================================================
+    // Stress / invariant tests for axiom trait implementations
+    // ============================================================
+
+    /// INVARIANT: AxiomVerdict::pass/fail produce confidence in the stated
+    /// value without modification (no clamp, no drift).
+    #[test]
+    fn invariant_verdict_constructors_preserve_confidence() {
+        for conf in [0.0f64, 0.25, 0.5, 0.75, 1.0] {
+            let pass = AxiomVerdict::pass("id".into(), conf, "x".into());
+            let fail = AxiomVerdict::fail("id".into(), conf, "x".into());
+            assert!((pass.confidence - conf).abs() < 1e-9);
+            assert!((fail.confidence - conf).abs() < 1e-9);
+        }
+    }
+
+    /// INVARIANT: every axiom returns a verdict with confidence in [0,1]
+    /// regardless of payload content — this is a trait-wide guarantee
+    /// relied on by PslSupervisor's weighted aggregation.
+    #[test]
+    fn invariant_all_axioms_confidence_in_unit_interval() -> Result<(), PslError> {
+        let vector = BipolarVector::new_random().expect("vec");
+        let targets = [
+            AuditTarget::Vector(vector),
+            AuditTarget::Scalar { label: "x".into(), value: 42.0 },
+            AuditTarget::Payload {
+                source: "out".into(),
+                fields: vec![("k".into(), "v".into())],
+            },
+        ];
+
+        let axioms: Vec<Box<dyn Axiom>> = vec![
+            Box::new(DimensionalityAxiom),
+            Box::new(StatisticalEquilibriumAxiom { tolerance: 0.1 }),
+            Box::new(DataIntegrityAxiom { max_bytes: 1024 }),
+            Box::new(ClassInterestAxiom),
+            Box::new(EntropyAxiom::default()),
+            Box::new(ExfiltrationDetectionAxiom),
+        ];
+
+        for axiom in &axioms {
+            for target in &targets {
+                let verdict = axiom.evaluate(target)?;
+                assert!(verdict.confidence.is_finite()
+                    && (0.0..=1.0).contains(&verdict.confidence),
+                    "axiom {} confidence out of [0,1] for target: {}",
+                    axiom.id(), verdict.confidence);
+                // relevance is also in [0,1]
+                let rel = axiom.relevance(target);
+                assert!(rel.is_finite() && (0.0..=1.0).contains(&rel),
+                    "axiom {} relevance out of [0,1]: {}", axiom.id(), rel);
+            }
+        }
+        Ok(())
+    }
+
+    /// INVARIANT: every axiom has a non-empty id() string — required for
+    /// aggregation and audit logging.
+    #[test]
+    fn invariant_axiom_ids_non_empty() {
+        let axioms: Vec<Box<dyn Axiom>> = vec![
+            Box::new(DimensionalityAxiom),
+            Box::new(StatisticalEquilibriumAxiom { tolerance: 0.1 }),
+            Box::new(DataIntegrityAxiom { max_bytes: 1024 }),
+            Box::new(ClassInterestAxiom),
+            Box::new(EntropyAxiom::default()),
+            Box::new(ExfiltrationDetectionAxiom),
+            Box::new(InjectionDetectionAxiom),
+        ];
+        for axiom in &axioms {
+            assert!(!axiom.id().is_empty(),
+                "axiom id must be non-empty");
+        }
+    }
 }

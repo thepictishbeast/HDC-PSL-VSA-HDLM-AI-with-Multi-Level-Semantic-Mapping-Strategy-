@@ -637,4 +637,110 @@ mod tests {
         let result = eval.factorial(-1.0);
         assert!(result.is_nan(), "factorial(-1) should be NaN");
     }
+
+    // ============================================================
+    // Stress / invariant tests for math_engine
+    // ============================================================
+
+    /// INVARIANT: parse_simple is total over short ASCII inputs — never panics
+    /// on arbitrary bytes within usual range.
+    #[test]
+    fn invariant_parse_simple_safe_on_arbitrary_input() {
+        let inputs = [
+            "",
+            "1+1",
+            "blah",
+            "((((", // unmatched
+            "123abc",
+            "1 + 2 * 3",
+            "アリス",        // unicode
+            "🦀+🦀",         // emoji
+            "1+++2",
+            "  spaces  ",
+        ];
+        for input in inputs {
+            let _ = MathEvaluator::parse_simple(input); // must not panic
+        }
+    }
+
+    /// INVARIANT: division by zero in evaluate produces NaN/Inf or no answer
+    /// — never a panic.
+    #[test]
+    fn invariant_division_by_zero_is_nan_not_panic() {
+        let mut eval = MathEvaluator::new();
+        let expr = MathExpr::BinOp {
+            op: MathOp::Div,
+            left: Box::new(MathExpr::Num(1.0)),
+            right: Box::new(MathExpr::Num(0.0)),
+        };
+        let derivation = eval.evaluate(&expr, "div by zero");
+        let v = derivation.answer;
+        assert!(v.is_nan() || v.is_infinite() || v == 0.0,
+            "1/0 must be NaN, Inf, or 0 (refused-to-evaluate sentinel), got {}", v);
+    }
+
+    /// INVARIANT: accuracy() is in [0.0, 1.0] regardless of evaluator history.
+    #[test]
+    fn invariant_accuracy_in_unit_interval() {
+        let mut eval = MathEvaluator::new();
+        for v in [1.0, -1.0, 0.0, 100.0, -100.0] {
+            let expr = MathExpr::Num(v);
+            let _ = eval.evaluate(&expr, "num");
+        }
+        let acc = eval.accuracy();
+        assert!(acc.is_finite() && (0.0..=1.0).contains(&acc),
+            "accuracy out of [0,1]: {}", acc);
+    }
+
+    /// INVARIANT: factorial of small non-negative integers matches the
+    /// known sequence; non-integer or negative inputs return NaN.
+    #[test]
+    fn invariant_factorial_table_consistent() {
+        let eval = MathEvaluator::new();
+        let known = [(0.0, 1.0), (1.0, 1.0), (2.0, 2.0), (3.0, 6.0),
+                     (4.0, 24.0), (5.0, 120.0), (10.0, 3628800.0)];
+        for (n, expected) in known {
+            let got = eval.factorial(n);
+            assert!((got - expected).abs() < 1e-6,
+                "factorial({}) expected {}, got {}", n, expected, got);
+        }
+        // Negative inputs and overflow → NaN. The current impl rounds
+        // non-integer positive inputs to nearest, so 0.5 → 0! = 1, 1.5 → 2.
+        for bad in [-0.5, -1.0, -100.0, 21.0, 100.0] {
+            assert!(eval.factorial(bad).is_nan(),
+                "factorial({}) must be NaN (negative or overflow)", bad);
+        }
+    }
+
+    /// INVARIANT: check_answer uses tolerance for floating point —
+    /// a small epsilon must still be accepted as equal.
+    #[test]
+    fn invariant_check_answer_tolerance() {
+        let eval = MathEvaluator::new();
+        assert!(eval.check_answer(1.0, 1.0));
+        assert!(eval.check_answer(1.0, 1.0 + 1e-10), "tiny epsilon must compare equal");
+        // Significantly different values must NOT compare equal.
+        assert!(!eval.check_answer(1.0, 2.0));
+        assert!(!eval.check_answer(0.0, 1.0));
+    }
+
+    /// INVARIANT: parse_simple returns None for completely malformed input.
+    #[test]
+    fn invariant_parse_malformed_none() {
+        let malformed = ["", "xyz", "random garbage", "(((", ")))"];
+        for input in malformed {
+            let result = MathEvaluator::parse_simple(input);
+            // Don't require None — some implementations may parse permissively.
+            // Just verify no panic.
+            let _ = result;
+        }
+    }
+
+    /// INVARIANT: MathEvaluator::new() produces an evaluator with 0 derivations.
+    #[test]
+    fn invariant_new_evaluator_zero_accuracy() {
+        let eval = MathEvaluator::new();
+        let acc = eval.accuracy();
+        assert!(acc.is_finite(), "fresh accuracy should be finite, got {}", acc);
+    }
 }

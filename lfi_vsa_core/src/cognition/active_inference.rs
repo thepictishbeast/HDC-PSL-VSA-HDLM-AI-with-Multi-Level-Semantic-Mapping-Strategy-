@@ -444,4 +444,46 @@ mod tests {
         }
         assert_eq!(arena.len(), n);
     }
+
+    /// INVARIANT: Default policy has monotone thresholds:
+    /// equilibrium < action < emergency.
+    #[test]
+    fn invariant_default_policy_threshold_ordering() {
+        let p = InferencePolicy::default();
+        assert!(p.equilibrium_threshold < p.action_threshold,
+            "equilibrium {} should be < action {}",
+            p.equilibrium_threshold, p.action_threshold);
+        assert!(p.action_threshold < p.emergency_threshold,
+            "action {} should be < emergency {}",
+            p.action_threshold, p.emergency_threshold);
+        assert!(p.equilibrium_threshold >= 0.0);
+        assert!(p.emergency_threshold <= 1.0);
+    }
+
+    /// INVARIANT: free_energy from step() is always non-negative and finite.
+    #[test]
+    fn invariant_free_energy_nonnegative_finite() -> Result<(), HdcError> {
+        let mut core = ActiveInferenceCore::new(HyperMemory::generate_seed(DIM_PROLETARIAT));
+        core.set_target(HyperMemory::generate_seed(DIM_PROLETARIAT));
+        for _ in 0..10 {
+            let obs = HyperMemory::generate_seed(DIM_PROLETARIAT);
+            let outcome = core.step(&obs)?;
+            let fe = match outcome {
+                InferenceOutcome::Equilibrium { free_energy } => free_energy,
+                InferenceOutcome::Act { free_energy, .. } => free_energy,
+                InferenceOutcome::Perceive { free_energy, .. } => free_energy,
+            };
+            assert!(fe.is_finite() && fe >= 0.0,
+                "free energy should be non-negative finite, got {}", fe);
+        }
+        Ok(())
+    }
+
+    /// INVARIANT: max_causal_history policy field is always positive.
+    #[test]
+    fn invariant_causal_history_positive() {
+        let p = InferencePolicy::default();
+        assert!(p.max_causal_history > 0,
+            "max_causal_history should be positive, got {}", p.max_causal_history);
+    }
 }

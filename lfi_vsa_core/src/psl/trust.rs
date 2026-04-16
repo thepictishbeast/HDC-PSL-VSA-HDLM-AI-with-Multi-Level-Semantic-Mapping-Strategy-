@@ -102,4 +102,91 @@ mod tests {
         assert_eq!(TrustLevel::Trusted, TrustLevel::Trusted);
         assert_ne!(TrustLevel::Trusted, TrustLevel::Untrusted);
     }
+
+    // ============================================================
+    // Stress / invariant tests for TrustLevel
+    // ============================================================
+
+    const ALL: [TrustLevel; 4] = [
+        TrustLevel::Forbidden,
+        TrustLevel::Untrusted,
+        TrustLevel::Trusted,
+        TrustLevel::Sovereign,
+    ];
+
+    /// INVARIANT: ordering is total — Forbidden < Untrusted < Trusted < Sovereign.
+    #[test]
+    fn invariant_ordering_total() {
+        for i in 0..ALL.len() {
+            for j in 0..ALL.len() {
+                let oi = ALL[i];
+                let oj = ALL[j];
+                if i < j {
+                    assert!(oi < oj, "{:?} should be < {:?}", oi, oj);
+                }
+                if i == j {
+                    assert_eq!(oi, oj);
+                }
+            }
+        }
+    }
+
+    /// INVARIANT: is_blocked implies !permits_execution.
+    #[test]
+    fn invariant_blocked_excludes_execution() {
+        for level in ALL {
+            if level.is_blocked() {
+                assert!(!level.permits_execution(),
+                    "{:?} blocked but permits execution", level);
+            }
+        }
+    }
+
+    /// INVARIANT: labels are non-empty, uppercase, and distinct.
+    #[test]
+    fn invariant_labels_distinct_and_uppercase() {
+        let mut seen = std::collections::HashSet::new();
+        for level in ALL {
+            let label = level.label();
+            assert!(!label.is_empty());
+            assert_eq!(label, label.to_uppercase(),
+                "label not uppercase: {}", label);
+            assert!(seen.insert(label.to_string()),
+                "duplicate label: {}", label);
+        }
+    }
+
+    /// INVARIANT: needs_verification only holds for Untrusted.
+    #[test]
+    fn invariant_needs_verification_only_untrusted() {
+        for level in ALL {
+            assert_eq!(level.needs_verification(),
+                level == TrustLevel::Untrusted,
+                "needs_verification inconsistent for {:?}", level);
+        }
+    }
+
+    /// INVARIANT: serialize/deserialize round-trip is lossless for every variant.
+    #[test]
+    fn invariant_serde_roundtrip_all_variants() {
+        for level in ALL {
+            let json = serde_json::to_string(&level).unwrap();
+            let recovered: TrustLevel = serde_json::from_str(&json).unwrap();
+            assert_eq!(recovered, level, "roundtrip mismatch for {:?}", level);
+        }
+    }
+
+    /// INVARIANT: permits_execution is monotone — if a <= b and a permits,
+    /// then b permits (Trusted permits implies Sovereign permits).
+    #[test]
+    fn invariant_permits_execution_monotone() {
+        for a in ALL {
+            for b in ALL {
+                if a <= b && a.permits_execution() {
+                    assert!(b.permits_execution(),
+                        "permits_execution not monotone: {:?} <= {:?}", a, b);
+                }
+            }
+        }
+    }
 }

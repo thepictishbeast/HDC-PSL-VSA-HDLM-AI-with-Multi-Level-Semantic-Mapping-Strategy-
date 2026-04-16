@@ -180,4 +180,93 @@ mod tests {
         IntelligenceBenchmark::print_report(&report); // Should not panic.
         Ok(())
     }
+
+    // ============================================================
+    // Stress / invariant tests for IntelligenceBenchmark
+    // ============================================================
+
+    /// INVARIANT: every DomainScore has accuracy = correct/total.
+    #[test]
+    fn invariant_domain_score_accuracy_consistent() -> Result<(), HdcError> {
+        let mut knowledge = KnowledgeEngine::new();
+        let report = IntelligenceBenchmark::run(&mut knowledge)?;
+        for ds in &report.domain_scores {
+            if ds.total > 0 {
+                let expected = ds.correct as f64 / ds.total as f64;
+                assert!((ds.accuracy - expected).abs() < 0.001,
+                    "accuracy mismatch for {}: {} vs {}",
+                    ds.domain, ds.accuracy, expected);
+            } else {
+                assert_eq!(ds.accuracy, 0.0,
+                    "empty domain should have 0 accuracy");
+            }
+        }
+        Ok(())
+    }
+
+    /// INVARIANT: overall_accuracy == total_correct / total_examples.
+    #[test]
+    fn invariant_overall_accuracy_consistent() -> Result<(), HdcError> {
+        let mut knowledge = KnowledgeEngine::new();
+        let report = IntelligenceBenchmark::run(&mut knowledge)?;
+        if report.total_examples > 0 {
+            let expected = report.total_correct as f64 / report.total_examples as f64;
+            assert!((report.overall_accuracy - expected).abs() < 0.001,
+                "overall accuracy mismatch: {} vs {}",
+                report.overall_accuracy, expected);
+        }
+        Ok(())
+    }
+
+    /// INVARIANT: total_correct <= total_examples always.
+    #[test]
+    fn invariant_total_correct_bounded() -> Result<(), HdcError> {
+        let mut knowledge = KnowledgeEngine::new();
+        let report = IntelligenceBenchmark::run(&mut knowledge)?;
+        assert!(report.total_correct <= report.total_examples,
+            "correct {} > total {}", report.total_correct, report.total_examples);
+        Ok(())
+    }
+
+    /// INVARIANT: overall_accuracy and overall_weighted_score in [0,1].
+    #[test]
+    fn invariant_benchmark_scores_in_unit_interval() -> Result<(), HdcError> {
+        let mut knowledge = KnowledgeEngine::new();
+        let report = IntelligenceBenchmark::run(&mut knowledge)?;
+        assert!(report.overall_accuracy.is_finite()
+            && (0.0..=1.0).contains(&report.overall_accuracy),
+            "overall accuracy out of [0,1]: {}", report.overall_accuracy);
+        assert!(report.overall_weighted_score.is_finite()
+            && (0.0..=1.0).contains(&report.overall_weighted_score),
+            "weighted score out of [0,1]: {}", report.overall_weighted_score);
+        Ok(())
+    }
+
+    /// INVARIANT: strongest/weakest domain actually exist in domain_scores.
+    #[test]
+    fn invariant_strongest_weakest_domain_present() -> Result<(), HdcError> {
+        let mut knowledge = KnowledgeEngine::new();
+        let report = IntelligenceBenchmark::run(&mut knowledge)?;
+        if !report.domain_scores.is_empty() {
+            let names: std::collections::HashSet<_> =
+                report.domain_scores.iter().map(|d| d.domain.as_str()).collect();
+            assert!(names.contains(report.weakest_domain.as_str()),
+                "weakest domain {:?} not in scores", report.weakest_domain);
+            assert!(names.contains(report.strongest_domain.as_str()),
+                "strongest domain {:?} not in scores", report.strongest_domain);
+        }
+        Ok(())
+    }
+
+    /// INVARIANT: running on an empty example slice yields zero totals.
+    #[test]
+    fn invariant_empty_examples_yield_zero() -> Result<(), HdcError> {
+        let mut knowledge = KnowledgeEngine::new();
+        let report = IntelligenceBenchmark::run_with_examples(&mut knowledge, &[])?;
+        assert_eq!(report.total_examples, 0);
+        assert_eq!(report.total_correct, 0);
+        assert_eq!(report.domains_evaluated, 0);
+        assert_eq!(report.overall_accuracy, 0.0);
+        Ok(())
+    }
 }

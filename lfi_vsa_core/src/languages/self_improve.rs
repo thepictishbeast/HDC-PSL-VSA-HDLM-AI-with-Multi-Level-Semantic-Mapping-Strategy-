@@ -603,4 +603,58 @@ mod tests {
         assert!(score > 0.5, "Code similar to prototype should score well");
         Ok(())
     }
+
+    // ============================================================
+    // Stress / invariant tests for SelfImproveEngine
+    // ============================================================
+
+    /// INVARIANT: overall_score is in [0,1] for any valid metrics.
+    #[test]
+    fn invariant_overall_score_in_unit_interval() {
+        use crate::languages::constructs::UniversalConstruct;
+        let supervisor = PslSupervisor::new();
+        let engine = SelfImproveEngine::new(supervisor);
+        let _ = UniversalConstruct::Block; // ensure use
+        // An empty AST should produce a finite score.
+        let ast = Ast::new();
+        let metrics = engine.evaluate_ast(&ast);
+        let score = metrics.overall_score();
+        assert!(score.is_finite() && (0.0..=1.0).contains(&score),
+            "overall_score out of [0,1]: {}", score);
+    }
+
+    /// INVARIANT: optimization_count starts at 0 for a new engine.
+    #[test]
+    fn invariant_new_engine_zero_optimizations() {
+        let supervisor = PslSupervisor::new();
+        let engine = SelfImproveEngine::new(supervisor);
+        assert_eq!(engine.optimization_count(), 0);
+    }
+
+    /// INVARIANT: reinforce never errors on well-formed bipolar vectors.
+    #[test]
+    fn invariant_reinforce_accepts_any_valid_vector() -> Result<(), HdcError> {
+        let supervisor = PslSupervisor::new();
+        let mut engine = SelfImproveEngine::new(supervisor);
+        for _ in 0..5 {
+            let v = BipolarVector::new_random()?;
+            engine.reinforce(&v)?;  // must succeed
+        }
+        Ok(())
+    }
+
+    /// INVARIANT: quality_score stays in [0,1] after reinforcement.
+    #[test]
+    fn invariant_quality_score_in_unit_interval() -> Result<(), HdcError> {
+        let supervisor = PslSupervisor::new();
+        let mut engine = SelfImproveEngine::new(supervisor);
+        for _ in 0..3 {
+            let v = BipolarVector::new_random()?;
+            engine.reinforce(&v)?;
+            let score = engine.quality_score(&v)?;
+            assert!(score.is_finite() && (0.0..=1.0).contains(&score),
+                "quality_score out of [0,1]: {}", score);
+        }
+        Ok(())
+    }
 }

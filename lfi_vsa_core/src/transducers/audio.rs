@@ -201,4 +201,49 @@ mod tests {
         assert!(sim < 0.95, "Different metadata should diverge, sim={}", sim);
         Ok(())
     }
+
+    // ============================================================
+    // Stress / invariant tests for AudioTransducer
+    // ============================================================
+
+    /// INVARIANT: project produces a 10k-dim non-empty vector for any
+    /// non-trivial PCM input.
+    #[test]
+    fn invariant_project_produces_correct_dim() -> Result<(), HdcError> {
+        let pcm: Vec<u8> = (0..256).map(|i| i as u8).collect();
+        let v = AudioTransducer::project(&pcm)?;
+        assert_eq!(v.dim(), 10_000, "audio projection must be 10k dim");
+        Ok(())
+    }
+
+    /// INVARIANT: every projection has the correct dim.
+    #[test]
+    fn invariant_project_correct_dim() -> Result<(), HdcError> {
+        for size in [1usize, 100, 1024, 8192] {
+            let pcm: Vec<u8> = (0..size).map(|i| (i % 256) as u8).collect();
+            let v = AudioTransducer::project(&pcm)?;
+            assert_eq!(v.dim(), 10_000,
+                "projection for {}-byte PCM must be 10k dim", size);
+        }
+        Ok(())
+    }
+
+    /// INVARIANT: project_with_metadata produces a 10k-dim vector for
+    /// any sample rate / channel count combination.
+    #[test]
+    fn invariant_project_with_metadata_produces_correct_dim() -> Result<(), HdcError> {
+        let pcm: Vec<u8> = (0..256).map(|i| (i * 3) as u8).collect();
+        for (sr, ch) in [(8000u32, 1u8), (16000, 1), (44100, 2), (48000, 2), (96000, 8)] {
+            let v = AudioTransducer::project_with_metadata(&pcm, sr, ch)?;
+            assert_eq!(v.dim(), 10_000,
+                "project_with_metadata({}, {}) must be 10k dim", sr, ch);
+        }
+        Ok(())
+    }
+
+    /// INVARIANT: empty PCM always errors — no silent zero-vector.
+    #[test]
+    fn invariant_empty_pcm_errors() {
+        assert!(AudioTransducer::project(&[]).is_err());
+    }
 }

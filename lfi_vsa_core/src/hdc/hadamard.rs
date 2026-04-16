@@ -366,4 +366,117 @@ mod tests {
         assert!((ratio - 0.5).abs() < 0.05, "Vector should be balanced, ratio={}", ratio);
         Ok(())
     }
+
+    // ============================================================
+    // Stress / invariant tests for HadamardGenerator
+    // ============================================================
+
+    /// INVARIANT: generate(i) is deterministic — same index always yields
+    /// the same vector. Required for reproducible codebooks.
+    #[test]
+    fn invariant_hadamard_generate_deterministic() -> Result<(), HdcError> {
+        for idx in [0usize, 1, 42, 100, 1023] {
+            let v1 = HadamardGenerator::generate(idx)?;
+            let v2 = HadamardGenerator::generate(idx)?;
+            assert_eq!(v1, v2,
+                "generate({}) must be deterministic", idx);
+        }
+        Ok(())
+    }
+
+    /// INVARIANT: different indices produce different vectors (low collision).
+    #[test]
+    fn invariant_hadamard_distinct_indices_different() -> Result<(), HdcError> {
+        let indices = [0usize, 1, 42, 100, 500];
+        for i in 0..indices.len() {
+            for j in (i + 1)..indices.len() {
+                let v_i = HadamardGenerator::generate(indices[i])?;
+                let v_j = HadamardGenerator::generate(indices[j])?;
+                assert_ne!(v_i, v_j,
+                    "generate({}) and generate({}) collided",
+                    indices[i], indices[j]);
+            }
+        }
+        Ok(())
+    }
+
+    /// INVARIANT: generate_batch(N) produces exactly N vectors of correct dim.
+    #[test]
+    fn invariant_hadamard_batch_count() -> Result<(), HdcError> {
+        for n in [1usize, 10, 50] {
+            let batch = HadamardGenerator::generate_batch(n)?;
+            assert_eq!(batch.len(), n,
+                "batch({}) produced {} vectors", n, batch.len());
+            for v in &batch {
+                assert_eq!(v.dim(), HD_DIMENSIONS,
+                    "batch vector dim must be {}", HD_DIMENSIONS);
+            }
+        }
+        Ok(())
+    }
+
+    /// INVARIANT: batch vectors are pairwise quasi-orthogonal (no accidental
+    /// duplicates within a batch).
+    #[test]
+    fn invariant_hadamard_batch_pairwise_distinct() -> Result<(), HdcError> {
+        let batch = HadamardGenerator::generate_batch(20)?;
+        for i in 0..batch.len() {
+            for j in (i + 1)..batch.len() {
+                assert_ne!(batch[i], batch[j],
+                    "batch vectors {} and {} collided", i, j);
+            }
+        }
+        Ok(())
+    }
+
+    /// INVARIANT: CorrelatedGenerator with correlation=1.0 returns an identical
+    /// vector; with correlation=0.0 returns a quasi-orthogonal one.
+    #[test]
+    fn invariant_correlated_extreme_values() -> Result<(), HdcError> {
+        let base = HadamardGenerator::generate(7)?;
+        let identical = CorrelatedGenerator::generate_correlated(&base, 1.0, 42)?;
+        let sim_ident = base.similarity(&identical)?;
+        assert!(sim_ident > 0.99,
+            "correlation=1.0 must produce ≈identical: sim={}", sim_ident);
+
+        let orthogonal = CorrelatedGenerator::generate_correlated(&base, 0.0, 43)?;
+        let sim_orth = base.similarity(&orthogonal)?;
+        assert!(sim_orth.abs() < 0.1,
+            "correlation=0.0 must produce quasi-orthogonal: sim={}", sim_orth);
+        Ok(())
+    }
+
+    /// INVARIANT: generate produces 10_000-dim vectors for any valid index.
+    #[test]
+    fn invariant_generate_produces_correct_dim() -> Result<(), HdcError> {
+        for index in [0, 1, 100, 1023, 1024, 1025, 10000, 1_000_000] {
+            let v = HadamardGenerator::generate(index)?;
+            assert_eq!(v.dim(), HD_DIMENSIONS,
+                "index {} produced wrong dim: {}", index, v.dim());
+        }
+        Ok(())
+    }
+
+    /// INVARIANT: generate_batch returns exactly `count` vectors.
+    #[test]
+    fn invariant_batch_size_matches_request() -> Result<(), HdcError> {
+        for count in [0, 1, 10, 100] {
+            let batch = HadamardGenerator::generate_batch(count)?;
+            assert_eq!(batch.len(), count,
+                "generate_batch({}) returned {} vectors", count, batch.len());
+        }
+        Ok(())
+    }
+
+    /// INVARIANT: generate_family returns a non-empty family for count > 0.
+    #[test]
+    fn invariant_family_size_matches() -> Result<(), HdcError> {
+        let base = HadamardGenerator::generate(0)?;
+        for count in [1, 5, 10] {
+            let family = CorrelatedGenerator::generate_family(&base, count, 0.7, 100)?;
+            assert_eq!(family.len(), count,
+                "family size mismatch: requested {}, got {}", count, family.len());
+        }
+        Ok(())
+    }
 }

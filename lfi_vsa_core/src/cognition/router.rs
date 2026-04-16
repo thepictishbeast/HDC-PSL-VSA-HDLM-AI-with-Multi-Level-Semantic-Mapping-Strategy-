@@ -333,4 +333,86 @@ mod tests {
         let decision = router.route_explained(&random);
         assert_eq!(decision.tier, IntelligenceTier::Pulse, "High thresholds should route everything to Pulse");
     }
+
+    // ============================================================
+    // Stress / invariant tests for SemanticRouter
+    // ============================================================
+
+    /// INVARIANT: every tier has a finite positive cost in increasing order.
+    #[test]
+    fn invariant_tier_costs_strictly_ordered() {
+        let pulse = IntelligenceTier::Pulse.cost();
+        let bridge = IntelligenceTier::Bridge.cost();
+        let big = IntelligenceTier::BigBrain.cost();
+        assert!(pulse.is_finite() && pulse > 0.0, "Pulse cost must be finite+positive: {}", pulse);
+        assert!(bridge.is_finite() && bridge > 0.0, "Bridge cost must be finite+positive: {}", bridge);
+        assert!(big.is_finite() && big > 0.0, "BigBrain cost must be finite+positive: {}", big);
+        assert!(pulse < bridge && bridge < big,
+            "tiers must have strictly increasing cost: {} < {} < {}", pulse, bridge, big);
+    }
+
+    /// INVARIANT: every tier has a non-empty description.
+    #[test]
+    fn invariant_tier_descriptions_non_empty() {
+        for tier in [
+            IntelligenceTier::Pulse,
+            IntelligenceTier::Bridge,
+            IntelligenceTier::BigBrain,
+        ] {
+            assert!(!tier.description().is_empty(),
+                "{:?} description must not be empty", tier);
+        }
+    }
+
+    /// INVARIANT: max_tier caps routing — no decision should exceed it
+    /// regardless of input.
+    #[test]
+    fn invariant_max_tier_caps_routing() {
+        for cap in [IntelligenceTier::Pulse, IntelligenceTier::Bridge, IntelligenceTier::BigBrain] {
+            let config = RouterConfig {
+                strategic_threshold: 0.0,  // Encourage escalation
+                tactical_threshold: 0.0,
+                max_tier: cap,
+            };
+            let mut router = SemanticRouter::with_config(config);
+            for seed_offset in 0..10 {
+                let vec = HyperMemory::generate_seed(DIM_PROLETARIAT + seed_offset);
+                let decision = router.route_explained(&vec);
+                assert!(decision.tier.cost() <= cap.cost(),
+                    "routed to {:?} which exceeds cap {:?}", decision.tier, cap);
+            }
+        }
+    }
+
+    /// INVARIANT: RoutingDecision carries similarity scores in [-1,1] — the
+    /// cosine-similarity range. Downstream uses these for confidence display.
+    #[test]
+    fn invariant_routing_decision_similarities_in_cosine_range() {
+        let mut router = SemanticRouter::new();
+        for _ in 0..20 {
+            let vec = HyperMemory::generate_seed(DIM_PROLETARIAT);
+            let decision = router.route_explained(&vec);
+            assert!(decision.strategic_similarity.is_finite()
+                && decision.strategic_similarity >= -1.0 - 1e-6
+                && decision.strategic_similarity <= 1.0 + 1e-6,
+                "strategic_similarity out of [-1,1]: {}", decision.strategic_similarity);
+            assert!(decision.tactical_similarity.is_finite()
+                && decision.tactical_similarity >= -1.0 - 1e-6
+                && decision.tactical_similarity <= 1.0 + 1e-6,
+                "tactical_similarity out of [-1,1]: {}", decision.tactical_similarity);
+        }
+    }
+
+    /// INVARIANT: RoutingDecision.explanation is never empty — every
+    /// decision must be explainable for audit.
+    #[test]
+    fn invariant_explanation_non_empty() {
+        let mut router = SemanticRouter::new();
+        for _ in 0..5 {
+            let vec = HyperMemory::generate_seed(DIM_PROLETARIAT);
+            let decision = router.route_explained(&vec);
+            assert!(!decision.explanation.is_empty(),
+                "decision must carry non-empty explanation");
+        }
+    }
 }

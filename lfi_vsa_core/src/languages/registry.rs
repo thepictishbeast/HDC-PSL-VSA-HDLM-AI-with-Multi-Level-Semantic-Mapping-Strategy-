@@ -338,4 +338,97 @@ mod tests {
         let functional = registry.find_by_paradigm(Paradigm::Functional);
         assert!(functional.len() >= 2, "Should find multiple functional languages: {}", functional.len());
     }
+
+    // ============================================================
+    // Stress / invariant tests for LanguageRegistry
+    // ============================================================
+
+    /// INVARIANT: every registered language has a non-empty name,
+    /// at least one paradigm, at least one platform, and at least
+    /// one primary construct.
+    #[test]
+    fn invariant_every_language_has_minimal_metadata() {
+        let registry = LanguageRegistry::new();
+        for lang in registry.languages.values() {
+            assert!(!lang.name.is_empty(),
+                "{:?} has empty name", lang.id);
+            assert!(!lang.paradigms.is_empty(),
+                "{:?} has no paradigms", lang.id);
+            assert!(!lang.platforms.is_empty(),
+                "{:?} has no platforms", lang.id);
+            assert!(!lang.primary_constructs.is_empty(),
+                "{:?} has no primary constructs", lang.id);
+        }
+    }
+
+    /// INVARIANT: LanguageRegistry::new() is deterministic w.r.t. the
+    /// set of language IDs (two instances register the same languages).
+    #[test]
+    fn invariant_new_is_deterministic() {
+        let r1 = LanguageRegistry::new();
+        let r2 = LanguageRegistry::new();
+        let ids1: std::collections::HashSet<_> = r1.languages.keys().collect();
+        let ids2: std::collections::HashSet<_> = r2.languages.keys().collect();
+        assert_eq!(ids1, ids2, "registry set should be deterministic");
+    }
+
+    /// INVARIANT: get_language returns None for every id NOT registered.
+    /// (Currently registry is maximally populated, so this checks that
+    /// lookup returns Some for everything in .languages.)
+    #[test]
+    fn invariant_get_language_matches_internal_set() {
+        let registry = LanguageRegistry::new();
+        for id in registry.languages.keys().cloned().collect::<Vec<_>>() {
+            assert!(registry.get_language(&id).is_some(),
+                "failed lookup for registered {:?}", id);
+        }
+    }
+
+    /// INVARIANT: find_by_paradigm ⊆ all languages, and every returned
+    /// language actually lists that paradigm.
+    #[test]
+    fn invariant_find_by_paradigm_self_consistent() {
+        let registry = LanguageRegistry::new();
+        let paradigms = [
+            Paradigm::Systems, Paradigm::Functional, Paradigm::Concurrent,
+            Paradigm::Procedural, Paradigm::ObjectOriented, Paradigm::Declarative,
+            Paradigm::Scripting, Paradigm::Reactive, Paradigm::HardwareDescription,
+            Paradigm::LowLevel,
+        ];
+        for p in paradigms {
+            for m in registry.find_by_paradigm(p.clone()) {
+                assert!(m.paradigms.contains(&p),
+                    "{:?} returned for {:?} but doesn't list it", m.id, p);
+            }
+        }
+    }
+
+    /// INVARIANT: find_by_platform returns only languages that list the platform.
+    #[test]
+    fn invariant_find_by_platform_self_consistent() {
+        let registry = LanguageRegistry::new();
+        let platforms = [
+            PlatformTarget::Linux, PlatformTarget::Windows, PlatformTarget::MacOS,
+            PlatformTarget::Web, PlatformTarget::Cloud, PlatformTarget::FPGA,
+            PlatformTarget::Android, PlatformTarget::IOS, PlatformTarget::Embedded,
+            PlatformTarget::CrossPlatform,
+        ];
+        for pl in platforms {
+            for m in registry.find_by_platform(pl.clone()) {
+                assert!(m.platforms.contains(&pl),
+                    "{:?} returned for {:?} but doesn't list it", m.id, pl);
+            }
+        }
+    }
+
+    /// INVARIANT: LanguageId serialization round-trips for every registered id.
+    #[test]
+    fn invariant_all_language_ids_serde_roundtrip() {
+        let registry = LanguageRegistry::new();
+        for id in registry.languages.keys() {
+            let json = serde_json::to_string(id).unwrap();
+            let recovered: LanguageId = serde_json::from_str(&json).unwrap();
+            assert_eq!(&recovered, id);
+        }
+    }
 }

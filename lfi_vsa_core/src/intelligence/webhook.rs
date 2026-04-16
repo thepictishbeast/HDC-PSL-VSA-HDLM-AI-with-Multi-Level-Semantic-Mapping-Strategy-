@@ -612,4 +612,88 @@ mod tests {
         // Only subscriber b accepts Medium
         assert_eq!(disp.queue_depth(), 1);
     }
+
+    // ============================================================
+    // Stress / invariant tests for Webhook
+    // ============================================================
+
+    /// INVARIANT: sign_webhook output format is stable — always includes
+    /// both t= and sig= components.
+    #[test]
+    fn invariant_sign_webhook_format() {
+        let sig = sign_webhook("secret", "body", 1234567890);
+        assert!(sig.starts_with("t="), "should start with t=: {}", sig);
+        assert!(sig.contains(",sig="), "should contain ,sig=: {}", sig);
+    }
+
+    /// INVARIANT: verify_webhook accepts a fresh signature and rejects
+    /// a tampered signature.
+    #[test]
+    fn invariant_verify_webhook_tamper_rejected() {
+        let secret = "super_secret_key_123";
+        let body = r#"{"event":"test"}"#;
+        let ts = now_ms();
+        let sig = sign_webhook(secret, body, ts);
+
+        // Valid signature passes.
+        assert!(verify_webhook(secret, body, &sig, 3_600_000).is_ok());
+
+        // Tampered body fails.
+        assert!(verify_webhook(secret, "tampered", &sig, 3_600_000).is_err());
+        // Wrong secret fails.
+        assert!(verify_webhook("wrong", body, &sig, 3_600_000).is_err());
+    }
+
+    /// INVARIANT: verify_webhook rejects signatures with malformed format.
+    #[test]
+    fn invariant_verify_webhook_malformed_rejected() {
+        let secret = "key";
+        let body = "body";
+        let malformed = ["", "garbage", "t=123", "sig=abc", "no_equals_sign"];
+        for bad in malformed {
+            assert!(verify_webhook(secret, body, bad, 3_600_000).is_err(),
+                "malformed signature {:?} should be rejected", bad);
+        }
+    }
+
+    /// INVARIANT: WebhookConfig filters compose correctly.
+    #[test]
+    fn invariant_config_filters_compose() {
+        let c = WebhookConfig::new("http://u", "s")
+            .filter_severity("High")
+            .filter_event_types(vec!["critical_threat".into()]);
+        let matching = WebhookEvent::new("critical_threat", "High", "s", "{}");
+        let wrong_sev = WebhookEvent::new("critical_threat", "Low", "s", "{}");
+        let wrong_type = WebhookEvent::new("other", "High", "s", "{}");
+        assert!(c.accepts(&matching), "matching event should be accepted");
+        assert!(!c.accepts(&wrong_sev), "wrong severity rejected");
+        assert!(!c.accepts(&wrong_type), "wrong type rejected");
+    }
+
+    /// INVARIANT: WebhookEvent::new sets attempts=0 and a non-empty ID.
+    #[test]
+    fn invariant_event_initial_state() {
+        for _ in 0..10 {
+            let e = WebhookEvent::new("t", "s", "summary", "{}");
+            assert_eq!(e.attempts, 0, "new event should have 0 attempts");
+            assert!(!e.id.is_empty(), "event ID should be non-empty");
+            assert!(e.created_ms > 0, "created_ms should be set");
+        }
+    }
+
+    /// INVARIANT: Dispatcher queue_depth is monotone non-decreasing on fire
+    /// when subscribers accept.
+    #[test]
+    fn invariant_queue_depth_monotone_when_accepted() {
+        let mut disp = WebhookDispatcher::new();
+        disp.subscribe(WebhookConfig::new("http://a", "s"));
+        let mut prev_depth = disp.queue_depth();
+        for _ in 0..5 {
+            disp.fire(WebhookEvent::new("e", "High", "s", "{}"));
+            let d = disp.queue_depth();
+            assert!(d >= prev_depth,
+                "queue depth should be monotone: {} -> {}", prev_depth, d);
+            prev_depth = d;
+        }
+    }
 }

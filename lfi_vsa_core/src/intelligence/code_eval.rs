@@ -725,4 +725,107 @@ mod tests {
             "Beginner avg difficulty ({:.2}) should be less than intermediate ({:.2})",
             avg_beginner, avg_intermediate);
     }
+
+    // ============================================================
+    // Stress / invariant tests for code_eval
+    // ============================================================
+
+    /// INVARIANT: safety_score is in [0.0, 1.0] for any code input.
+    /// Score below 0 or above 1 means downstream logic relying on
+    /// percentages/probabilities will misbehave.
+    #[test]
+    fn invariant_safety_score_in_unit_interval() {
+        let inputs = [
+            "",
+            "fn safe() {}",
+            "unsafe { unsafe { unsafe { unsafe { unsafe {} } } } }", // pile-up
+            "panic!(\"x\"); std::process::exit(1); std::fs::remove_file(\"/\");",
+            ".unwrap().unwrap().unwrap().unwrap().unwrap()",
+            "extern \"C\" { fn evil(); } unsafe { libc::abort(); std::mem::transmute::<u8,u8>(0); }",
+        ];
+        for code in inputs {
+            let (score, _) = StaticAnalyzer::safety_score(code);
+            assert!((0.0..=1.0).contains(&score) && score.is_finite(),
+                "safety_score out of [0,1] for input {:?}: {}", code, score);
+        }
+    }
+
+    /// INVARIANT: style_score is in [0.0, 1.0] for any code input.
+    #[test]
+    fn invariant_style_score_in_unit_interval() {
+        let big = "fn x() {}".repeat(100);
+        let inputs: [&str; 5] = [
+            "",
+            "fn x() {}",
+            "var x = null; class Foo { void bar() { var y = null; } }",
+            "/// doc\npub fn x() -> Result<(), ()> { if let Some(_) = None { } Ok(()) }",
+            &big,
+        ];
+        for code in inputs {
+            let (score, _) = StaticAnalyzer::style_score(code);
+            assert!((0.0..=1.0).contains(&score) && score.is_finite(),
+                "style_score out of [0,1] for input: {}", score);
+        }
+    }
+
+    /// INVARIANT: safety_score is monotone — adding more dangerous
+    /// patterns never increases the score.
+    #[test]
+    fn invariant_safety_score_monotone_under_added_danger() {
+        let base = "fn safe() { let x = 1; }";
+        let with_unwrap = format!("{} let _ = Some(0).unwrap();", base);
+        let with_unwrap_and_unsafe = format!("{} unsafe {{}}", with_unwrap);
+        let (s_base, _) = StaticAnalyzer::safety_score(base);
+        let (s_unwrap, _) = StaticAnalyzer::safety_score(&with_unwrap);
+        let (s_both, _) = StaticAnalyzer::safety_score(&with_unwrap_and_unsafe);
+        assert!(s_base >= s_unwrap, "adding unwrap must not raise safety: {} → {}", s_base, s_unwrap);
+        assert!(s_unwrap >= s_both, "adding unsafe must not raise safety: {} → {}", s_unwrap, s_both);
+    }
+
+    /// INVARIANT: analyze() is deterministic and produces a result for any input.
+    #[test]
+    fn invariant_analyze_deterministic_and_total() {
+        let inputs = [
+            "",
+            "fn x() {}",
+            "// comment only",
+            "<<malformed Rust",
+            "fn 不安全() { let x = 'ω'; }", // unicode identifiers + char literal
+        ];
+        for code in inputs {
+            let r1 = StaticAnalyzer::analyze(code);
+            let r2 = StaticAnalyzer::analyze(code);
+            // Shape determinism: both have the same combined score.
+            assert!(r1.overall_score.is_finite());
+            assert!((r1.overall_score - r2.overall_score).abs() < 1e-12,
+                "analyze must be deterministic for input {:?}", code);
+        }
+    }
+
+    /// INVARIANT: the challenge library is consistent —
+    /// every challenge has a non-empty id, description, and at least one test case.
+    #[test]
+    fn invariant_challenge_library_well_formed() {
+        for ch in ChallengeLibrary::all() {
+            assert!(!ch.id.is_empty(), "challenge id must not be empty");
+            assert!(!ch.description.is_empty(),
+                "challenge description must not be empty: {}", ch.id);
+            assert!(!ch.test_cases.is_empty(),
+                "challenge {} must have at least one test case", ch.id);
+            assert!(ch.difficulty.is_finite() && (0.0..=1.0).contains(&ch.difficulty),
+                "challenge {} difficulty out of [0,1]: {}", ch.id, ch.difficulty);
+        }
+    }
+
+    /// INVARIANT: every challenge has a unique id within the library.
+    /// Duplicates silently overwrite training/scoring data.
+    #[test]
+    fn invariant_challenge_ids_unique() {
+        let mut seen = std::collections::HashSet::new();
+        for ch in ChallengeLibrary::all() {
+            assert!(seen.insert(ch.id.clone()),
+                "duplicate challenge id: {}", ch.id);
+        }
+    }
+
 }

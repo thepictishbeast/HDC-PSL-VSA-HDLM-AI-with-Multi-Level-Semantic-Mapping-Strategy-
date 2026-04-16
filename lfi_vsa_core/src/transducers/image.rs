@@ -283,4 +283,48 @@ mod tests {
         let result = ImageTransducer::project_rgb(&[0u8; 10], 100, 100);
         assert!(result.is_err());
     }
+
+    // ============================================================
+    // Stress / invariant tests for ImageTransducer
+    // ============================================================
+
+    /// INVARIANT: project_grayscale produces a 10k-dim vector for any
+    /// matching buffer.
+    #[test]
+    fn invariant_grayscale_produces_10k_dim() -> Result<(), HdcError> {
+        let pixels: Vec<u8> = (0..1024).map(|i| (i % 256) as u8).collect();
+        let v = ImageTransducer::project_grayscale(&pixels, 32, 32)?;
+        assert_eq!(v.dim(), 10_000, "grayscale projection must be 10k dim");
+        Ok(())
+    }
+
+    /// INVARIANT: projection is always 10k-dim regardless of image size.
+    #[test]
+    fn invariant_grayscale_dim_constant() -> Result<(), HdcError> {
+        for (w, h) in [(4usize, 4usize), (32, 32), (64, 64)] {
+            let pixels: Vec<u8> = (0..(w * h))
+                .map(|i| (i % 256) as u8).collect();
+            let v = ImageTransducer::project_grayscale(&pixels, w, h)?;
+            assert_eq!(v.dim(), 10_000,
+                "{}x{} grayscale must be 10k dim", w, h);
+        }
+        Ok(())
+    }
+
+    /// INVARIANT: RGB produces a 10k-dim vector.
+    #[test]
+    fn invariant_rgb_produces_10k_dim() -> Result<(), HdcError> {
+        let pixels: Vec<u8> = (0..(16 * 16 * 3)).map(|i| (i % 256) as u8).collect();
+        let v = ImageTransducer::project_rgb(&pixels, 16, 16)?;
+        assert_eq!(v.dim(), 10_000, "RGB projection must be 10k dim");
+        Ok(())
+    }
+
+    /// INVARIANT: buffer-size mismatch errors — grayscale needs w×h bytes,
+    /// RGB needs w×h×3 bytes.
+    #[test]
+    fn invariant_buffer_size_mismatch_errors() {
+        assert!(ImageTransducer::project_grayscale(&[0u8; 10], 100, 100).is_err());
+        assert!(ImageTransducer::project_rgb(&[0u8; 10], 100, 100).is_err());
+    }
 }

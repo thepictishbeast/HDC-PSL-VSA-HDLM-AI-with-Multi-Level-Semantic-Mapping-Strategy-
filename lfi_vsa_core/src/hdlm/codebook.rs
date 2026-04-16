@@ -530,4 +530,74 @@ mod tests {
         assert!(sim > 0.99, "Same kinds in same order should produce same vectors, sim={}", sim);
         Ok(())
     }
+
+    // ============================================================
+    // Stress / invariant tests for HdlmCodebook
+    // ============================================================
+
+    /// INVARIANT: default mode is Orthogonal.
+    #[test]
+    fn invariant_default_mode_orthogonal() -> CodebookResult<()> {
+        let kinds = vec![NodeKind::Root, NodeKind::Assignment];
+        let cb = HdlmCodebook::new(&kinds)?;
+        assert_eq!(cb.mode(), CodebookMode::Orthogonal);
+        Ok(())
+    }
+
+    /// INVARIANT: get_kind_base returns Some for registered kinds, None for
+    /// unregistered kinds.
+    #[test]
+    fn invariant_get_kind_base_registered_only() -> CodebookResult<()> {
+        let kinds = vec![NodeKind::Root, NodeKind::Assignment];
+        let cb = HdlmCodebook::new(&kinds)?;
+        assert!(cb.get_kind_base(&NodeKind::Root).is_some());
+        assert!(cb.get_kind_base(&NodeKind::Assignment).is_some());
+        // An unregistered kind should return None.
+        assert!(cb.get_kind_base(&NodeKind::Return).is_none());
+        Ok(())
+    }
+
+    /// INVARIANT: get_pos_base returns None for indices beyond pos_count.
+    #[test]
+    fn invariant_pos_base_bounded() -> CodebookResult<()> {
+        let cb = HdlmCodebook::new(&[NodeKind::Root])?;
+        assert!(cb.get_pos_base(0).is_some());
+        assert!(cb.get_pos_base(100).is_none(),
+            "pos_base should return None beyond pos_count");
+        assert!(cb.get_pos_base(usize::MAX).is_none());
+        Ok(())
+    }
+
+    /// INVARIANT: set_mode to same mode is idempotent no-op.
+    #[test]
+    fn invariant_set_mode_idempotent() -> CodebookResult<()> {
+        let mut cb = HdlmCodebook::new(&[NodeKind::Root])?;
+        cb.set_mode(CodebookMode::Orthogonal)?;
+        cb.set_mode(CodebookMode::Orthogonal)?;
+        assert_eq!(cb.mode(), CodebookMode::Orthogonal);
+        Ok(())
+    }
+
+    /// INVARIANT: switching to Correlated then back to Orthogonal clears
+    /// correlated cache.
+    #[test]
+    fn invariant_mode_switch_clears_cache() -> CodebookResult<()> {
+        let mut cb = HdlmCodebook::new(&[NodeKind::Root, NodeKind::Assignment])?;
+        cb.set_mode(CodebookMode::Correlated { correlation: 0.7 })?;
+        cb.set_mode(CodebookMode::Orthogonal)?;
+        assert_eq!(cb.mode(), CodebookMode::Orthogonal);
+        // In Orthogonal mode, get_kind_base still works (regenerates via Hadamard).
+        assert!(cb.get_kind_base(&NodeKind::Root).is_some());
+        Ok(())
+    }
+
+    /// INVARIANT: empty kind list still produces a valid codebook.
+    #[test]
+    fn invariant_empty_kinds_produces_valid_codebook() -> CodebookResult<()> {
+        let cb = HdlmCodebook::new(&[])?;
+        assert_eq!(cb.mode(), CodebookMode::Orthogonal);
+        // No registered kinds.
+        assert!(cb.get_kind_base(&NodeKind::Root).is_none());
+        Ok(())
+    }
 }

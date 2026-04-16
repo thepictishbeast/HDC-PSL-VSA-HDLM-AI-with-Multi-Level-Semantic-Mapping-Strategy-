@@ -246,4 +246,86 @@ mod tests {
             .expect("deliberation should succeed");
         assert!(steps.len() >= 3, "Should produce at least 3 decomposed steps");
     }
+
+    // ============================================================
+    // Stress / invariant tests for HMAS
+    // ============================================================
+
+    /// INVARIANT: agree and disagree anchors are distinct.
+    #[test]
+    fn invariant_agree_disagree_anchors_distinct() {
+        let agent = MicroSupervisor::new(AgentRole::Auditor);
+        let sim = agent.agree_anchor.similarity(&agent.disagree_anchor);
+        // Different anchors should be quasi-orthogonal (similarity near 0).
+        assert!(sim.abs() < 0.5,
+            "agree/disagree anchors should be quasi-orthogonal, got sim={:.4}", sim);
+    }
+
+    /// INVARIANT: Historian::new starts with empty archives.
+    #[test]
+    fn invariant_historian_starts_empty() {
+        let h = Historian::new();
+        assert!(h.archive.is_empty());
+        assert!(h.negative_knowledge.is_empty());
+    }
+
+    /// INVARIANT: retrieve_context returns (0, 0) on empty historian.
+    #[test]
+    fn invariant_empty_historian_returns_zero() {
+        let h = Historian::new();
+        let probe = HyperMemory::generate_seed(DIM_PROLETARIAT);
+        let (a, n) = h.retrieve_context(&probe);
+        assert_eq!(a, 0.0);
+        assert_eq!(n, 0.0);
+    }
+
+    /// INVARIANT: resolve_consensus is pure — same inputs produce same output.
+    #[test]
+    fn invariant_resolve_consensus_pure() -> Result<(), Box<dyn std::error::Error>> {
+        let agent = MicroSupervisor::new(AgentRole::Architect);
+        let proposal = Proposal {
+            id: "p".into(),
+            payload_hv: HyperMemory::generate_seed(DIM_PROLETARIAT),
+            timestamp: 0,
+        };
+        let votes: Vec<HyperMemory> = (0..3)
+            .map(|_| agent.vote(&proposal, true).unwrap())
+            .collect();
+        let a = MicroSupervisor::resolve_consensus(&votes, &proposal, &agent.agree_anchor)?;
+        let b = MicroSupervisor::resolve_consensus(&votes, &proposal, &agent.agree_anchor)?;
+        assert!((a - b).abs() < 1e-9,
+            "resolve_consensus not pure: {} vs {}", a, b);
+        Ok(())
+    }
+
+    /// INVARIANT: verify_execution flags unwrap/expect — any line
+    /// with literal "unwrap()" or "expect()" is rejected.
+    #[test]
+    fn invariant_verify_execution_rejects_unwrap_expect() {
+        let agent = MicroSupervisor::new(AgentRole::Auditor);
+        let bad_samples = [
+            "let x = foo.unwrap();",
+            "let y = bar.expect();",
+            "// foo.unwrap() even in comment",
+            "chain.unwrap().unwrap()",
+        ];
+        for sample in bad_samples {
+            assert!(!agent.verify_execution(sample),
+                "should reject {:?}", sample);
+        }
+    }
+
+    /// INVARIANT: AgentRole serde roundtrip for all variants.
+    #[test]
+    fn invariant_agent_role_serde_roundtrip() {
+        let roles = [
+            AgentRole::Architect, AgentRole::Worker,
+            AgentRole::Auditor, AgentRole::Historian,
+        ];
+        for r in roles {
+            let json = serde_json::to_string(&r).unwrap();
+            let recovered: AgentRole = serde_json::from_str(&json).unwrap();
+            assert_eq!(r, recovered);
+        }
+    }
 }

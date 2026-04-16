@@ -1517,4 +1517,66 @@ mod tests {
         assert_eq!(engine.concept_count(), before, "Untrusted definitions should be rejected");
         Ok(())
     }
+
+    /// INVARIANT: learn with is_sovereign=true grows concept_count.
+    #[test]
+    fn invariant_sovereign_learn_grows_count() -> Result<(), HdcError> {
+        let mut engine = KnowledgeEngine::new();
+        let before = engine.concept_count();
+        engine.learn("trusted_concept", &["related"], true)?;
+        let after = engine.concept_count();
+        assert!(after > before,
+            "trusted learn should grow count: {} -> {}", before, after);
+        Ok(())
+    }
+
+    /// INVARIANT: mastery_of returns 0.0 for unknown concepts.
+    #[test]
+    fn invariant_mastery_unknown_is_zero() {
+        let engine = KnowledgeEngine::new();
+        let mastery = engine.mastery_of("totally_unknown_concept_xyz_12345");
+        assert_eq!(mastery, 0.0,
+            "unknown concept should have mastery 0.0, got {}", mastery);
+    }
+
+    /// INVARIANT: knows_language starts false for arbitrary languages.
+    #[test]
+    fn invariant_knows_language_unknown_false() {
+        let engine = KnowledgeEngine::new();
+        assert!(!engine.knows_language("ArbitraryUnknownLanguage9999"),
+            "arbitrary unknown language should not be known");
+    }
+
+    /// INVARIANT: language_proficiency returns non-empty for any input.
+    #[test]
+    fn invariant_language_proficiency_nonempty() {
+        let engine = KnowledgeEngine::new();
+        for lang in ["Rust", "Python", "UnknownLang"] {
+            let prof = engine.language_proficiency(lang);
+            assert!(!prof.is_empty(),
+                "proficiency string should be non-empty for {:?}", lang);
+        }
+    }
+
+    /// INVARIANT: concepts() length matches concept_count.
+    #[test]
+    fn invariant_concepts_slice_length_matches_count() {
+        let engine = KnowledgeEngine::new();
+        let len = engine.concepts().len();
+        let count = engine.concept_count();
+        assert_eq!(len, count, "concepts().len() != concept_count(): {} vs {}", len, count);
+    }
+
+    /// INVARIANT: apply_mastery_decay never increases mastery for any concept.
+    #[test]
+    fn invariant_decay_monotone_non_increasing() -> Result<(), HdcError> {
+        let mut engine = KnowledgeEngine::new();
+        engine.learn("test_concept", &[], true)?;
+        let before = engine.mastery_of("test_concept");
+        engine.apply_mastery_decay(0.1);
+        let after = engine.mastery_of("test_concept");
+        assert!(after <= before,
+            "decay should not increase mastery: {} -> {}", before, after);
+        Ok(())
+    }
 }

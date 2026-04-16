@@ -471,4 +471,71 @@ mod tests {
         assert!(learning.trust > 0.9);
         assert_eq!(learning.source_count, 3);
     }
+
+    // ============================================================
+    // Stress / invariant tests for BackgroundLearner
+    // ============================================================
+
+    /// INVARIANT: new() starts with daemon not running.
+    #[test]
+    fn invariant_new_not_running() {
+        let learner = BackgroundLearner::new(KnowledgeStore::new());
+        assert!(!learner.is_running(),
+            "fresh learner should not be running");
+    }
+
+    /// INVARIANT: enqueue_research appends to queue (multiple calls
+    /// grow it monotonically until drained).
+    #[test]
+    fn invariant_enqueue_monotone() {
+        let learner = BackgroundLearner::new(KnowledgeStore::new());
+        let topics = ["a", "b", "c", "d", "e"];
+        for (i, topic) in topics.iter().enumerate() {
+            learner.enqueue_research(topic);
+            let guard = learner.shared_knowledge();
+            let locked = guard.lock();
+            assert_eq!(locked.research_queue.len(), i + 1,
+                "queue should grow by 1 per enqueue");
+        }
+    }
+
+    /// INVARIANT: shared_knowledge returns an Arc that actually shares state
+    /// — mutations through one handle are visible through another.
+    #[test]
+    fn invariant_shared_knowledge_actually_shared() {
+        let learner = BackgroundLearner::new(KnowledgeStore::new());
+        let handle_a = learner.shared_knowledge();
+        let handle_b = learner.shared_knowledge();
+        {
+            let mut locked = handle_a.lock();
+            locked.research_queue.push("via_a".into());
+        }
+        let locked_b = handle_b.lock();
+        assert!(locked_b.research_queue.contains(&"via_a".to_string()),
+            "shared_knowledge must share state across handles");
+    }
+
+    /// INVARIANT: drain_recent_learnings returns empty vec when nothing recent.
+    #[test]
+    fn invariant_drain_empty_when_no_learnings() {
+        let learner = BackgroundLearner::new(KnowledgeStore::new());
+        let drained = learner.drain_recent_learnings();
+        assert!(drained.is_empty(),
+            "fresh learner should have no recent learnings: {:?}", drained);
+    }
+
+    /// INVARIANT: RecentLearning trust is expected in [0,1] when used
+    /// by the learner internals (though the field itself is unchecked).
+    #[test]
+    fn invariant_recent_learning_debug_safe() {
+        let learning = RecentLearning {
+            topic: "".into(),
+            summary: "".into(),
+            trust: 0.5,
+            source_count: 0,
+        };
+        // Must not panic on debug/clone
+        let _ = format!("{:?}", learning);
+        let _ = learning.clone();
+    }
 }

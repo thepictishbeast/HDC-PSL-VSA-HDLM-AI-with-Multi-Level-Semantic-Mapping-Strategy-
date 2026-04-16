@@ -133,4 +133,121 @@ mod tests {
         assert_eq!(recovered.element_type, "Button");
         assert_eq!(recovered.x, 10);
     }
+
+    // ============================================================
+    // Stress / invariant tests for adaptive UI encoding
+    // ============================================================
+    //
+    // NOTE: `UiElement::fold` intentionally uses fresh random base vectors
+    // per call, so determinism and "different type ⇒ different vector" are
+    // NOT invariants. Remaining invariants: the fold must not panic on
+    // arbitrary inputs, and the produced vector must have the correct
+    // dimensionality.
+
+    /// INVARIANT: fold safely handles arbitrary unicode / long text without panic.
+    #[test]
+    fn invariant_fold_safe_on_unicode() -> Result<(), HdcError> {
+        let long = "x".repeat(10_000);
+        let inputs = [
+            UiAttributes {
+                element_type: "Button".into(), x: 0, y: 0, width: 1, height: 1,
+                text: Some("アリス".into()),
+            },
+            UiAttributes {
+                element_type: "Icon".into(), x: 0, y: 0, width: 1, height: 1,
+                text: Some("🦀".into()),
+            },
+            UiAttributes {
+                element_type: "Empty".into(), x: 0, y: 0, width: 1, height: 1,
+                text: None,
+            },
+            UiAttributes {
+                element_type: "LongText".into(), x: 0, y: 0, width: 1, height: 1,
+                text: Some(long),
+            },
+        ];
+        for attr in inputs {
+            // Must not panic and must produce a 10k-dim vector.
+            let el = UiElement::fold(attr)?;
+            assert_eq!(el.vector.dim(), 10_000,
+                "fold output must be 10k dim");
+        }
+        Ok(())
+    }
+
+    /// INVARIANT: fold preserves the input attributes — after fold we can
+    /// still read back element_type, x, y.
+    #[test]
+    fn invariant_fold_preserves_attributes() -> Result<(), HdcError> {
+        let attr = UiAttributes {
+            element_type: "Slider".into(), x: 7, y: 11, width: 100, height: 20,
+            text: None,
+        };
+        let el = UiElement::fold(attr.clone())?;
+        assert_eq!(el.attributes.element_type, "Slider");
+        assert_eq!(el.attributes.x, 7);
+        assert_eq!(el.attributes.y, 11);
+        assert_eq!(el.attributes.width, 100);
+        assert_eq!(el.attributes.height, 20);
+        Ok(())
+    }
+
+    /// INVARIANT: fold survives extreme coordinate values without panic
+    /// (overflow / modulo behavior safety).
+    #[test]
+    fn invariant_fold_extreme_coords_safe() -> Result<(), HdcError> {
+        for (x, y) in [(0i32, 0i32), (i32::MAX, i32::MAX),
+                        (i32::MIN, i32::MIN), (100_000, -100_000)] {
+            let attr = UiAttributes {
+                element_type: "Stress".into(),
+                x, y, width: 10, height: 10,
+                text: None,
+            };
+            let _ = UiElement::fold(attr)?;
+        }
+        Ok(())
+    }
+
+    /// INVARIANT: fold always produces 10_000-dim vector regardless of input.
+    #[test]
+    fn invariant_fold_produces_10k_dim() -> Result<(), HdcError> {
+        let attr = UiAttributes {
+            element_type: "Button".into(),
+            x: 100, y: 200, width: 50, height: 30,
+            text: Some("Click me".into()),
+        };
+        let el = UiElement::fold(attr)?;
+        assert_eq!(el.vector.dim(), 10_000);
+        Ok(())
+    }
+
+    /// INVARIANT: UiAttributes serde roundtrip preserves all fields.
+    #[test]
+    fn invariant_ui_attributes_serde_roundtrip() {
+        let a = UiAttributes {
+            element_type: "Input".into(),
+            x: 42, y: -13, width: 200, height: 40,
+            text: Some("hello world".into()),
+        };
+        let json = serde_json::to_string(&a).unwrap();
+        let recovered: UiAttributes = serde_json::from_str(&json).unwrap();
+        assert_eq!(a.element_type, recovered.element_type);
+        assert_eq!(a.x, recovered.x);
+        assert_eq!(a.y, recovered.y);
+        assert_eq!(a.width, recovered.width);
+        assert_eq!(a.height, recovered.height);
+        assert_eq!(a.text, recovered.text);
+    }
+
+    /// INVARIANT: fold with None text does not panic.
+    #[test]
+    fn invariant_fold_with_no_text_safe() -> Result<(), HdcError> {
+        let attr = UiAttributes {
+            element_type: "Panel".into(),
+            x: 0, y: 0, width: 100, height: 100,
+            text: None,
+        };
+        let _ = UiElement::fold(attr)?;
+        Ok(())
+    }
 }

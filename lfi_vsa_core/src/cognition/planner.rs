@@ -626,4 +626,60 @@ mod tests {
             "freshly-decomposed plan must validate");
         Ok(())
     }
+
+    /// INVARIANT: is_complete iff all steps are Done.
+    #[test]
+    fn invariant_is_complete_matches_all_done() -> Result<(), HdcError> {
+        let planner = Planner::new();
+        let mut plan = planner.plan("complete check")?;
+        // Fresh plan: not complete.
+        assert!(!plan.is_complete(), "fresh plan should not be complete");
+
+        // Complete every step.
+        for i in 0..plan.steps.len() {
+            planner.complete_step(&mut plan, i)?;
+        }
+        assert!(plan.is_complete(),
+            "after completing all steps, is_complete should be true");
+        Ok(())
+    }
+
+    /// INVARIANT: critical_path_length never exceeds total steps.
+    #[test]
+    fn invariant_critical_path_bounded() -> Result<(), HdcError> {
+        let planner = Planner::new();
+        let plan = planner.plan("critical path check")?;
+        let cp = planner.critical_path_length(&plan);
+        assert!(cp <= plan.steps.len(),
+            "critical path {} exceeds step count {}", cp, plan.steps.len());
+        Ok(())
+    }
+
+    /// INVARIANT: parallel_groups union covers all step indices.
+    #[test]
+    fn invariant_parallel_groups_cover_all_steps() -> Result<(), HdcError> {
+        let planner = Planner::new();
+        let plan = planner.plan("parallel groups check")?;
+        let groups = planner.parallel_groups(&plan);
+        let all_indices: std::collections::HashSet<_> =
+            groups.iter().flatten().copied().collect();
+        assert_eq!(all_indices.len(), plan.steps.len(),
+            "parallel groups miss steps: covered={}, total={}",
+            all_indices.len(), plan.steps.len());
+        Ok(())
+    }
+
+    /// INVARIANT: fail_step marks the step as Failed with given reason.
+    #[test]
+    fn invariant_fail_step_marks_failed() -> Result<(), HdcError> {
+        let planner = Planner::new();
+        let mut plan = planner.plan("fail step check")?;
+        if !plan.steps.is_empty() {
+            planner.fail_step(&mut plan, 0, "test-fail")?;
+            assert!(matches!(plan.steps[0].status, StepStatus::Failed { .. }),
+                "step should be Failed after fail_step");
+            assert!(plan.has_failures(), "has_failures should return true");
+        }
+        Ok(())
+    }
 }

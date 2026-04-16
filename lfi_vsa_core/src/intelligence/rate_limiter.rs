@@ -543,4 +543,106 @@ mod tests {
         rl.reset_all();
         assert_eq!(rl.tracked_count(), 0);
     }
+
+    // ============================================================
+    // Stress / invariant tests for RateLimiter
+    // ============================================================
+
+    /// INVARIANT: Unlimited policy always allows and never has retry_after.
+    #[test]
+    fn invariant_unlimited_policy_always_allows() {
+        let rl = RateLimiter::new(RateLimitPolicy::Unlimited);
+        for t in 0..100u64 {
+            let r = rl.check("alice", t * 100);
+            assert!(r.allowed, "unlimited should always allow");
+            assert_eq!(r.retry_after_ms, 0);
+        }
+    }
+
+    /// INVARIANT: TokenBucket allowed → remaining decreases (or stays at 0
+    /// once consumed). After capacity exhausted, retry_after_ms > 0.
+    #[test]
+    fn invariant_token_bucket_exhaustion_gives_retry() {
+        let rl = RateLimiter::new(RateLimitPolicy::TokenBucket {
+            capacity: 3.0, refill_per_sec: 0.01,  // very slow refill
+        });
+        for _ in 0..3 {
+            assert!(rl.check("u", 1000).allowed);
+        }
+        let denied = rl.check("u", 1000);
+        assert!(!denied.allowed, "4th request should be denied");
+        assert!(denied.retry_after_ms > 0,
+            "denied TokenBucket should suggest retry time");
+    }
+
+    /// INVARIANT: SlidingWindow with cap=N allows exactly N requests per window.
+    #[test]
+    fn invariant_sliding_window_hard_cap() {
+        let rl = RateLimiter::new(RateLimitPolicy::SlidingWindow {
+            max_requests: 5, window_ms: 10_000,
+        });
+        let mut allowed = 0;
+        for _ in 0..10 {
+            if rl.check("u", 1000).allowed {
+                allowed += 1;
+            }
+        }
+        assert_eq!(allowed, 5, "sliding window should cap at exactly 5");
+    }
+
+    /// INVARIANT: SlidingWindow admits new requests once the window elapses.
+    #[test]
+    fn invariant_sliding_window_recovers_after_window() {
+        let rl = RateLimiter::new(RateLimitPolicy::SlidingWindow {
+            max_requests: 2, window_ms: 1000,
+        });
+        assert!(rl.check("u", 1000).allowed);
+        assert!(rl.check("u", 1001).allowed);
+        assert!(!rl.check("u", 1002).allowed);
+        // After window elapses
+        assert!(rl.check("u", 3000).allowed);
+    }
+
+    /// INVARIANT: reset(scope) clears per-scope state; other scopes unaffected.
+    #[test]
+    fn invariant_reset_is_scoped() {
+        let rl = RateLimiter::new(RateLimitPolicy::TokenBucket {
+            capacity: 1.0, refill_per_sec: 0.001,
+        });
+        // Exhaust both a and b
+        rl.check("a", 1000);
+        rl.check("b", 1000);
+        assert!(!rl.check("a", 1000).allowed);
+        assert!(!rl.check("b", 1000).allowed);
+        // Reset only a
+        rl.reset("a");
+        assert!(rl.check("a", 1000).allowed, "a should be refilled after reset");
+        assert!(!rl.check("b", 1000).allowed, "b should still be exhausted");
+    }
+
+    /// INVARIANT: check() never panics on extreme time values.
+    #[test]
+    fn invariant_check_never_panics_on_extreme_time() {
+        let rl = RateLimiter::new(RateLimitPolicy::TokenBucket {
+            capacity: 5.0, refill_per_sec: 1.0,
+        });
+        let _ = rl.check("u", 0);
+        let _ = rl.check("u", u64::MAX);
+        let _ = rl.check("u", 1);
+    }
+
+    /// INVARIANT: retry_after_ms is 0 when allowed, >= 0 always (u64 property).
+    #[test]
+    fn invariant_retry_after_nonneg_and_zero_when_allowed() {
+        let rl = RateLimiter::new(RateLimitPolicy::TokenBucket {
+            capacity: 2.0, refill_per_sec: 1.0,
+        });
+        for i in 0..5 {
+            let r = rl.check("u", 1000 + i);
+            if r.allowed {
+                assert_eq!(r.retry_after_ms, 0,
+                    "allowed request must have retry_after=0");
+            }
+        }
+    }
 }

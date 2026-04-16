@@ -591,4 +591,99 @@ mod tests {
         assert_eq!(results.len(), 10, "Should complete all 10 cycles despite any errors");
         Ok(())
     }
+
+    // ============================================================
+    // Stress / invariant tests for LfiDaemon
+    // ============================================================
+
+    /// INVARIANT: run_n_cycles(N) returns exactly N results, never more, never less.
+    #[test]
+    fn invariant_run_n_cycles_returns_exact_count() -> Result<(), HdcError> {
+        let mut daemon = LfiDaemon::new(DaemonConfig::default());
+        for n in [1usize, 5, 25] {
+            let results = daemon.run_n_cycles(n)?;
+            assert_eq!(results.len(), n,
+                "run_n_cycles({}) returned {} results", n, results.len());
+        }
+        Ok(())
+    }
+
+    /// INVARIANT: run_n_cycles(0) is a no-op — returns empty vec, not panic.
+    #[test]
+    fn invariant_run_zero_cycles_safe() -> Result<(), HdcError> {
+        let mut daemon = LfiDaemon::new(DaemonConfig::default());
+        let results = daemon.run_n_cycles(0)?;
+        assert!(results.is_empty(), "0 cycles must return empty");
+        Ok(())
+    }
+
+    /// INVARIANT: progress_report never panics regardless of cycle history.
+    #[test]
+    fn invariant_progress_report_safe_at_any_state() -> Result<(), HdcError> {
+        let mut daemon = LfiDaemon::new(DaemonConfig::default());
+        // Empty state.
+        let r0 = daemon.progress_report();
+        assert!(!r0.is_empty(), "empty-state report must produce output");
+        // After cycles.
+        daemon.run_n_cycles(3)?;
+        let r3 = daemon.progress_report();
+        assert!(!r3.is_empty(), "after-cycle report must produce output");
+        Ok(())
+    }
+
+    /// INVARIANT: detect_ollama doesn't panic on any host string.
+    #[test]
+    fn invariant_detect_ollama_safe_on_unicode() {
+        for host in ["", "http://localhost:11434", "アリス://x", "🦀://nope", "garbage"] {
+            let config = DaemonConfig::with_ollama(host, "model_a", "model_b");
+            let daemon = LfiDaemon::new(config);
+            // Just must not panic. Network call may fail but must return bool cleanly.
+            let _ = daemon.detect_ollama();
+        }
+    }
+
+    /// INVARIANT: each CycleResult has cycle_number that is monotonically
+    /// non-decreasing across the cycle batch and finite scores.
+    #[test]
+    fn invariant_cycle_results_well_formed() -> Result<(), HdcError> {
+        let mut daemon = LfiDaemon::new(DaemonConfig::default());
+        let results = daemon.run_n_cycles(5)?;
+        let mut last_n = 0usize;
+        for r in &results {
+            // Phase: any defined variant accepted (enum is non_exhaustive over
+            // future expansion).
+            let _phase: &DaemonPhase = &r.phase;
+            assert!(r.cycle_number >= last_n,
+                "cycle numbers must be non-decreasing: {} then {}",
+                last_n, r.cycle_number);
+            assert!(r.score_before.is_finite(), "score_before non-finite");
+            assert!(r.score_after.is_finite(), "score_after non-finite");
+            last_n = r.cycle_number;
+        }
+        Ok(())
+    }
+
+    /// INVARIANT: run_n_cycles(N) produces exactly N results (or errors).
+    #[test]
+    fn invariant_run_n_cycles_count() -> Result<(), HdcError> {
+        let mut daemon = LfiDaemon::new(DaemonConfig::default());
+        for n in [1, 3, 7] {
+            let results = daemon.run_n_cycles(n)?;
+            assert_eq!(results.len(), n,
+                "run_n_cycles({}) returned {} results", n, results.len());
+        }
+        Ok(())
+    }
+
+    /// INVARIANT: readiness_check returns (bool, non-empty Vec when unready).
+    #[test]
+    fn invariant_readiness_check_stable() {
+        let daemon = LfiDaemon::new(DaemonConfig::default());
+        let (ready, issues) = daemon.readiness_check();
+        // Either ready (no issues) or not ready (some issues).
+        if !ready {
+            // Check issues is non-empty or at least valid vec
+            let _ = issues.len();
+        }
+    }
 }

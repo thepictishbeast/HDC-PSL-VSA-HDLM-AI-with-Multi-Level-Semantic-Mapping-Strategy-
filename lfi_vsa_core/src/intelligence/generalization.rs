@@ -400,4 +400,100 @@ mod tests {
         let bad = GeneralizationTester::evaluate("y", 0.9, 0.3, 0.2, 0.2, false);
         assert!(good.generalization_score > bad.generalization_score);
     }
+
+    // ============================================================
+    // Stress / invariant tests for generalization
+    // ============================================================
+
+    /// INVARIANT: generalization_score is in [0,1] for any input pattern.
+    /// Downstream uses it as a probability/percentage; out-of-range corrupts
+    /// dashboards and triggers logic.
+    #[test]
+    fn invariant_score_in_unit_interval() {
+        let cases = [
+            (0.0, 0.0, 0.0, 0.0),
+            (1.0, 1.0, 1.0, 1.0),
+            (0.9, 0.9, 0.9, 0.9),
+            (1.0, 0.0, 0.0, 0.0),
+            (0.5, 0.5, 0.5, 0.5),
+        ];
+        for (train, test, paraphrase, semantic) in cases {
+            let result = GeneralizationTester::evaluate(
+                "x", train, test, paraphrase, semantic, false,
+            );
+            assert!(result.generalization_score.is_finite()
+                && (0.0..=1.0).contains(&result.generalization_score),
+                "score out of [0,1] for {:?}: {}",
+                (train, test, paraphrase, semantic),
+                result.generalization_score);
+        }
+    }
+
+    /// INVARIANT: high train + low test ⇒ RoteMemorization verdict.
+    /// Catches the most dangerous overfitting case.
+    #[test]
+    fn invariant_high_train_low_test_means_rote() {
+        let result = GeneralizationTester::evaluate("x", 0.95, 0.20, 0.15, 0.15, false);
+        assert!(matches!(result.verdict, LearningVerdict::RoteMemorization),
+            "high train + low test must verdict RoteMemorization, got {:?}",
+            result.verdict);
+    }
+
+    /// INVARIANT: low train ⇒ NotLearned verdict regardless of other scores.
+    #[test]
+    fn invariant_low_train_means_not_learned() {
+        let result = GeneralizationTester::evaluate("x", 0.20, 0.20, 0.20, 0.20, false);
+        assert!(matches!(result.verdict, LearningVerdict::NotLearned),
+            "low train must verdict NotLearned, got {:?}", result.verdict);
+    }
+
+    /// INVARIANT: record() then rote_concepts() reflects the new entry.
+    #[test]
+    fn invariant_record_visible_in_classification() {
+        let mut tester = GeneralizationTester::new();
+        let r = GeneralizationTester::evaluate("rote_x", 0.95, 0.20, 0.15, 0.15, false);
+        tester.record(r);
+        let rote = tester.rote_concepts();
+        assert!(rote.iter().any(|c| *c == "rote_x"),
+            "recorded rote concept must appear in rote_concepts() list");
+    }
+
+    /// INVARIANT: math_variations and paraphrases never panic and never
+    /// return more than a reasonable cap.
+    #[test]
+    fn invariant_variation_generators_bounded() {
+        let example = TrainingExample::new("math", "what is 2+2?", "4", 0.5, &[]);
+        let math_vars = VariationGenerator::math_variations(&example);
+        assert!(math_vars.len() < 100,
+            "math_variations produced too many: {}", math_vars.len());
+        let paras = VariationGenerator::paraphrases(&example);
+        assert!(paras.len() < 100,
+            "paraphrases produced too many: {}", paras.len());
+    }
+
+    /// INVARIANT: variations preserve the original expected_output.
+    #[test]
+    fn invariant_variations_preserve_expected_output() {
+        let example = TrainingExample::new("math", "what is 2+2?", "4", 0.5, &["arithmetic"]);
+        for v in VariationGenerator::math_variations(&example) {
+            assert_eq!(v.expected_output, example.expected_output,
+                "math_variation changed expected_output");
+        }
+        for v in VariationGenerator::paraphrases(&example) {
+            assert_eq!(v.expected_output, example.expected_output,
+                "paraphrase changed expected_output");
+        }
+    }
+
+    /// INVARIANT: variations preserve domain.
+    #[test]
+    fn invariant_variations_preserve_domain() {
+        let example = TrainingExample::new("math", "q", "4", 0.5, &[]);
+        for v in VariationGenerator::math_variations(&example) {
+            assert_eq!(v.domain, example.domain);
+        }
+        for v in VariationGenerator::paraphrases(&example) {
+            assert_eq!(v.domain, example.domain);
+        }
+    }
 }

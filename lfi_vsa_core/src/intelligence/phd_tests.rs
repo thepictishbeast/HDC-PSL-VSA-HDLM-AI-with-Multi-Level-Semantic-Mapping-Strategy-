@@ -653,4 +653,69 @@ mod tests {
         assert!(medium >= 5, "Should have 5+ medium tests");
         assert!(hard >= 3, "Should have 3+ hard tests");
     }
+
+    // ============================================================
+    // Stress / invariant tests for PhdTestLibrary
+    // ============================================================
+
+    /// INVARIANT: every TestCase has non-empty prompt, at least one
+    /// acceptable answer, finite difficulty in [0,1], and valid
+    /// expected_confidence range (min <= max, both in [0,1]).
+    #[test]
+    fn invariant_all_test_cases_well_formed() {
+        let all = PhdTestLibrary::all();
+        for tc in &all {
+            assert!(!tc.prompt.is_empty(),
+                "empty prompt in test case {:?}", tc.category);
+            assert!(!tc.acceptable_answers.is_empty(),
+                "no acceptable answers for {:?}", tc.category);
+            assert!(tc.difficulty.is_finite() && (0.0..=1.0).contains(&tc.difficulty),
+                "difficulty out of [0,1]: {}", tc.difficulty);
+            let (min, max) = tc.expected_confidence;
+            assert!(min.is_finite() && max.is_finite());
+            assert!(min <= max,
+                "expected_confidence.min > max: {} > {}", min, max);
+            assert!((0.0..=1.0).contains(&min) && (0.0..=1.0).contains(&max),
+                "expected_confidence out of [0,1]: ({}, {})", min, max);
+        }
+    }
+
+    /// INVARIANT: by_category returns only tests in that category.
+    #[test]
+    fn invariant_by_category_filters_correctly() {
+        let categories = [
+            TestCategory::PropertyBased,
+            TestCategory::Compositional,
+            TestCategory::Counterfactual,
+            TestCategory::Calibration,
+            TestCategory::AdversarialRobustness,
+            TestCategory::DomainTransfer,
+            TestCategory::MultiStep,
+        ];
+        for c in categories {
+            for tc in PhdTestLibrary::by_category(&c) {
+                assert_eq!(tc.category, c,
+                    "by_category returned wrong category: {:?}", tc.category);
+            }
+        }
+    }
+
+    /// INVARIANT: to_training_examples preserves count (each TestCase
+    /// maps to at least one TrainingExample).
+    #[test]
+    fn invariant_to_training_examples_preserves_count() {
+        let all = PhdTestLibrary::all();
+        let examples = PhdTestLibrary::to_training_examples();
+        assert!(examples.len() >= all.len(),
+            "training examples should be >= test cases: {} < {}",
+            examples.len(), all.len());
+    }
+
+    /// INVARIANT: all() is deterministic.
+    #[test]
+    fn invariant_all_deterministic() {
+        let a = PhdTestLibrary::all();
+        let b = PhdTestLibrary::all();
+        assert_eq!(a.len(), b.len(), "all() not deterministic");
+    }
 }

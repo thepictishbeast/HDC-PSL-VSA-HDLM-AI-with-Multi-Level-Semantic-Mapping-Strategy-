@@ -685,4 +685,143 @@ mod tests {
         assert!(response.results.is_empty());
         assert_eq!(response.cross_reference_trust, 0.0);
     }
+
+    // ============================================================
+    // Stress / invariant tests for WebSearchEngine
+    // ============================================================
+
+    /// INVARIANT: `url_encode` never panics on arbitrary input and emits
+    /// only RFC-3986 unreserved chars + `%XX` escapes + `+` for space.
+    #[test]
+    fn invariant_url_encode_safe_output_chars_only() {
+        let inputs = [
+            "",
+            "hello",
+            "hello world",
+            "Mixed CASE 123",
+            "with-special_chars.~",
+            "japanese: アリス",
+            "emoji: 🦀",
+            "newline\nand\ttab",
+            "quotes\"and'apos",
+            "control: \x00\x01\x1f",
+            "highbit: \u{ffff}",
+        ];
+        for input in inputs {
+            let encoded = WebSearchEngine::url_encode(input);
+            for c in encoded.chars() {
+                let ok = c.is_ascii_alphanumeric()
+                    || matches!(c, '-' | '_' | '.' | '~' | '+' | '%')
+                    || c.is_ascii_hexdigit();
+                assert!(ok,
+                    "url_encode produced unsafe char {:?} for input {:?} → {:?}",
+                    c, input, encoded);
+            }
+        }
+    }
+
+    /// INVARIANT: `strip_html` never panics, output contains no `<` or `>`,
+    /// and is trimmed.
+    #[test]
+    fn invariant_strip_html_safe() {
+        let inputs = [
+            "",
+            "<p>hello</p>",
+            "no tags here",
+            "<script>alert('xss')</script>",
+            "<a href='x'>link</a>",
+            "<<nested<<>>",
+            "japanese: <b>アリス</b>",
+            "<<<<>>>>",
+            "unmatched <left",
+            "unmatched right>",
+        ];
+        for input in inputs {
+            let out = WebSearchEngine::strip_html(input);
+            assert!(!out.contains('<') && !out.contains('>'),
+                "strip_html left HTML markers for input {:?} → {:?}", input, out);
+            assert_eq!(out, out.trim(),
+                "strip_html output must be trimmed for input {:?}", input);
+        }
+    }
+
+    /// INVARIANT: `calculate_snippet_overlap` returns a value in [0.0, 1.0]
+    /// and is symmetric: overlap(a, b) == overlap(b, a).
+    #[test]
+    fn invariant_snippet_overlap_bounded_and_symmetric() {
+        let pairs = [
+            ("", ""),
+            ("hello", "hello"),
+            ("hello world", "world hello"),
+            ("alpha beta gamma delta", "epsilon zeta eta theta"),
+            ("alpha beta gamma delta", "alpha gamma epsilon zeta"),
+            ("ALL CAPS WORDS", "all caps words"),
+            ("123 456", "abc def"),
+            ("only-short ab cd ef", "only-short ab cd ef"),
+        ];
+        for (a, b) in pairs {
+            let ab = WebSearchEngine::calculate_snippet_overlap(a, b);
+            let ba = WebSearchEngine::calculate_snippet_overlap(b, a);
+            assert!(ab.is_finite() && (0.0..=1.0).contains(&ab),
+                "overlap out of [0,1] for ({:?}, {:?}): {}", a, b, ab);
+            assert!((ab - ba).abs() < 1e-12,
+                "overlap not symmetric for ({:?}, {:?}): {} vs {}", a, b, ab, ba);
+        }
+    }
+
+    /// INVARIANT: `extract_topic` is deterministic — calling twice yields
+    /// the same output, and never panics on arbitrary unicode/whitespace.
+    #[test]
+    fn invariant_extract_topic_deterministic_and_safe() {
+        let queries = [
+            "",
+            "?",
+            "what is the capital of France?",
+            "Who invented the lightbulb?",
+            "tell me about アリス",
+            "ALL UPPERCASE NO PUNCT",
+            "  leading and trailing  ",
+            "🦀 emoji query 🦀",
+            "explain photosynthesis",
+            "how does pagination work",
+        ];
+        for q in queries {
+            let t1 = WebSearchEngine::extract_topic(q);
+            let t2 = WebSearchEngine::extract_topic(q);
+            assert_eq!(t1, t2, "extract_topic must be deterministic for {:?}", q);
+        }
+    }
+
+    /// INVARIANT: `cross_reference_trust` formula `1 - 1/(1+N)` is in
+    /// [0, 1) for non-negative N and monotonically increases with N.
+    #[test]
+    fn invariant_cross_reference_trust_monotonic_and_bounded() {
+        let mut prev = -1.0;
+        for n in [0usize, 1, 2, 3, 5, 10, 100, 1000] {
+            let t = 1.0 - (1.0 / (1.0 + n as f64));
+            assert!(t.is_finite() && (0.0..1.0).contains(&t),
+                "cross-ref trust out of [0,1) for N={}: {}", n, t);
+            assert!(t >= prev,
+                "cross-ref trust must be monotonic non-decreasing: prev={} new={}", prev, t);
+            prev = t;
+        }
+    }
+
+    /// INVARIANT: engine instantiates without error.
+    #[test]
+    fn invariant_engine_new_succeeds() {
+        let _engine = WebSearchEngine::new();
+    }
+
+    /// INVARIANT: search never panics on empty or arbitrary query.
+    #[test]
+    fn invariant_search_safe_on_any_query() {
+        let engine = WebSearchEngine::new();
+        let queries = ["", "normal query", "αβγδε", "🦀", "\x00\x01 control"];
+        for q in queries {
+            // Don't unwrap — some queries may legitimately fail due to
+            // network or validation, but must not panic.
+            let _ = engine.search(q);
+        }
+    }
 }

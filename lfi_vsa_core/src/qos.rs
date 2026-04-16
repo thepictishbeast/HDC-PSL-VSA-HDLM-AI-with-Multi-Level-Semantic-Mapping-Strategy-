@@ -294,4 +294,84 @@ mod tests {
         assert!((policy.min_axiom_pass_rate - recovered.min_axiom_pass_rate).abs() < 0.001);
         assert!((policy.max_cpu_temp_c - recovered.max_cpu_temp_c).abs() < 0.001);
     }
+
+    // ============================================================
+    // Stress / invariant tests for QosAuditor
+    // ============================================================
+
+    /// INVARIANT: audit always produces at least 6 checks (per documented
+    /// policies 1-6).
+    #[test]
+    fn invariant_audit_produces_six_checks() {
+        let auditor = QosAuditor::new();
+        for rate in [0.0, 0.5, 0.95, 1.0] {
+            let report = auditor.audit(rate);
+            assert!(report.checks.len() >= 6,
+                "audit should produce >= 6 checks, got {} at rate={}",
+                report.checks.len(), rate);
+        }
+    }
+
+    /// INVARIANT: audit never panics regardless of input axiom_pass_rate.
+    #[test]
+    fn invariant_audit_never_panics() {
+        let auditor = QosAuditor::new();
+        for rate in [0.0, 0.5, 1.0, -1.0, 2.0, f64::NAN, f64::INFINITY] {
+            let _ = auditor.audit(rate);
+        }
+    }
+
+    /// INVARIANT: critical_failures + warnings <= total failing checks.
+    #[test]
+    fn invariant_failure_counts_consistent() {
+        let auditor = QosAuditor::new();
+        for rate in [0.0, 0.5, 0.95, 1.0] {
+            let report = auditor.audit(rate);
+            let failing = report.checks.iter().filter(|c| !c.passed).count();
+            assert!(report.critical_failures + report.warnings <= failing,
+                "critical+warnings {} > failing {}",
+                report.critical_failures + report.warnings, failing);
+        }
+    }
+
+    /// INVARIANT: Report's passed flag matches (critical_failures == 0).
+    #[test]
+    fn invariant_passed_iff_no_critical_failures() {
+        let auditor = QosAuditor::new();
+        for rate in [0.0, 0.5, 0.95, 1.0] {
+            let report = auditor.audit(rate);
+            assert_eq!(report.passed, report.critical_failures == 0,
+                "passed flag inconsistent at rate={}: passed={}, critical={}",
+                rate, report.passed, report.critical_failures);
+        }
+    }
+
+    /// INVARIANT: Default policy is deserializable from its own JSON.
+    #[test]
+    fn invariant_policy_serde_roundtrip_all_fields() -> Result<(), serde_json::Error> {
+        let original = QosPolicy::default();
+        let json = serde_json::to_string(&original)?;
+        let recovered: QosPolicy = serde_json::from_str(&json)?;
+        assert_eq!(original.min_axiom_pass_rate, recovered.min_axiom_pass_rate);
+        assert_eq!(original.max_cpu_temp_c, recovered.max_cpu_temp_c);
+        assert_eq!(original.max_vsa_aliasing, recovered.max_vsa_aliasing);
+        assert_eq!(original.min_ram_bigbrain_mb, recovered.min_ram_bigbrain_mb);
+        assert_eq!(original.min_ram_bridge_mb, recovered.min_ram_bridge_mb);
+        assert_eq!(original.max_latency_ms, recovered.max_latency_ms);
+        Ok(())
+    }
+
+    /// INVARIANT: Memory Safety check always passes (compile-time enforced).
+    #[test]
+    fn invariant_memory_safety_always_passes() {
+        let auditor = QosAuditor::new();
+        for rate in [0.0, 0.5, 1.0] {
+            let report = auditor.audit(rate);
+            let safety = report.checks.iter()
+                .find(|c| c.name.contains("Memory Safety"))
+                .expect("Memory Safety check should exist");
+            assert!(safety.passed,
+                "Memory Safety is compile-time enforced but not passing at rate={}", rate);
+        }
+    }
 }

@@ -132,4 +132,63 @@ mod tests {
         let result = device.execute(HidCommand::KeyPress(0x04)); // 'a' in HID
         assert!(result.is_ok());
     }
+
+    // ============================================================
+    // Stress / invariant tests for HidDevice
+    // ============================================================
+
+    /// INVARIANT: execute is safe for extreme mouse movement coords (won't
+    /// overflow i8 after clamp).
+    #[test]
+    fn invariant_mouse_move_extreme_coords_safe() {
+        let device = HidDevice::new(Some("/dev/nonexistent_xxx")).unwrap();
+        let extremes = [
+            (0, 0),
+            (i32::MAX, i32::MAX),
+            (i32::MIN, i32::MIN),
+            (1000, -1000),
+            (-1000, 1000),
+        ];
+        for (x, y) in extremes {
+            let r = device.execute(HidCommand::MouseMove { x, y });
+            assert!(r.is_ok(),
+                "mouse move ({}, {}) should not error in simulation", x, y);
+        }
+    }
+
+    /// INVARIANT: text command is safe for arbitrary unicode.
+    #[test]
+    fn invariant_text_arbitrary_unicode_safe() {
+        let device = HidDevice::new(Some("/dev/nonexistent_xxx")).unwrap();
+        let texts = [
+            "",
+            "αβγ",
+            "🦀🦀🦀",
+            "日本語テキスト",
+            &"x".repeat(10_000),
+        ];
+        for t in texts {
+            let _ = device.execute(HidCommand::Text(t.to_string()));
+        }
+    }
+
+    /// INVARIANT: new() never fails regardless of path.
+    #[test]
+    fn invariant_new_always_succeeds() -> Result<(), HdcError> {
+        let paths = ["", "/", "/dev/hidg0", "/tmp/test"];
+        for p in paths {
+            let _ = HidDevice::new(Some(p))?;
+        }
+        let _ = HidDevice::new(None)?;
+        Ok(())
+    }
+
+    /// INVARIANT: device_path reflects constructor argument.
+    #[test]
+    fn invariant_device_path_reflects_constructor() {
+        for custom in ["/dev/hidg0", "/dev/hidg1", "/tmp/mock"] {
+            let d = HidDevice::new(Some(custom)).unwrap();
+            assert_eq!(d.device_path(), custom);
+        }
+    }
 }

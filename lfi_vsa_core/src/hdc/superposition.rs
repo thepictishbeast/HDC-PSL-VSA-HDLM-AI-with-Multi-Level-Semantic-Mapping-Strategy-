@@ -269,4 +269,47 @@ mod tests {
         }
         Ok(())
     }
+
+    /// INVARIANT: new() starts with signal_count == 0.
+    #[test]
+    fn invariant_new_empty_signal_count() {
+        let s = SuperpositionStorage::new();
+        assert_eq!(s.signal_count, 0);
+    }
+
+    /// INVARIANT: commit_real grows signal_count monotonically.
+    #[test]
+    fn invariant_commit_real_monotone() -> Result<(), HdcError> {
+        let mut s = SuperpositionStorage::new();
+        let mut prev = s.signal_count;
+        for _ in 0..10 {
+            s.commit_real(&BipolarVector::new_random()?)?;
+            let cur = s.signal_count;
+            assert!(cur > prev, "signal_count should grow: {} -> {}", prev, cur);
+            prev = cur;
+        }
+        Ok(())
+    }
+
+    /// INVARIANT: save/load roundtrip preserves signal_count.
+    #[test]
+    fn invariant_save_load_roundtrip() -> Result<(), HdcError> {
+        let mut s = SuperpositionStorage::new();
+        for _ in 0..5 {
+            s.commit_real(&BipolarVector::new_random()?)?;
+        }
+        let path = "/tmp/lfi_superposition_invariant_test.json";
+        s.save_to_disk(path)?;
+        let loaded = SuperpositionStorage::load_from_disk(path)?;
+        assert_eq!(s.signal_count, loaded.signal_count);
+        let _ = std::fs::remove_file(path);
+        Ok(())
+    }
+
+    /// INVARIANT: load_from_disk returns Err for non-existent path.
+    #[test]
+    fn invariant_load_missing_path_errors() {
+        let result = SuperpositionStorage::load_from_disk("/tmp/lfi_nonexistent_xxx.json");
+        assert!(result.is_err(), "load of non-existent file should error");
+    }
 }

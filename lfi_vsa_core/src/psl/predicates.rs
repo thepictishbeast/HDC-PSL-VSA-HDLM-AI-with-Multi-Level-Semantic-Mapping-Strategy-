@@ -252,4 +252,88 @@ mod tests {
             "4 fields > max 3 should fail data minimization");
         Ok(())
     }
+
+    // ============================================================
+    // Stress / invariant tests for PSL predicates
+    // ============================================================
+
+    /// INVARIANT: all predicates never panic on any target shape.
+    #[test]
+    fn invariant_predicates_never_panic() -> Result<(), PslError> {
+        let preds: Vec<Box<dyn Axiom>> = vec![
+            Box::new(MaterialGainPredicate { target_growth: 0.5 }),
+            Box::new(CriticalNodePredicate { centrality_threshold: 0.5 }),
+            Box::new(PrivacyCompliancePredicate::default()),
+        ];
+        let targets = vec![
+            AuditTarget::Scalar { label: "".into(), value: 0.0 },
+            AuditTarget::Scalar { label: "projected_growth".into(), value: f64::INFINITY },
+            AuditTarget::Scalar { label: "projected_growth".into(), value: f64::NEG_INFINITY },
+            AuditTarget::Payload { source: "".into(), fields: vec![] },
+            AuditTarget::Payload {
+                source: "s".into(),
+                fields: vec![("centrality".into(), "not_a_number".into())],
+            },
+        ];
+        for p in &preds {
+            for t in &targets {
+                let _ = p.evaluate(t)?;
+            }
+        }
+        Ok(())
+    }
+
+    /// INVARIANT: Privacy predicate confidence always in [0,1] for payloads.
+    #[test]
+    fn invariant_privacy_confidence_in_unit_interval() -> Result<(), PslError> {
+        let pred = PrivacyCompliancePredicate::default();
+        let payloads = vec![
+            vec![],
+            vec![("x".into(), "y".into())],
+            vec![("ssn".into(), "1".into()), ("password".into(), "p".into())],
+            (0..100).map(|i| (format!("f{}", i), "v".into())).collect::<Vec<_>>(),
+        ];
+        for fields in payloads {
+            let target = AuditTarget::Payload {
+                source: "t".into(),
+                fields,
+            };
+            let v = pred.evaluate(&target)?;
+            assert!(v.confidence.is_finite() && (0.0..=1.0).contains(&v.confidence),
+                "privacy confidence out of [0,1]: {}", v.confidence);
+        }
+        Ok(())
+    }
+
+    /// INVARIANT: CriticalNode centrality extracted from payload drives verdict.
+    /// Centrality = 0 should fail (below any positive threshold).
+    #[test]
+    fn invariant_critical_node_zero_centrality_fails() -> Result<(), PslError> {
+        let pred = CriticalNodePredicate { centrality_threshold: 0.1 };
+        let target = AuditTarget::Payload {
+            source: "net".into(),
+            fields: vec![("centrality".into(), "0.0".into())],
+        };
+        let verdict = pred.evaluate(&target)?;
+        assert!(!verdict.level.permits_execution(),
+            "zero centrality should fail: {:?}", verdict);
+        Ok(())
+    }
+
+    /// INVARIANT: Predicate IDs are distinct and non-empty.
+    #[test]
+    fn invariant_predicate_ids_nonempty_distinct() {
+        let preds: Vec<Box<dyn Axiom>> = vec![
+            Box::new(MaterialGainPredicate { target_growth: 0.5 }),
+            Box::new(CriticalNodePredicate { centrality_threshold: 0.5 }),
+            Box::new(PrivacyCompliancePredicate::default()),
+        ];
+        let mut ids = std::collections::HashSet::new();
+        for p in &preds {
+            assert!(!p.id().is_empty());
+            assert!(!p.description().is_empty());
+            assert!(ids.insert(p.id().to_string()),
+                "duplicate id: {}", p.id());
+        }
+    }
 }

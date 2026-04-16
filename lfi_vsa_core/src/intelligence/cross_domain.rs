@@ -551,4 +551,105 @@ mod tests {
         assert!(source_domains.contains(&"strategy") || target_domains.contains(&"strategy"));
         assert!(target_domains.contains(&"security"), "Security should be an analogy target");
     }
+
+    // ============================================================
+    // Stress / invariant tests for CrossDomainEngine
+    // ============================================================
+
+    /// INVARIANT: every analogy in the database has non-empty source/target
+    /// domains and a non-empty mapping description.
+    #[test]
+    fn invariant_analogies_well_formed() {
+        for a in AnalogyDatabase::all_analogies() {
+            assert!(!a.source_domain.is_empty(),
+                "analogy source domain must not be empty");
+            assert!(!a.target_domain.is_empty(),
+                "analogy target domain must not be empty");
+            assert!(!a.source_concept.is_empty(),
+                "source_concept must not be empty");
+            assert!(!a.target_concept.is_empty(),
+                "target_concept must not be empty");
+            assert!(a.similarity.is_finite()
+                && (0.0..=1.0).contains(&a.similarity),
+                "similarity out of [0,1]: {}", a.similarity);
+        }
+    }
+
+    /// INVARIANT: success_rate is in [0,1] for any engine state.
+    #[test]
+    fn invariant_success_rate_in_unit_interval() {
+        let engine = CrossDomainEngine::new();
+        let r = engine.success_rate();
+        assert!(r.is_finite() && (0.0..=1.0).contains(&r),
+            "success_rate out of [0,1]: {}", r);
+    }
+
+    /// INVARIANT: insight_count grows monotonically — only ever increases.
+    #[test]
+    fn invariant_insight_count_non_decreasing() {
+        let mut engine = CrossDomainEngine::new();
+        let mut knowledge = crate::cognition::knowledge::KnowledgeEngine::new();
+        let mut last = engine.insight_count();
+        for src in ["biology", "physics", "strategy", "music", "economics"] {
+            let _ = engine.transfer_knowledge(src, "security", &mut knowledge);
+            let now = engine.insight_count();
+            assert!(now >= last,
+                "insight_count regressed: {} → {}", last, now);
+            last = now;
+        }
+    }
+
+    /// INVARIANT: find_analogy never panics on arbitrary unicode input.
+    #[test]
+    fn invariant_find_analogy_safe_on_unicode() {
+        let engine = CrossDomainEngine::new();
+        let knowledge = crate::cognition::knowledge::KnowledgeEngine::new();
+        let big_x = "x".repeat(10_000);
+        let big_y = "y".repeat(10_000);
+        let inputs: [(&str, &str); 5] = [
+            ("", ""),
+            ("アリス", "セキュリティ"),
+            ("🦀", "🔒"),
+            ("control:\x00", "control:\x01"),
+            (&big_x, &big_y),
+        ];
+        for (concept, domain) in inputs {
+            // Must not panic.
+            let _ = engine.find_analogy(concept, domain, &knowledge);
+        }
+    }
+
+    /// INVARIANT: best_transfer_source returns a valid domain (non-empty)
+    /// when given a domain and concept that exist in the analogy database.
+    #[test]
+    fn invariant_best_transfer_source_returns_known_domain() {
+        let engine = CrossDomainEngine::new();
+        let knowledge = crate::cognition::knowledge::KnowledgeEngine::new();
+        if let Some((source, score)) = engine.best_transfer_source("security", &knowledge) {
+            assert!(!source.is_empty(),
+                "best_transfer_source returned empty string");
+            assert!(score.is_finite(),
+                "transfer score must be finite: {}", score);
+        }
+    }
+
+    /// INVARIANT: all_analogies is non-empty and deterministic.
+    #[test]
+    fn invariant_all_analogies_deterministic_nonempty() {
+        let a1 = AnalogyDatabase::all_analogies();
+        let a2 = AnalogyDatabase::all_analogies();
+        assert_eq!(a1.len(), a2.len(),
+            "all_analogies should be deterministic");
+        assert!(!a1.is_empty(),
+            "all_analogies should not be empty");
+    }
+
+    /// INVARIANT: CrossDomainEngine::new() starts with 0 insights.
+    #[test]
+    fn invariant_new_engine_zero_insights() {
+        let engine = CrossDomainEngine::new();
+        assert_eq!(engine.insight_count(), 0);
+        let rate = engine.success_rate();
+        assert!(rate.is_finite());
+    }
 }

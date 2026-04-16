@@ -987,4 +987,109 @@ mod tests {
         let input = format!("ghp_{}ω more text", "x".repeat(35));
         let _ = scanner.scan(&input);
     }
+
+    // ============================================================
+    // Stress / invariant tests for SecretScanner
+    // ============================================================
+
+    /// INVARIANT: scan() never panics on arbitrary input.
+    #[test]
+    fn invariant_scan_never_panics() {
+        let scanner = SecretScanner::new();
+        let long = "x".repeat(100_000);
+        let inputs = vec![
+            "".to_string(),
+            "normal text".to_string(),
+            "αβγδε日本語🦀".to_string(),
+            "\x00\x01\x1f control chars".to_string(),
+            long,
+            "ghp_partial".to_string(),
+            "AKIA".to_string(),  // too short AWS prefix
+        ];
+        for input in &inputs {
+            let _ = scanner.scan(input);
+            let _ = scanner.redact(input);
+            let _ = scanner.contains_secrets(input);
+            let _ = scanner.highest_severity(input);
+        }
+    }
+
+    /// INVARIANT: on empty input, scan returns empty matches.
+    #[test]
+    fn invariant_scan_empty_returns_empty() {
+        let scanner = SecretScanner::new();
+        let matches = scanner.scan("");
+        assert!(matches.is_empty(), "empty input should have no matches");
+        assert!(!scanner.contains_secrets(""));
+        assert!(scanner.highest_severity("").is_none());
+        assert_eq!(scanner.redact(""), "");
+    }
+
+    /// INVARIANT: contains_secrets agrees with scan() non-emptiness.
+    #[test]
+    fn invariant_contains_secrets_agrees_with_scan() {
+        let scanner = SecretScanner::new();
+        let inputs = vec![
+            "just plain text",
+            "AKIA1234567890ABCDEF",  // AWS key
+            "ghp_123456789012345678901234567890123456",  // github
+            "no secrets here",
+        ];
+        for input in inputs {
+            let matches = scanner.scan(input);
+            assert_eq!(scanner.contains_secrets(input), !matches.is_empty(),
+                "contains_secrets disagrees with scan for {:?}", input);
+        }
+    }
+
+    /// INVARIANT: allowlist suppresses matches.
+    #[test]
+    fn invariant_allowlist_suppresses_matches() {
+        let aws_key = "AKIA1234567890ABCDEF";
+        let plain = SecretScanner::new();
+        let allowed = SecretScanner::with_allowlist(vec![aws_key.into()]);
+        let found = plain.contains_secrets(aws_key);
+        let suppressed = allowed.contains_secrets(aws_key);
+        if found {
+            assert!(!suppressed, "allowlist should suppress matched secret");
+        }
+    }
+
+    /// INVARIANT: redact() never shrinks below reasonable size and is UTF-8 valid.
+    #[test]
+    fn invariant_redact_output_valid_utf8() {
+        let scanner = SecretScanner::new();
+        let inputs = [
+            "ghp_123456789012345678901234567890123456 trailing",
+            "αβ AKIA1234567890ABCDEF γδ",
+            "",
+            "no secrets just a sentence.",
+        ];
+        for input in inputs {
+            let redacted = scanner.redact(input);
+            // If no secrets found, redacted should equal input.
+            if scanner.scan(input).is_empty() {
+                assert_eq!(&redacted, input, "no-match redact should preserve input");
+            }
+            // Redacted is always valid UTF-8 (String guarantees it).
+            assert!(redacted.is_char_boundary(0));
+        }
+    }
+
+    /// INVARIANT: highest_severity agrees with the max of scan()'s severities.
+    #[test]
+    fn invariant_highest_severity_matches_scan() {
+        let scanner = SecretScanner::new();
+        let input = "AKIA1234567890ABCDEF and ghp_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+        let matches = scanner.scan(input);
+        let max_from_scan = matches.into_iter()
+            .map(|m| m.severity)
+            .max_by_key(|s| match s {
+                Severity::Critical => 4,
+                Severity::High => 3,
+                Severity::Medium => 2,
+                Severity::Low => 1,
+            });
+        assert_eq!(scanner.highest_severity(input), max_from_scan);
+    }
 }

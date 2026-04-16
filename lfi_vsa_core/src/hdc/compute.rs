@@ -316,4 +316,125 @@ mod tests {
         // Phone can't handle everything laptop can.
         assert!(!phone.can_handle(laptop.max_vectors, laptop.max_codebook));
     }
+
+    // ============================================================
+    // Stress / invariant tests for compute
+    // ============================================================
+
+    /// INVARIANT: estimate_memory total (tuple index 2) scales linearly
+    /// with both dim and num_vectors.
+    #[test]
+    fn invariant_estimate_memory_linear() {
+        let (_, _, base) = ResourceEstimator::estimate_memory(10_000, 1_000, 1_000);
+        let (_, _, ddim) = ResourceEstimator::estimate_memory(20_000, 1_000, 1_000);
+        let (_, _, dvec) = ResourceEstimator::estimate_memory(10_000, 2_000, 1_000);
+        assert!(ddim > base, "dim doubling must grow memory");
+        assert!(dvec > base, "vec doubling must grow memory");
+        let ratio_dim = ddim as f64 / base.max(1) as f64;
+        let ratio_vec = dvec as f64 / base.max(1) as f64;
+        assert!(ratio_dim > 1.2,
+            "dim doubling should ~double memory: ratio={}", ratio_dim);
+        assert!(ratio_vec > 1.2,
+            "vec doubling should ~double memory: ratio={}", ratio_vec);
+    }
+
+    /// INVARIANT: fits_in_ram is monotone in available_mb — more RAM always
+    /// means more workloads fit.
+    #[test]
+    fn invariant_fits_in_ram_monotone() {
+        let (dim, nvec) = (10_000, 1_000);
+        let low = ResourceEstimator::fits_in_ram(1, dim, nvec);
+        let mid = ResourceEstimator::fits_in_ram(100, dim, nvec);
+        let high = ResourceEstimator::fits_in_ram(100_000, dim, nvec);
+        assert!(!(low && !mid), "mid RAM lost capability low had");
+        assert!(!(mid && !high), "high RAM lost capability mid had");
+        assert!(high, "100GB must fit 10k-dim × 1k vectors");
+    }
+
+    /// INVARIANT: DeploymentProfile constructors produce sensible
+    /// laptop ≥ phone ≥ embedded ordering on vector+codebook capacity.
+    #[test]
+    fn invariant_deployment_profiles_ordered() {
+        let laptop = DeploymentProfile::laptop();
+        let phone = DeploymentProfile::pixel_phone();
+        let embed = DeploymentProfile::embedded();
+        assert!(laptop.max_vectors >= phone.max_vectors,
+            "laptop must support ≥ phone vectors");
+        assert!(phone.max_vectors >= embed.max_vectors,
+            "phone must support ≥ embedded vectors");
+        assert!(laptop.max_codebook >= phone.max_codebook);
+        assert!(phone.max_codebook >= embed.max_codebook);
+    }
+
+    /// INVARIANT: LocalBackend::bind and similarity produce results matching
+    /// BipolarVector methods — no backend drift.
+    #[test]
+    fn invariant_local_backend_matches_direct() -> Result<(), HdcError> {
+        let backend = LocalBackend;
+        let a = BipolarVector::from_seed(1);
+        let b = BipolarVector::from_seed(2);
+        let direct_bind = a.bind(&b)?;
+        let backend_bind = backend.bind(&a, &b)?;
+        assert_eq!(direct_bind, backend_bind,
+            "backend bind must match direct bind");
+        let direct_sim = a.similarity(&b)?;
+        let backend_sim = backend.similarity(&a, &b)?;
+        assert!((direct_sim - backend_sim).abs() < 1e-12,
+            "backend similarity must match direct: {} vs {}", direct_sim, backend_sim);
+        Ok(())
+    }
+
+    /// INVARIANT: fits_in_ram is monotone in available_mb.
+    #[test]
+    fn invariant_fits_in_ram_monotone_in_ram() {
+        let dim = 10_000;
+        let vectors = 100;
+        let small = ResourceEstimator::fits_in_ram(256, dim, vectors);
+        let mid = ResourceEstimator::fits_in_ram(1024, dim, vectors);
+        let large = ResourceEstimator::fits_in_ram(16_384, dim, vectors);
+        if small {
+            assert!(mid, "if 256MB fits, 1024MB must fit");
+            assert!(large, "if 256MB fits, 16GB must fit");
+        }
+        if mid {
+            assert!(large, "if 1GB fits, 16GB must fit");
+        }
+    }
+
+    /// INVARIANT: estimate_memory total is monotone in num_vectors.
+    #[test]
+    fn invariant_memory_estimate_monotone() {
+        let dim = 10_000;
+        let (_, _, total1) = ResourceEstimator::estimate_memory(dim, 1, 100);
+        let (_, _, total10) = ResourceEstimator::estimate_memory(dim, 10, 100);
+        let (_, _, total100) = ResourceEstimator::estimate_memory(dim, 100, 100);
+        assert!(total1 <= total10, "memory should grow with vectors: {} > {}", total1, total10);
+        assert!(total10 <= total100, "memory should grow: {} > {}", total10, total100);
+    }
+
+    /// INVARIANT: preset estimates produce non-empty strings.
+    #[test]
+    fn invariant_preset_estimates_non_empty() {
+        let l = ResourceEstimator::laptop_estimate();
+        let p = ResourceEstimator::phone_estimate();
+        assert!(!l.is_empty());
+        assert!(!p.is_empty());
+    }
+
+    /// INVARIANT: DeploymentProfile presets are constructible and have
+    /// working can_handle.
+    #[test]
+    fn invariant_deployment_profiles_usable() {
+        for preset in [
+            DeploymentProfile::laptop(),
+            DeploymentProfile::pixel_phone(),
+            DeploymentProfile::embedded(),
+        ] {
+            // Small workload should fit all presets.
+            assert!(preset.can_handle(1, 1),
+                "tiny workload should fit any profile");
+            // recommended_max_tier should return a valid tier (no panic).
+            let _ = preset.recommended_max_tier();
+        }
+    }
 }

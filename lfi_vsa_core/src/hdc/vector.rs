@@ -772,4 +772,115 @@ mod tests {
         assert!(enc0.similarity(&enc1)?.abs() < 0.1, "pos0 vs pos1 encoding");
         Ok(())
     }
+
+    // ============================================================
+    // Stress / invariant tests for BipolarVector (algebraic properties)
+    // ============================================================
+
+    /// INVARIANT: bind is commutative — a XOR b == b XOR a.
+    #[test]
+    fn invariant_bind_commutative() -> Result<(), HdcError> {
+        for _ in 0..5 {
+            let a = BipolarVector::new_random()?;
+            let b = BipolarVector::new_random()?;
+            let ab = a.bind(&b)?;
+            let ba = b.bind(&a)?;
+            assert_eq!(ab.count_ones(), ba.count_ones(),
+                "bind not commutative");
+            for i in 0..a.dim() {
+                assert_eq!(ab.bits()[i], ba.bits()[i],
+                    "bind differs at bit {}", i);
+            }
+        }
+        Ok(())
+    }
+
+    /// INVARIANT: bind is self-inverse — a XOR b XOR b == a.
+    #[test]
+    fn invariant_bind_self_inverse() -> Result<(), HdcError> {
+        let a = BipolarVector::from_seed(42);
+        let b = BipolarVector::from_seed(100);
+        let bound = a.bind(&b)?;
+        let unbound = bound.bind(&b)?;
+        let sim = a.similarity(&unbound)?;
+        assert!((sim - 1.0).abs() < 0.001,
+            "bind not self-inverse: sim={}", sim);
+        Ok(())
+    }
+
+    /// INVARIANT: permute(0) is identity.
+    #[test]
+    fn invariant_permute_zero_is_identity() -> Result<(), HdcError> {
+        let a = BipolarVector::from_seed(99);
+        let p0 = a.permute(0)?;
+        let sim = a.similarity(&p0)?;
+        assert!((sim - 1.0).abs() < 0.001,
+            "permute(0) should be identity, got sim={}", sim);
+        Ok(())
+    }
+
+    /// INVARIANT: similarity(a, a) == 1.0 always.
+    #[test]
+    fn invariant_self_similarity_is_one() -> Result<(), HdcError> {
+        for seed in [1u64, 42, 1000, 99999] {
+            let a = BipolarVector::from_seed(seed);
+            let sim = a.similarity(&a)?;
+            assert!((sim - 1.0).abs() < 0.001,
+                "self similarity should be 1.0, got {} for seed {}", sim, seed);
+        }
+        Ok(())
+    }
+
+    /// INVARIANT: similarity is symmetric — sim(a,b) == sim(b,a).
+    #[test]
+    fn invariant_similarity_symmetric() -> Result<(), HdcError> {
+        for seed_a in [1u64, 42, 100] {
+            for seed_b in [2u64, 99, 1000] {
+                let a = BipolarVector::from_seed(seed_a);
+                let b = BipolarVector::from_seed(seed_b);
+                let ab = a.similarity(&b)?;
+                let ba = b.similarity(&a)?;
+                assert!((ab - ba).abs() < 1e-9,
+                    "similarity not symmetric: {} vs {}", ab, ba);
+            }
+        }
+        Ok(())
+    }
+
+    /// INVARIANT: hamming_distance is symmetric and bounded by dimension.
+    #[test]
+    fn invariant_hamming_symmetric_and_bounded() -> Result<(), HdcError> {
+        let a = BipolarVector::from_seed(42);
+        let b = BipolarVector::from_seed(99);
+        let ab = a.hamming_distance(&b)?;
+        let ba = b.hamming_distance(&a)?;
+        assert_eq!(ab, ba, "hamming not symmetric");
+        assert!(ab <= a.dim(), "hamming {} exceeds dim {}", ab, a.dim());
+        Ok(())
+    }
+
+    /// INVARIANT: zeros() and ones() produce vectors at extremes.
+    #[test]
+    fn invariant_zeros_ones_extremes() {
+        let z = BipolarVector::zeros();
+        let o = BipolarVector::ones();
+        assert_eq!(z.count_ones(), 0, "zeros should have no ones");
+        assert_eq!(o.count_ones(), o.dim(), "ones should be all ones");
+        assert_eq!(z.count_neg_ones(), z.dim(),
+            "zeros should be all -1");
+        assert_eq!(o.count_neg_ones(), 0, "ones should have no -1");
+    }
+
+    /// INVARIANT: from_seed is deterministic.
+    #[test]
+    fn invariant_from_seed_deterministic() -> Result<(), HdcError> {
+        for seed in [0u64, 1, 42, 999, u64::MAX] {
+            let a = BipolarVector::from_seed(seed);
+            let b = BipolarVector::from_seed(seed);
+            let sim = a.similarity(&b)?;
+            assert!((sim - 1.0).abs() < 0.001,
+                "from_seed({}) not deterministic: sim={}", seed, sim);
+        }
+        Ok(())
+    }
 }
