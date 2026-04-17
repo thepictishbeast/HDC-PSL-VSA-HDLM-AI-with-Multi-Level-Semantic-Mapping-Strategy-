@@ -1082,6 +1082,7 @@ ${cmdList}
     pinned?: boolean;
     starred?: boolean;
     incognito?: boolean;
+    archived?: boolean;
     // Unsent draft text preserved across conversation switches so users don't
     // lose their in-progress message when clicking between conversations.
     draft?: string;
@@ -1266,12 +1267,22 @@ ${cmdList}
     }));
     showToast(nowStarred ? 'Starred' : 'Unstarred');
   };
+  const toggleArchived = (id: string) => {
+    let nowArchived = false;
+    setConversations(prev => prev.map(c => {
+      if (c.id !== id) return c;
+      nowArchived = !c.archived;
+      return { ...c, archived: nowArchived };
+    }));
+    showToast(nowArchived ? 'Archived' : 'Unarchived');
+  };
 
   // Smart auto-title: look at the first user turn + first assistant reply,
   // pick a short key-phrase that beats simple truncation. Falls back to
   // titleFrom if no signal. Rule-of-thumb similar to ChatGPT/Gemini heuristics.
   const [showConvoSidebar, setShowConvoSidebar] = useState<boolean>(true);
   const [showPlanSidebar, setShowPlanSidebar] = useState<boolean>(true);
+  const [showArchived, setShowArchived] = useState<boolean>(false);
   const [convoSearch, setConvoSearch] = useState('');
 
   // ---- Send ----
@@ -2583,6 +2594,10 @@ ${cmdList}
               )}
               {conversations
                 .filter(c => {
+                  // Hide archived from the main list; they live in their own
+                  // collapsible section at the bottom.
+                  if (c.archived && !showArchived) return false;
+                  if (c.archived && showArchived) return false; // render in archived section only
                   if (!convoSearch.trim()) return true;
                   const q = convoSearch.toLowerCase();
                   if (c.title.toLowerCase().includes(q)) return true;
