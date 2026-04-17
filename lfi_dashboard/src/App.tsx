@@ -367,7 +367,14 @@ const SovereignCommandConsole: React.FC = () => {
 
   // Host info pulled once from /api/system/info so the sidebar can show
   // what device the user is on (OS + hostname).
-  const [sysInfo, setSysInfo] = useState<{ hostname?: string; os?: string; cpu_count?: number }>({});
+  const [sysInfo, setSysInfo] = useState<{
+    hostname?: string;
+    os?: string;
+    cpu_count?: number;
+    cpu_model?: string;
+    disk_free?: number;
+    disk_total?: number;
+  }>({});
 
   // Persistent settings (localStorage-backed). A single object keeps storage
   // compact and makes future additions one-line.
