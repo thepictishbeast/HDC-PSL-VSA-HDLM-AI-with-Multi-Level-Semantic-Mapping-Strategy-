@@ -26,3 +26,4 @@ pub use liquid::{LiquidSensorium, LiquidNeuron};
 pub mod constant_time;
 pub mod encoder_protection;
 pub mod tier_weighted_bundle;
+pub mod tensor_train;

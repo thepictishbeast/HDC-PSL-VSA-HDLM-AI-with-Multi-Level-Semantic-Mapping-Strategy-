@@ -22,6 +22,11 @@ export class AppErrorBoundary extends React.Component<
     const fg = this.props.themeText || '#e8e6f0';
     const accent = this.props.themeAccent || '#8b7bf7';
     const err = this.state.error;
+    // Distinguish a lazy-chunk load failure from a generic render error — the
+    // former usually means the user is offline or their cache is stale, not
+    // that the UI is broken.
+    const rawMsg = String(err?.message || err);
+    const isChunkLoadError = /Failed to fetch dynamically imported module|Loading chunk|Loading CSS chunk|ChunkLoadError/i.test(rawMsg);
     return (
       <div role="alert" style={{
         minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center',
@@ -29,14 +34,15 @@ export class AppErrorBoundary extends React.Component<
       }}>
         <div style={{ maxWidth: '560px', width: '100%' }}>
           <div style={{ fontSize: '13px', color: accent, fontWeight: 700, letterSpacing: '0.14em', textTransform: 'uppercase', marginBottom: '8px' }}>
-            UI Error
+            {isChunkLoadError ? 'Module load failed' : 'UI Error'}
           </div>
           <h2 style={{ fontSize: '22px', fontWeight: 700, margin: '0 0 10px', letterSpacing: '-0.01em' }}>
-            Something broke — but your work is safe
+            {isChunkLoadError ? 'A code chunk could not be fetched' : 'Something broke — but your work is safe'}
           </h2>
           <p style={{ fontSize: '14px', lineHeight: 1.6, opacity: 0.8, margin: '0 0 18px' }}>
-            The dashboard hit a rendering error. Conversations and settings live in localStorage and
-            are untouched. Try again to re-mount the UI; if that fails, reload.
+            {isChunkLoadError
+              ? 'This usually means the app is offline, the dev server was restarted, or the cache is stale. Reload the page to fetch the latest build.'
+              : 'The dashboard hit a rendering error. Conversations and settings live in localStorage and are untouched. Try again to re-mount the UI; if that fails, reload.'}
           </p>
           <pre style={{
             background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)',
