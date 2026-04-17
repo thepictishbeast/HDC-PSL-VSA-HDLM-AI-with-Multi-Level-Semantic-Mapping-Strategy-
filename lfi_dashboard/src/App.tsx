@@ -41,7 +41,7 @@ import { TrainingDashboardContent } from './TrainingDashboard';
 import { AppErrorBoundary } from './AppErrorBoundary';
 import { LoginScreen } from './LoginScreen';
 import { SKILLS, AVATAR_PRESETS, type Skill as CatalogSkill } from './catalogs';
-import { SystemMessage, WebMessage } from './MessageBubble';
+import { SystemMessage, WebMessage, ToolMessage } from './MessageBubble';
 
 hljs.registerLanguage('rust', rust);
 hljs.registerLanguage('javascript', javascript);
@@ -3775,99 +3775,19 @@ ${cmdList}
 
                 {/* Tool calls — Claude Code style expandable blocks showing
                     what tool the AI invoked, its status, and the output. */}
-                {msg.role === 'tool' && (() => {
-                  const statusColor = msg.toolStatus === 'ok' ? C.green
-                    : msg.toolStatus === 'error' ? C.red : C.accent;
-                  const statusBg = msg.toolStatus === 'ok' ? C.greenBg
-                    : msg.toolStatus === 'error' ? C.redBg : C.accentBg;
-                  const expanded = expandedTools.has(msg.id);
-                  const setExpanded = (v: boolean | ((prev: boolean) => boolean)) => {
-                    setExpandedTools(prev => {
+                {msg.role === 'tool' && (
+                  <ToolMessage
+                    msg={msg}
+                    C={C}
+                    isDesktop={isDesktop}
+                    expanded={expandedTools.has(msg.id)}
+                    onToggle={() => setExpandedTools(prev => {
                       const next = new Set(prev);
-                      const val = typeof v === 'function' ? v(prev.has(msg.id)) : v;
-                      if (val) next.add(msg.id); else next.delete(msg.id);
+                      if (next.has(msg.id)) next.delete(msg.id); else next.add(msg.id);
                       return next;
-                    });
-                  };
-                  return (
-                    <div style={{
-                      maxWidth: isDesktop ? '80%' : '96%',
-                      border: `1px solid ${C.borderSubtle}`,
-                      borderRadius: '10px', overflow: 'hidden',
-                      background: C.bgCard,
-                    }}>
-                      <button onClick={() => setExpanded(v => !v)}
-                        style={{
-                          width: '100%', display: 'flex', alignItems: 'center', gap: '10px',
-                          padding: '10px 14px', background: 'transparent',
-                          border: 'none', cursor: 'pointer', fontFamily: 'inherit',
-                          color: C.text, textAlign: 'left',
-                        }}>
-                        {/* Status dot */}
-                        <div style={{
-                          width: '8px', height: '8px', borderRadius: '50%',
-                          background: statusColor, flexShrink: 0,
-                          boxShadow: msg.toolStatus === 'running' ? `0 0 6px ${statusColor}` : 'none',
-                          animation: msg.toolStatus === 'running' ? 'scc-bounce 1.4s infinite ease-in-out' : 'none',
-                        }} />
-                        {/* Tool name */}
-                        <span style={{
-                          fontSize: '13px', fontWeight: 600,
-                          fontFamily: "'JetBrains Mono','Fira Code',monospace",
-                        }}>{msg.toolName || 'tool'}</span>
-                        {/* Summary */}
-                        <span style={{
-                          flex: 1, fontSize: '12px', color: C.textMuted,
-                          whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
-                        }}>{msg.content}</span>
-                        {/* Status badge */}
-                        <span style={{
-                          padding: '2px 8px', fontSize: '10px', fontWeight: 700,
-                          background: statusBg, color: statusColor,
-                          borderRadius: '4px', textTransform: 'uppercase',
-                          flexShrink: 0,
-                        }}>{msg.toolStatus || 'done'}</span>
-                        {msg.toolDuration != null && (
-                          <span style={{ fontSize: '10px', color: C.textDim, flexShrink: 0,
-                            fontFamily: "'JetBrains Mono','Fira Code',monospace" }}>
-                            {msg.toolDuration}ms
-                          </span>
-                        )}
-                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={C.textMuted}
-                          strokeWidth="2" style={{ flexShrink: 0, transform: expanded ? 'rotate(180deg)' : 'rotate(0)', transition: 'transform 0.15s' }}>
-                          <polyline points="6 9 12 15 18 9"/>
-                        </svg>
-                      </button>
-                      {expanded && (
-                        <div style={{ padding: '0 14px 12px', fontSize: '12px' }}>
-                          {msg.toolInput && (
-                            <div style={{ marginBottom: '8px' }}>
-                              <div style={{ fontSize: '10px', color: C.textMuted, fontWeight: 700, textTransform: 'uppercase', marginBottom: '4px' }}>Input</div>
-                              <pre style={{
-                                padding: '8px 10px', background: C.bgInput, borderRadius: '6px',
-                                fontFamily: "'JetBrains Mono','Fira Code',monospace",
-                                fontSize: '11.5px', color: C.textSecondary,
-                                whiteSpace: 'pre-wrap', wordBreak: 'break-word', margin: 0,
-                              }}>{msg.toolInput}</pre>
-                            </div>
-                          )}
-                          {msg.toolOutput && (
-                            <div>
-                              <div style={{ fontSize: '10px', color: C.textMuted, fontWeight: 700, textTransform: 'uppercase', marginBottom: '4px' }}>Output</div>
-                              <pre style={{
-                                padding: '8px 10px', background: C.bgInput, borderRadius: '6px',
-                                fontFamily: "'JetBrains Mono','Fira Code',monospace",
-                                fontSize: '11.5px', color: C.textSecondary,
-                                whiteSpace: 'pre-wrap', wordBreak: 'break-word', margin: 0,
-                                maxHeight: '300px', overflowY: 'auto',
-                              }}>{msg.toolOutput}</pre>
-                            </div>
-                          )}
-                        </div>
-                      )}
-                    </div>
-                  );
-                })()}
+                    })}
+                  />
+                )}
 
                 {/* User messages */}
                 {/* User messages — solid accent bg + white text, like
