@@ -15,6 +15,7 @@ pub mod analogy;
 pub mod sensory;
 pub mod hadamard;
 pub mod hdlm;
+pub mod crdt;
 
 pub use vector::{BipolarVector, HD_DIMENSIONS};
 pub use hadamard::{HadamardGenerator, CorrelatedGenerator};
