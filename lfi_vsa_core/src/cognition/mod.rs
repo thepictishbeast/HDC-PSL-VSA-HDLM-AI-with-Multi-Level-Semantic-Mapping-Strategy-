@@ -14,6 +14,7 @@ pub mod knowledge_compiler;
 pub mod spaced_repetition;
 pub mod causal;
 pub mod calibration;
+pub mod global_workspace;
 
 pub use planner::{Plan, PlanStep, StepStatus, Planner};
 pub use reasoner::{CognitiveMode, CognitiveCore, ThoughtResult};
