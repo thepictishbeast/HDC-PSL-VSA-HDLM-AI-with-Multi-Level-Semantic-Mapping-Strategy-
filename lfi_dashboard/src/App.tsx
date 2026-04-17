@@ -56,6 +56,7 @@ import { AdminActions } from './AdminActions';
 import { renderMessageBody as renderMdBody, type MarkdownCtx } from './markdown';
 import { useTicTacToe } from './useTicTacToe';
 import { useStatusPoll, useQualityPoll, useSysInfoPoll } from './usePolls';
+import { useAutoScroll } from './useAutoScroll';
 // react-virtuoso is installed; wiring will go through a dedicated ChatView
 // extraction so the empty-state + thinking-indicator + messagesEnd-ref logic
 // stays correct. Skeleton import stays out until the wrapper lands.
@@ -490,20 +491,7 @@ ${cmdList}
     return h;
   };
 
-  const scrollToBottom = useCallback(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, []);
-
-  // Only auto-scroll when the *count* of messages grows — i.e., a new
-  // user/assistant/system message was added. Prevents unwanted jumps when
-  // the conversation list re-hydrates or unrelated state changes cause a
-  // re-render. REGRESSION-GUARD: user complaint 2026-04-15 "conversation
-  // keeps scrolling randomly."
-  const prevMsgCountRef = useRef(0);
-  useEffect(() => {
-    if (messages.length > prevMsgCountRef.current) scrollToBottom();
-    prevMsgCountRef.current = messages.length;
-  }, [messages.length, scrollToBottom]);
+  const scrollToBottom = useAutoScroll(messagesEndRef, messages.length);
 
   // Tick elapsed seconds on the thinking indicator once per second while active.
   useEffect(() => {
