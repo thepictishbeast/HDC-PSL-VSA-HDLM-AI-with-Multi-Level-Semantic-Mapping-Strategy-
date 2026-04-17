@@ -13,3 +13,6 @@ pub mod minhash;
 pub mod bloom;
 pub mod temporal;
 pub mod classifier;
+pub mod pipeline;
+#[cfg(test)]
+mod proptest_checks;

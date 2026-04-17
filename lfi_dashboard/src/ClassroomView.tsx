@@ -51,11 +51,56 @@ const pctNorm = (raw: number | undefined): number | null => {
   return raw <= 1.5 ? raw * 100 : raw;
 };
 
+// c2-231 / #75: per-domain history snapshots. We don't have a backend
+// time-series endpoint yet, so we snapshot domain counts each time the
+// dashboard is polled and roll a bounded buffer in localStorage. 24 samples
+// at the 10s poll cadence = the last ~4 minutes of activity — enough for a
+// "trending up / flat / down" hint without blowing out storage.
+const GRADEBOOK_HISTORY_KEY = 'lfi_gradebook_history_v1';
+const GRADEBOOK_HISTORY_MAX = 24;
+// Minimum gap between persisted snapshots — defends against React-strict
+// double-invoke and manual refresh thrash writing every 50 ms.
+const GRADEBOOK_SNAPSHOT_MIN_GAP_MS = 8_000;
+interface GradebookSnapshot { ts: number; counts: Record<string, number> }
+const loadGradebookHistory = (): GradebookSnapshot[] => {
+  try {
+    const raw = localStorage.getItem(GRADEBOOK_HISTORY_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .filter((s: any) => s && typeof s.ts === 'number' && s.counts && typeof s.counts === 'object')
+      .slice(-GRADEBOOK_HISTORY_MAX);
+  } catch { return []; }
+};
+const saveGradebookSnapshot = (prev: GradebookSnapshot[], counts: Record<string, number>): GradebookSnapshot[] => {
+  const now = Date.now();
+  const last = prev[prev.length - 1];
+  if (last && (now - last.ts) < GRADEBOOK_SNAPSHOT_MIN_GAP_MS) return prev;
+  const next = [...prev, { ts: now, counts }].slice(-GRADEBOOK_HISTORY_MAX);
+  try { localStorage.setItem(GRADEBOOK_HISTORY_KEY, JSON.stringify(next)); } catch { /* quota */ }
+  return next;
+};
+// Project a snapshot list into per-domain ordered series.
+const projectHistory = (snaps: GradebookSnapshot[]): Record<string, number[]> => {
+  const out: Record<string, number[]> = {};
+  for (const s of snaps) {
+    for (const [domain, count] of Object.entries(s.counts)) {
+      if (!out[domain]) out[domain] = [];
+      out[domain].push(count);
+    }
+  }
+  return out;
+};
+
 export const ClassroomView: React.FC<ClassroomViewProps> = ({ C, host, isDesktop, localEvents = [] }) => {
   const [sub, setSub] = useState<Sub>('profile');
   const [data, setData] = useState<DashboardShape | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  // c2-231 / #75: rolling history of per-domain counts, surfaced as
+  // sparklines next to the coverage bars.
+  const [history, setHistory] = useState<GradebookSnapshot[]>(() => loadGradebookHistory());
 
   const load = async () => {
     setLoading(true);
@@ -91,6 +136,18 @@ export const ClassroomView: React.FC<ClassroomViewProps> = ({ C, host, isDesktop
     const arr = data?.domains || [];
     return [...arr].sort((a, b) => b.count - a.count);
   }, [data?.domains]);
+
+  // Snapshot domain counts on each successful load. Only fires when the
+  // domain list arrives and looks sensible; the helper enforces the
+  // minimum-gap + bounded-buffer invariants so effects running twice
+  // (React Strict Mode) can't corrupt state.
+  useEffect(() => {
+    if (!data?.domains || data.domains.length === 0) return;
+    const counts: Record<string, number> = {};
+    for (const d of data.domains) counts[d.domain] = d.count;
+    setHistory(prev => saveGradebookSnapshot(prev, counts));
+  }, [data?.domains]);
+  const historyByDomain = useMemo(() => projectHistory(history), [history]);
 
   return (
     <div style={{
@@ -276,7 +333,7 @@ export const ClassroomView: React.FC<ClassroomViewProps> = ({ C, host, isDesktop
                 <div style={{ fontSize: '11px', fontWeight: T.typography.weightBold, color: C.textMuted, textTransform: 'uppercase', letterSpacing: T.typography.trackingLoose, marginBottom: '10px' }}>
                   Coverage by domain
                 </div>
-                <DomainBars C={C} rows={sortedDomains.slice(0, 15)} />
+                <DomainBars C={C} rows={sortedDomains.slice(0, 15)} historyByDomain={historyByDomain} />
               </div>
             )}
           </div>
@@ -323,20 +380,56 @@ const Stat: React.FC<{ C: any; label: string; value: string; color: string }> = 
   </div>
 );
 
-const DomainBars: React.FC<{ C: any; rows: Array<{ domain: string; count: number }> }> = ({ C, rows }) => {
+// Inline, dependency-free sparkline. Renders empty when <2 samples are
+// available so a fresh page doesn't flash "flat line" artefacts. Color
+// matches the bar so the eye groups them as one row.
+const Sparkline: React.FC<{ values: number[]; color: string; width?: number; height?: number }> = ({ values, color, width = 64, height = 18 }) => {
+  if (!values || values.length < 2) {
+    return <span aria-hidden='true' style={{ display: 'inline-block', width, height }} />;
+  }
+  const max = Math.max(...values);
+  const min = Math.min(...values);
+  const range = max - min;
+  const step = width / (values.length - 1);
+  // Flat line: put it vertically centered so it reads as "no change".
+  const y = (v: number) => range === 0 ? height / 2 : height - ((v - min) / range) * (height - 2) - 1;
+  const points = values.map((v, i) => `${(i * step).toFixed(1)},${y(v).toFixed(1)}`).join(' ');
+  const first = values[0]; const last = values[values.length - 1];
+  const trendSymbol = last > first ? '\u2191' : last < first ? '\u2193' : '\u2192';
+  return (
+    <svg width={width} height={height}
+      role='img' aria-label={`Trend ${trendSymbol} (${values.length} samples, latest ${last.toLocaleString()})`}
+      style={{ display: 'block' }}>
+      <polyline fill='none' stroke={color} strokeWidth='1.5'
+        strokeLinecap='round' strokeLinejoin='round' points={points} />
+    </svg>
+  );
+};
+
+const DomainBars: React.FC<{
+  C: any;
+  rows: Array<{ domain: string; count: number }>;
+  historyByDomain?: Record<string, number[]>;
+}> = ({ C, rows, historyByDomain = {} }) => {
   const max = Math.max(...rows.map(r => r.count), 1);
   const colorFor = (n: number) => n > 10000 ? C.green : n > 1000 ? C.yellow : C.red;
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-      {rows.map(r => (
-        <div key={r.domain} style={{ display: 'flex', alignItems: 'center', gap: T.spacing.sm }}>
-          <span style={{ width: '160px', fontSize: '12px', color: C.text, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{r.domain}</span>
-          <div style={{ flex: 1, background: C.bgCard, height: '16px', borderRadius: T.radii.xs, overflow: 'hidden' }}>
-            <div style={{ width: `${(r.count / max) * 100}%`, height: '100%', background: colorFor(r.count), transition: 'width 0.4s' }} />
+      {rows.map(r => {
+        const series = historyByDomain[r.domain] || [];
+        return (
+          <div key={r.domain} style={{ display: 'flex', alignItems: 'center', gap: T.spacing.sm }}>
+            <span style={{ width: '160px', fontSize: '12px', color: C.text, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{r.domain}</span>
+            <div style={{ flex: 1, background: C.bgCard, height: '16px', borderRadius: T.radii.xs, overflow: 'hidden' }}>
+              <div style={{ width: `${(r.count / max) * 100}%`, height: '100%', background: colorFor(r.count), transition: 'width 0.4s' }} />
+            </div>
+            <div style={{ width: '64px', flexShrink: 0 }}>
+              <Sparkline values={series} color={colorFor(r.count)} />
+            </div>
+            <span style={{ width: '96px', textAlign: 'right', fontSize: '12px', fontFamily: 'ui-monospace, monospace', color: C.textMuted }}>{r.count.toLocaleString()}</span>
           </div>
-          <span style={{ width: '96px', textAlign: 'right', fontSize: '12px', fontFamily: 'ui-monospace, monospace', color: C.textMuted }}>{r.count.toLocaleString()}</span>
-        </div>
-      ))}
+        );
+      })}
     </div>
   );
 };

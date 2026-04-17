@@ -8,7 +8,7 @@ import { compactNum } from './util';
 // affordance which users found cramped. Sortable + filterable tables, big-
 // number dashboard cards, bar-chart visualisations of domains + quality.
 
-export type AdminTab = 'dashboard' | 'domains' | 'training' | 'quality' | 'system' | 'fleet' | 'logs';
+export type AdminTab = 'dashboard' | 'inventory' | 'domains' | 'training' | 'quality' | 'system' | 'fleet' | 'logs';
 
 interface FleetInstance {
   id: string;
@@ -122,9 +122,11 @@ export const AdminModal: React.FC<AdminModalProps> = ({
     const ctrl = new AbortController();
     const to = setTimeout(() => ctrl.abort(), 10000);
     try {
-      if (t === 'dashboard') {
+      if (t === 'dashboard' || t === 'inventory') {
         // c0-026: use the consolidated endpoint — returns overview + quality
         // + training + score + domains + training_files + system in one call.
+        // c2-234 / #66: Inventory tab reads the same payload (no extra
+        // endpoint required), so we share the fetch path.
         try {
           setDashboard(await fetchJson('/api/admin/dashboard', ctrl.signal));
         } catch {
@@ -258,7 +260,7 @@ export const AdminModal: React.FC<AdminModalProps> = ({
         {/* Tab bar — WAI-ARIA tablist with arrow-key navigation. */}
         <div role='tablist' aria-label='Admin sections'
           onKeyDown={(e) => {
-            const all: AdminTab[] = ['dashboard', 'domains', 'training', 'quality', 'system', 'fleet', 'logs'];
+            const all: AdminTab[] = ['dashboard', 'inventory', 'domains', 'training', 'quality', 'system', 'fleet', 'logs'];
             const idx = all.indexOf(tab);
             if (idx < 0) return;
             if (e.key === 'ArrowRight') { e.preventDefault(); setTab(all[(idx + 1) % all.length]); }
@@ -272,6 +274,7 @@ export const AdminModal: React.FC<AdminModalProps> = ({
           }}>
           {([
             { id: 'dashboard', label: 'Dashboard' },
+            { id: 'inventory', label: 'Inventory' },
             { id: 'domains', label: 'Domains' },
             { id: 'training', label: 'Training' },
             { id: 'quality', label: 'Quality' },

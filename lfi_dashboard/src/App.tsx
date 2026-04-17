@@ -65,22 +65,6 @@ const ActivityModal = React.lazy(() => import('./ActivityModal').then(m => ({ de
 const CommandPalette = React.lazy(() => import('./CommandPalette').then(m => ({ default: m.CommandPalette })));
 const SettingsModal = React.lazy(() => import('./SettingsModal').then(m => ({ default: m.SettingsModal })));
 
-hljs.registerLanguage('rust', rust);
-hljs.registerLanguage('javascript', javascript);
-hljs.registerLanguage('js', javascript);
-hljs.registerLanguage('typescript', typescript);
-hljs.registerLanguage('ts', typescript);
-hljs.registerLanguage('python', python);
-hljs.registerLanguage('py', python);
-hljs.registerLanguage('bash', bash);
-hljs.registerLanguage('sh', bash);
-hljs.registerLanguage('json', json_lang);
-hljs.registerLanguage('sql', sql);
-hljs.registerLanguage('css', css);
-hljs.registerLanguage('html', xml);
-hljs.registerLanguage('xml', xml);
-hljs.registerLanguage('go', go);
-
 // ---- Responsive hook ----
 type Breakpoint = 'mobile' | 'tablet' | 'desktop';
 
@@ -185,6 +169,11 @@ const SovereignCommandConsole: React.FC = () => {
   const [authLoading, setAuthLoading] = useState(false);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState('');
+  // c2-230 / #71: images pasted into the chat input sit here until the next
+  // send. Kept as an ephemeral preview buffer — not persisted, not inlined
+  // into message content (data URLs would blow out localStorage). Backend
+  // upload is tracked separately; for now we log the paste and summarize.
+  const [pastedImages, setPastedImages] = useState<{ id: string; dataUrl: string; size: number; type: string }[]>([]);
   const [isConnected, setIsConnected] = useState(false);
   // Debounced disconnect banner — avoid flashing the banner on the initial
   // pre-connect moment or on momentary reconnects under 2s.
@@ -1250,6 +1239,11 @@ ${cmdList}
     createdAt: number;
     updatedAt: number;
     pinned?: boolean;
+    // c2-232 / #80: manual ordering index for pinned conversations. Lower =
+    // earlier in the pinned group. When absent (legacy rows, or never
+    // reordered), the sort falls back to updatedAt desc so behaviour is
+    // unchanged until the user actually drags something.
+    pinOrder?: number;
     starred?: boolean;
     incognito?: boolean;
     archived?: boolean;
@@ -1457,9 +1451,34 @@ ${cmdList}
     setConversations(prev => prev.map(c => {
       if (c.id !== id) return c;
       nowPinned = !c.pinned;
-      return { ...c, pinned: nowPinned };
+      // c2-232 / #80: when unpinning, drop the stored manual order so
+      // re-pinning later doesn't snap back to an old slot.
+      return nowPinned ? { ...c, pinned: true } : { ...c, pinned: false, pinOrder: undefined };
     }));
     showToast(nowPinned ? 'Pinned' : 'Unpinned');
+  };
+  // c2-232 / #80: drag-to-reorder for the pinned group. Dragged row id +
+  // hover target id drive the opacity-dim + insert-line visual.
+  const [draggedConvoId, setDraggedConvoId] = useState<string | null>(null);
+  const [dragOverConvoId, setDragOverConvoId] = useState<string | null>(null);
+  // Move `draggedId` to occupy `targetId`'s slot in the pinned group, then
+  // rewrite pinOrder on every pinned item so the ordering is persisted
+  // authoritatively rather than inferred from relative indices.
+  const reorderPinned = (draggedId: string, targetId: string) => {
+    if (draggedId === targetId) return;
+    setConversations(prev => {
+      const pinKey = (c: Conversation) => (typeof c.pinOrder === 'number' ? c.pinOrder : Number.MAX_SAFE_INTEGER - c.updatedAt / 1000);
+      const pinnedList = prev.filter(c => c.pinned).sort((a, b) => pinKey(a) - pinKey(b));
+      const dragged = pinnedList.find(c => c.id === draggedId);
+      if (!dragged) return prev;
+      const without = pinnedList.filter(c => c.id !== draggedId);
+      const tIdx = without.findIndex(c => c.id === targetId);
+      if (tIdx < 0) return prev;
+      const reordered = [...without.slice(0, tIdx), dragged, ...without.slice(tIdx)];
+      const orderMap = new Map<string, number>();
+      reordered.forEach((c, i) => orderMap.set(c.id, i));
+      return prev.map(c => orderMap.has(c.id) ? { ...c, pinOrder: orderMap.get(c.id) } : c);
+    });
   };
   const toggleStarred = (id: string) => {
     let nowStarred = false;
@@ -1523,13 +1542,30 @@ ${cmdList}
     if (sendingRef.current) return; // guard: in-flight send in progress
     const trimmed = input.trim();
     console.debug("// SCC: handleSend, len:", trimmed.length, "skill:", activeSkill);
-    if (!trimmed) return;
+    // c2-230 / #71: allow send when there are pasted images, even if the
+    // text is empty — the user intent is clearly "send these images".
+    if (!trimmed && pastedImages.length === 0) return;
     sendingRef.current = true;
 
-    // Record user message.
+    // Record user message. If only images were pasted (no text), use a
+    // placeholder so the turn renders as a proper user bubble.
+    const userContent = trimmed || '(pasted image)';
     setMessages(prev => [...prev, {
-      id: msgId(), role: 'user', content: trimmed, timestamp: Date.now()
+      id: msgId(), role: 'user', content: userContent, timestamp: Date.now()
     }]);
+    // Announce the attachment as a system message so the preview is visible
+    // in the conversation. Keep the data URL out of persisted content
+    // (localStorage bloat); just summarise count and byte total.
+    if (pastedImages.length > 0) {
+      const total = pastedImages.reduce((s, i) => s + i.size, 0);
+      setMessages(prev => [...prev, {
+        id: msgId(), role: 'system',
+        content: `Attached ${pastedImages.length} pasted image${pastedImages.length === 1 ? '' : 's'} (${(total / 1024).toFixed(0)} KB). Backend upload is not yet wired \u2014 metadata logged for now.`,
+        timestamp: Date.now(),
+      }]);
+      logEvent('paste_image_sent', { count: pastedImages.length, totalBytes: total });
+      setPastedImages([]);
+    }
     setInput('');
     // Trigger send-pulse feedback animation.
     setSendPulseId(id => id + 1);
@@ -2281,6 +2317,7 @@ ${cmdList}
             display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '16px',
           }}>
           <div onClick={(e) => e.stopPropagation()}
+            role='dialog' aria-modal='true' aria-labelledby='scc-training-title'
             style={{
               width: '100%', maxWidth: '750px', height: '80vh',
               background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: '14px',
@@ -2291,8 +2328,9 @@ ${cmdList}
               display: 'flex', justifyContent: 'space-between', alignItems: 'center',
               padding: '16px 20px', borderBottom: `1px solid ${C.borderSubtle}`,
             }}>
-              <h2 style={{ margin: 0, fontSize: '16px', fontWeight: 700, color: C.text }}>Training Dashboard</h2>
+              <h2 id='scc-training-title' style={{ margin: 0, fontSize: '16px', fontWeight: 700, color: C.text }}>Training Dashboard</h2>
               <button onClick={() => setShowTraining(false)}
+                aria-label='Close training dashboard'
                 style={{ background: 'transparent', border: 'none', color: C.textMuted, fontSize: '20px', cursor: 'pointer' }}>
                 {'\u2715'}
               </button>
@@ -2924,10 +2962,16 @@ ${cmdList}
                   return c.messages.some(m => m.content.toLowerCase().includes(q));
                 })
                 .sort((a, b) => {
-                  // Pinned first (most-recent pinned at top), then the rest
-                  // by most-recent activity. Starred is orthogonal, shown via
-                  // an icon but doesn't affect order.
+                  // Pinned first; within the pinned group, prefer the user's
+                  // manual drag order (pinOrder) and fall back to updatedAt
+                  // desc for rows that were never reordered. Starred is
+                  // orthogonal — shown via an icon but doesn't affect order.
                   if (!!a.pinned !== !!b.pinned) return a.pinned ? -1 : 1;
+                  if (a.pinned && b.pinned) {
+                    const ao = typeof a.pinOrder === 'number' ? a.pinOrder : Number.MAX_SAFE_INTEGER;
+                    const bo = typeof b.pinOrder === 'number' ? b.pinOrder : Number.MAX_SAFE_INTEGER;
+                    if (ao !== bo) return ao - bo;
+                  }
                   return b.updatedAt - a.updatedAt;
                 })
                 .map(c => {
@@ -2935,14 +2979,51 @@ ${cmdList}
                   return (
                     <div key={c.id}
                       onClick={() => setCurrentConversationId(c.id)}
+                      role='button' tabIndex={0}
+                      aria-label={`Open conversation: ${c.title}${c.pinned ? ' (pinned — drag to reorder)' : ''}`}
+                      aria-current={isActive ? 'true' : undefined}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                          e.preventDefault();
+                          setCurrentConversationId(c.id);
+                        }
+                      }}
+                      draggable={!!c.pinned}
+                      onDragStart={(e) => {
+                        if (!c.pinned) return;
+                        setDraggedConvoId(c.id);
+                        try { e.dataTransfer.setData('text/plain', c.id); e.dataTransfer.effectAllowed = 'move'; } catch { /* not available in jsdom */ }
+                      }}
+                      onDragOver={(e) => {
+                        if (!c.pinned || !draggedConvoId || draggedConvoId === c.id) return;
+                        e.preventDefault();
+                        try { e.dataTransfer.dropEffect = 'move'; } catch { /* */ }
+                        if (dragOverConvoId !== c.id) setDragOverConvoId(c.id);
+                      }}
+                      onDragLeave={() => {
+                        if (dragOverConvoId === c.id) setDragOverConvoId(null);
+                      }}
+                      onDrop={(e) => {
+                        if (!c.pinned || !draggedConvoId) return;
+                        e.preventDefault();
+                        reorderPinned(draggedConvoId, c.id);
+                        setDraggedConvoId(null); setDragOverConvoId(null);
+                      }}
+                      onDragEnd={() => { setDraggedConvoId(null); setDragOverConvoId(null); }}
                       style={{
-                        padding: '10px 12px', borderRadius: '6px', cursor: 'pointer',
+                        padding: '10px 12px', borderRadius: '6px',
+                        cursor: c.pinned ? (draggedConvoId === c.id ? 'grabbing' : 'grab') : 'pointer',
                         background: isActive ? C.accentBg : 'transparent',
                         border: `1px solid ${isActive ? C.accentBorder : 'transparent'}`,
                         marginBottom: '4px', display: 'flex',
                         alignItems: 'center', justifyContent: 'space-between', gap: '4px',
+                        opacity: draggedConvoId === c.id ? 0.4 : 1,
+                        // Insert-line hint on the drop target — 2px accent top border via
+                        // inset box-shadow so it doesn't shift layout.
+                        boxShadow: dragOverConvoId === c.id && draggedConvoId && draggedConvoId !== c.id
+                          ? `inset 0 3px 0 0 ${C.accent}` : undefined,
                         // c0-020: smooth hover transition instead of instant snap.
-                        transition: 'background-color 0.12s, border-color 0.12s',
+                        transition: 'background-color 0.12s, border-color 0.12s, opacity 0.12s, box-shadow 0.12s',
                       }}
                       onMouseEnter={(e) => {
                         if (!isActive) e.currentTarget.style.background = C.bgHover;
@@ -3095,6 +3176,15 @@ ${cmdList}
                       const isActive = c.id === currentConversationId;
                       return (
                         <div key={c.id} onClick={() => setCurrentConversationId(c.id)}
+                          role='button' tabIndex={0}
+                          aria-label={`Open archived conversation: ${c.title}`}
+                          aria-current={isActive ? 'true' : undefined}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter' || e.key === ' ') {
+                              e.preventDefault();
+                              setCurrentConversationId(c.id);
+                            }
+                          }}
                           style={{
                             padding: '8px 12px', borderRadius: '8px', cursor: 'pointer',
                             background: isActive ? C.accentBg : 'transparent',
@@ -3591,6 +3681,40 @@ ${cmdList}
                     </div>
                   );
                 })()}
+              {/* c2-230 / #71: paste-image preview strip. Rendered above the
+                  textarea inside the input container so the thumbnails share
+                  the input's focus ring. Empty state collapses to nothing. */}
+              {pastedImages.length > 0 && (
+                <div style={{
+                  display: 'flex', flexWrap: 'wrap', gap: '6px',
+                  padding: '10px 14px 0', alignItems: 'center',
+                }}>
+                  {pastedImages.map(img => (
+                    <div key={img.id} style={{ position: 'relative' }}>
+                      <img src={img.dataUrl} alt='Pasted image preview'
+                        style={{
+                          width: '56px', height: '56px', objectFit: 'cover',
+                          borderRadius: T.radii.sm, border: `1px solid ${C.border}`,
+                          display: 'block',
+                        }} />
+                      <button onClick={() => setPastedImages(prev => prev.filter(p => p.id !== img.id))}
+                        aria-label='Remove pasted image'
+                        title='Remove'
+                        style={{
+                          position: 'absolute', top: '-6px', right: '-6px',
+                          width: '18px', height: '18px', borderRadius: '50%',
+                          background: C.bg, color: C.text,
+                          border: `1px solid ${C.border}`,
+                          fontSize: '11px', lineHeight: '16px', padding: 0, cursor: 'pointer',
+                          display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        }}>{'\u2715'}</button>
+                    </div>
+                  ))}
+                  <span style={{ fontSize: '11px', color: C.textDim, marginLeft: '4px' }}>
+                    {pastedImages.length === 1 ? '1 image' : `${pastedImages.length} images`} ready \u2014 backend upload not yet wired
+                  </span>
+                </div>
+              )}
               <textarea
                 ref={inputRef}
                 aria-label='Chat message input'
@@ -3599,6 +3723,34 @@ ${cmdList}
                 dir='auto'
                 value={input}
                 onChange={handleInputChange}
+                onPaste={(e) => {
+                  // c2-230 / #71: intercept image clipboard items before the
+                  // browser tries to paste their base64 representation as text.
+                  // Text-only pastes fall through to the default handler.
+                  const items = Array.from(e.clipboardData?.items ?? []);
+                  const imageItems = items.filter(it => it.kind === 'file' && it.type.startsWith('image/'));
+                  if (imageItems.length === 0) return;
+                  e.preventDefault();
+                  const MAX_BYTES = 5 * 1024 * 1024; // 5 MB per image
+                  for (const it of imageItems) {
+                    const file = it.getAsFile();
+                    if (!file) continue;
+                    if (file.size > MAX_BYTES) {
+                      setMessages(prev => [...prev, { id: msgId(), role: 'system',
+                        content: `Image too large (${(file.size / 1024 / 1024).toFixed(1)}MB). Max 5MB.`,
+                        timestamp: Date.now() }]);
+                      continue;
+                    }
+                    const reader = new FileReader();
+                    reader.onload = () => {
+                      const dataUrl = typeof reader.result === 'string' ? reader.result : '';
+                      if (!dataUrl) return;
+                      setPastedImages(prev => [...prev, { id: msgId(), dataUrl, size: file.size, type: file.type }]);
+                    };
+                    reader.readAsDataURL(file);
+                  }
+                  logEvent('paste_image', { count: imageItems.length });
+                }}
                 onKeyDown={(e) => {
                   // Slash menu keyboard nav.
                   if (showSlashMenu) {
