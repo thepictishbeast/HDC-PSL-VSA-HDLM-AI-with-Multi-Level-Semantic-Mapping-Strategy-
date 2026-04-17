@@ -98,16 +98,26 @@ export function TrainingDashboardContent({ host, C, totalFactsFallback }: Traini
   const lastCycle = (() => {
     const log: string[] | undefined = accuracy?.recent_training_log;
     if (!Array.isArray(log) || log.length === 0) return null;
+    // Log entries are one of:
+    //   "[ts] cycle=N domain=X done"
+    //   "[ts] cycle=N domain=X batch=50 priority=P sessions=S"
+    // Capture the state tail so we can distinguish a completed cycle from an
+    // in-progress batch. Scan from the end so the newest event wins.
     for (let i = log.length - 1; i >= 0; i--) {
       const line = log[i];
-      const m = line.match(/^\[([^\]]+)\] cycle=(\d+) domain=(\w+) (\w+)/);
+      const m = line.match(/^\[([^\]]+)\] cycle=(\d+) domain=(\w+) (.+)$/);
       if (m) {
         const when = Date.parse(m[1]);
         if (!Number.isNaN(when)) {
+          const tail = m[4].trim();
+          const state = tail.startsWith('batch=') ? 'in progress'
+            : tail === 'done' ? 'done'
+            : tail.length <= 12 ? tail
+            : 'active';
           return {
             ts: when,
             ageSec: Math.max(0, Math.floor((Date.now() - when) / 1000)),
-            cycle: m[2], domain: m[3], state: m[4],
+            cycle: m[2], domain: m[3], state,
           };
         }
       }
