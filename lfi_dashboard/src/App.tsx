@@ -278,6 +278,7 @@ const SovereignCommandConsole: React.FC = () => {
     developerMode: boolean;        // Gate telemetry, workstation ID, PLAN reasoning
     defaultTier: 'Pulse' | 'Bridge' | 'BigBrain'; // Persistent model default
     compactMode: boolean;          // TUI-density mode for power users
+    autoTheme: boolean;            // Follow OS prefers-color-scheme dynamically
     customTheme: {
       bg: string; accent: string; text: string; green: string; red: string;
     } | null;
@@ -292,6 +293,7 @@ const SovereignCommandConsole: React.FC = () => {
     developerMode: false,   // Telemetry + PLAN hidden by default
     defaultTier: 'Pulse',   // Persistent model default the user controls in Settings
     compactMode: false,
+    autoTheme: false,
     customTheme: null,
   };
   const [settings, setSettings] = useState<Settings>(() => {
@@ -528,7 +530,25 @@ ${cmdList}
     }
   }, [messages]);
   // Shadow the module-scope C with a theme-bound palette, plus any custom overrides.
-  const baseTheme = THEMES[settings.theme] || DARK;
+  // When autoTheme is on, override settings.theme with the OS preference
+  // (dark or light only). Other explicit picks (midnight/forest/etc.) only
+  // apply when auto-mode is off.
+  const [osPrefersLight, setOsPrefersLight] = useState<boolean>(() =>
+    typeof window !== 'undefined' && window.matchMedia?.('(prefers-color-scheme: light)').matches
+  );
+  useEffect(() => {
+    if (typeof window === 'undefined' || !window.matchMedia) return;
+    const mq = window.matchMedia('(prefers-color-scheme: light)');
+    const handler = (e: MediaQueryListEvent) => setOsPrefersLight(e.matches);
+    if (mq.addEventListener) mq.addEventListener('change', handler);
+    else mq.addListener(handler);
+    return () => {
+      if (mq.removeEventListener) mq.removeEventListener('change', handler);
+      else mq.removeListener(handler);
+    };
+  }, []);
+  const effectiveThemeKey = settings.autoTheme ? (osPrefersLight ? 'light' : 'dark') : settings.theme;
+  const baseTheme = THEMES[effectiveThemeKey] || DARK;
   const C = settings.customTheme ? { ...baseTheme, ...settings.customTheme } : baseTheme;
 
   // ---- UX telemetry: rolling event log captured in localStorage ----

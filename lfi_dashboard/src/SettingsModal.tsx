@@ -192,8 +192,33 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       {/* ===== Appearance tab ===== */}
       {tab === 'appearance' && (
         <div role='tabpanel' aria-label='Appearance'>
-          <label style={{ fontSize: '11px', fontWeight: 700, color: C.textMuted, textTransform: 'uppercase', letterSpacing: '0.08em' }}>Theme</label>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '10px', marginTop: '10px' }}>
+          {/* Auto-theme toggle — honors the OS prefers-color-scheme media
+              query dynamically, so flipping the OS between dark/light updates
+              the dashboard in real time without a setting change. */}
+          <label style={{
+            display: 'flex', alignItems: 'center', gap: '10px',
+            padding: '10px 12px', marginBottom: '12px',
+            background: C.bgInput, border: `1px solid ${C.borderSubtle}`,
+            borderRadius: '8px', cursor: 'pointer',
+          }}>
+            <input type='checkbox'
+              checked={!!settings.autoTheme}
+              onChange={(e) => setSettings(s => ({ ...s, autoTheme: e.target.checked }))}
+              style={{ accentColor: C.accent, width: '16px', height: '16px' }} />
+            <div style={{ flex: 1 }}>
+              <div style={{ fontSize: '13px', fontWeight: 700, color: C.text }}>Auto theme</div>
+              <div style={{ fontSize: '11px', color: C.textMuted, marginTop: '2px' }}>
+                Follow the system dark/light preference. Overrides the theme picker below.
+              </div>
+            </div>
+          </label>
+          <label style={{ fontSize: '11px', fontWeight: 700, color: settings.autoTheme ? C.textDim : C.textMuted, textTransform: 'uppercase', letterSpacing: '0.08em' }}>
+            Theme {settings.autoTheme && '(auto mode active)'}
+          </label>
+          <div style={{
+            display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '10px', marginTop: '10px',
+            opacity: settings.autoTheme ? 0.55 : 1, pointerEvents: settings.autoTheme ? 'none' : 'auto',
+          }}>
             {([
               { id: 'dark' as const, name: 'Onyx', tagline: 'Deep black, violet accent' },
               { id: 'light' as const, name: 'Light', tagline: 'Clean white, violet accent' },
