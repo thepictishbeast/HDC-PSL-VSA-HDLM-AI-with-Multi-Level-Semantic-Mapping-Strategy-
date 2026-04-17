@@ -209,7 +209,8 @@ const SovereignCommandConsole: React.FC = () => {
   // Ephemeral toast (copy feedback, etc). Single-slot — newer toasts replace.
   // `exiting` decouples the display-done moment from the DOM unmount so we
   // can run an exit animation before removing the node.
-  const [toast, setToast] = useState<{ id: number; msg: string; exiting?: boolean } | null>(null);
+  // `onUndo` populates an Undo button inside the toast (soft-delete flow).
+  const [toast, setToast] = useState<{ id: number; msg: string; exiting?: boolean; onUndo?: () => void } | null>(null);
   // Brief visual pulse on the input container when a message is sent (c0-020
   // "visual feedback on send"). Tracked as a bumping id so consecutive sends
   // retrigger the animation cleanly.
@@ -228,8 +229,8 @@ const SovereignCommandConsole: React.FC = () => {
   const [chatSearch, setChatSearch] = useState<string>('');
   const [showChatSearch, setShowChatSearch] = useState<boolean>(false);
   const chatSearchInputRef = useRef<HTMLInputElement>(null);
-  const showToast = useCallback((msg: string) => {
-    setToast({ id: Date.now(), msg });
+  const showToast = useCallback((msg: string, onUndo?: () => void) => {
+    setToast({ id: Date.now(), msg, onUndo });
   }, []);
   const [isThinking, setIsThinking] = useState(false);
   const [thinkingStart, setThinkingStart] = useState<number | null>(null);
@@ -691,13 +692,15 @@ ${cmdList}
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isConnected]);
 
-  // Toast auto-dismiss with a two-phase animation: display for 1.5s, then
-  // flip to `exiting` for a 0.18s fade-out before unmounting. Re-keys on
-  // toast.id so a new toast resets both timers cleanly.
+  // Toast auto-dismiss with a two-phase animation: display then flip to
+  // `exiting` for a 0.18s fade-out before unmounting. Re-keys on toast.id so
+  // a new toast resets both timers cleanly. Toasts with an Undo action hold
+  // for 5 seconds so the user has time to react; plain toasts still 1.5s.
   useEffect(() => {
     if (!toast || toast.exiting) return;
-    const t1 = setTimeout(() => setToast(prev => prev ? { ...prev, exiting: true } : prev), 1500);
-    const t2 = setTimeout(() => setToast(null), 1500 + 180);
+    const hold = toast.onUndo ? 5000 : 1500;
+    const t1 = setTimeout(() => setToast(prev => prev ? { ...prev, exiting: true } : prev), hold);
+    const t2 = setTimeout(() => setToast(null), hold + 180);
     return () => { clearTimeout(t1); clearTimeout(t2); };
   }, [toast?.id]);
 
@@ -1356,12 +1359,30 @@ ${cmdList}
     return c?.incognito || false;
   })();
   const deleteConversation = (id: string) => {
+    // Soft-delete with undo: remove from UI immediately, cache the conversation
+    // (and its previous list position) in a closure, show an Undo toast. The
+    // user has the toast-hold window to hit Undo; otherwise the change is
+    // already committed (the UI never showed it so nothing else to do).
+    const prevConvos = conversations;
+    const idx = prevConvos.findIndex(c => c.id === id);
+    if (idx < 0) return;
+    const victim = prevConvos[idx];
+    const wasActive = id === currentConversationId;
     setConversations(prev => prev.filter(c => c.id !== id));
-    if (id === currentConversationId) {
-      const rest = conversations.filter(c => c.id !== id);
+    if (wasActive) {
+      const rest = prevConvos.filter(c => c.id !== id);
       setCurrentConversationId(rest[0]?.id || '');
     }
-    showToast('Conversation deleted');
+    showToast(`Deleted "${victim.title}"`, () => {
+      // Restore at the original index so pinned/sorted order is preserved.
+      setConversations(cur => {
+        if (cur.some(c => c.id === id)) return cur; // already restored
+        const restored = [...cur];
+        restored.splice(Math.min(idx, restored.length), 0, victim);
+        return restored;
+      });
+      if (wasActive) setCurrentConversationId(id);
+    });
   };
   const renameConversation = (id: string, title: string) => {
     const clean = title.trim().slice(0, 80) || 'Untitled';
@@ -1943,14 +1964,27 @@ ${cmdList}
         <div role='status' aria-live='polite' key={toast.id}
           style={{
             position: 'fixed', top: '20px', right: '20px', zIndex: T.z.toast + 10,
-            padding: `${T.spacing.sm} ${T.spacing.lg}`,
+            padding: `${T.spacing.sm} ${T.spacing.md}`,
             background: C.bgCard, color: C.text,
             border: `1px solid ${C.accentBorder}`, borderRadius: T.radii.md,
             fontSize: T.typography.sizeMd, fontWeight: T.typography.weightSemibold,
             boxShadow: T.shadows.card,
             animation: toast.exiting ? 'scc-toast-out 0.18s ease-in forwards' : 'scc-toast-in 0.18s ease-out',
+            display: 'flex', alignItems: 'center', gap: T.spacing.md,
           }}>
-          {toast.msg}
+          <span>{toast.msg}</span>
+          {toast.onUndo && (
+            <button onClick={() => {
+              toast.onUndo?.();
+              setToast(null);
+            }}
+              style={{
+                background: 'transparent', border: `1px solid ${C.accentBorder}`,
+                color: C.accent, padding: '4px 10px', borderRadius: T.radii.sm,
+                fontSize: '11px', fontWeight: T.typography.weightBold,
+                cursor: 'pointer', fontFamily: 'inherit', textTransform: 'uppercase',
+              }}>Undo</button>
+          )}
           <style>{`
             @keyframes scc-toast-in { from { opacity: 0; transform: translateY(-6px) } to { opacity: 1; transform: translateY(0) } }
             @keyframes scc-toast-out { from { opacity: 1; transform: translateY(0) } to { opacity: 0; transform: translateY(-6px) } }
@@ -2899,7 +2933,8 @@ ${cmdList}
                           }}>{'\u{1F5C3}'}</button>
                         <button onClick={(e) => {
                           e.stopPropagation();
-                          if (confirm(`Delete "${c.title}"?`)) deleteConversation(c.id);
+                          // Soft-delete — Undo in the resulting toast restores.
+                          deleteConversation(c.id);
                         }} title='Delete' aria-label={`Delete ${c.title}`}
                           style={{
                             background: 'transparent', border: 'none', color: C.textDim,
