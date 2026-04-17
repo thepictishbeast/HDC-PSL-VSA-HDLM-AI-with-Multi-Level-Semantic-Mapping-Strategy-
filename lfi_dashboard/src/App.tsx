@@ -54,6 +54,7 @@ import { SidebarStatus } from './SidebarStatus';
 import { SubstrateTelemetry } from './SubstrateTelemetry';
 import { AdminActions } from './AdminActions';
 import { renderMessageBody as renderMdBody, type MarkdownCtx } from './markdown';
+import { useTicTacToe } from './useTicTacToe';
 const TicTacToeModal = React.lazy(() => import('./TicTacToeModal').then(m => ({ default: m.TicTacToeModal })));
 const KnowledgeBrowser = React.lazy(() => import('./KnowledgeBrowser').then(m => ({ default: m.KnowledgeBrowser })));
 const ActivityModal = React.lazy(() => import('./ActivityModal').then(m => ({ default: m.ActivityModal })));
@@ -446,30 +447,7 @@ ${cmdList}
     } catch (e) { console.warn('knowledge fetch failed', e); }
   };
   // Tic-tac-toe state
-  const [tttBoard, setTttBoard] = useState<Array<'X'|'O'|null>>(Array(9).fill(null));
-  const [tttTurn, setTttTurn] = useState<'X'|'O'>('X');
-  const [tttWinner, setTttWinner] = useState<string | null>(null);
-  const tttCheck = (b: typeof tttBoard): string | null => {
-    const lines = [[0,1,2],[3,4,5],[6,7,8],[0,3,6],[1,4,7],[2,5,8],[0,4,8],[2,4,6]];
-    for (const [a,bb,c] of lines) if (b[a] && b[a]===b[bb] && b[a]===b[c]) return b[a];
-    return b.every(Boolean) ? 'Draw' : null;
-  };
-  const tttPlay = (idx: number) => {
-    if (tttBoard[idx] || tttWinner || tttTurn !== 'X') return;
-    const next = [...tttBoard]; next[idx] = 'X';
-    const w = tttCheck(next);
-    if (w) { setTttBoard(next); setTttWinner(w === 'X' ? 'You win!' : w === 'O' ? 'AI wins!' : 'Draw!'); return; }
-    // AI move: pick center > corners > sides
-    const empty = next.map((v,i) => v === null ? i : -1).filter(i => i >= 0);
-    const pref = [4,0,2,6,8,1,3,5,7];
-    const aiMove = pref.find(p => empty.includes(p)) ?? empty[0];
-    if (aiMove != null) { next[aiMove] = 'O'; }
-    const w2 = tttCheck(next);
-    setTttBoard(next);
-    setTttTurn('X');
-    if (w2) setTttWinner(w2 === 'X' ? 'You win!' : w2 === 'O' ? 'AI wins!' : 'Draw!');
-  };
-  const tttReset = () => { setTttBoard(Array(9).fill(null)); setTttTurn('X'); setTttWinner(null); };
+  const { board: tttBoard, winner: tttWinner, play: tttPlay, reset: tttReset } = useTicTacToe();
   const [cmdQuery, setCmdQuery] = useState('');
   const [cmdIndex, setCmdIndex] = useState(0);
   const skills = SKILLS;
