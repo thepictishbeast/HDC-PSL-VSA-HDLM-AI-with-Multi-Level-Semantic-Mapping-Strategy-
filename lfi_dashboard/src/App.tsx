@@ -49,6 +49,7 @@ import { DARK, THEMES } from './themes';
 import { WelcomeScreen } from './WelcomeScreen';
 import { FactsPanel } from './FactsPanel';
 import { QosPanel } from './QosPanel';
+import { TelemetryCard } from './TelemetryCards';
 const TicTacToeModal = React.lazy(() => import('./TicTacToeModal').then(m => ({ default: m.TicTacToeModal })));
 const KnowledgeBrowser = React.lazy(() => import('./KnowledgeBrowser').then(m => ({ default: m.KnowledgeBrowser })));
 const ActivityModal = React.lazy(() => import('./ActivityModal').then(m => ({ default: m.ActivityModal })));
@@ -1688,15 +1689,7 @@ ${cmdList}
   ];
 
   const renderTelemetryCard = (s: typeof telemetryCards[0], compact = false) => (
-    <div key={s.label} style={{
-      padding: compact ? '10px 12px' : '12px 14px', borderRadius: '10px',
-      background: s.bg, border: `1px solid ${s.border}`,
-    }}>
-      <div style={{ fontSize: '10px', color: C.textMuted, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: compact ? '3px' : '5px' }}>{s.label}</div>
-      <div style={{ fontSize: compact ? '18px' : '20px', fontWeight: 800, color: s.color }}>
-        {s.value}<span style={{ fontSize: '11px', color: C.textDim, marginLeft: '2px' }}>{s.unit}</span>
-      </div>
-    </div>
+    <TelemetryCard key={s.label} C={C} card={s} compact={compact} />
   );
 
   // Desktop sidebar
