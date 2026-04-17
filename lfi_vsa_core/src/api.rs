@@ -432,31 +432,40 @@ async fn handle_chat_socket(mut socket: WebSocket, state: Arc<AppState>) {
                     break;
                 }
 
-                // Streaming Ollama enrichment: for knowledge questions where
-                // the reasoner used Ollama, the initial response already contains
-                // the full answer. For inputs where the reasoner gave a template
-                // (Ollama was unavailable or not triggered), try streaming now
-                // to enrich the response. The frontend displays chat_chunk tokens
-                // appended after the initial response.
-                let intent_str = response_payload.get("intent")
+                // Streaming Ollama enrichment: stream deeper responses for any
+                // substantive query. The initial chat_response gives immediate
+                // feedback, then streaming tokens provide richer context.
+                // UX: User sees instant response + streaming elaboration.
+                let content_text = response_payload.get("content")
                     .and_then(|v| v.as_str()).unwrap_or("");
-                let should_stream = intent_str.contains("Search") ||
-                    intent_str.contains("Analyze") ||
-                    intent_str.contains("Explain");
-                let content_is_template = {
-                    let c = response_payload.get("content").and_then(|v| v.as_str()).unwrap_or("");
-                    c.contains("let me look into") || c.contains("let me think") ||
-                    c.contains("I'll break down") || c.contains("Let me take a closer")
-                };
+                let confidence = response_payload.get("confidence")
+                    .and_then(|v| v.as_f64()).unwrap_or(0.5);
+                // Stream when: short initial response, low confidence, or any
+                // non-trivial input (>20 chars). Skip for greetings/one-liners.
+                let should_stream = input.len() > 20 &&
+                    (content_text.len() < 200 || confidence < 0.7 ||
+                     content_text.contains("let me") || content_text.contains("I'll") ||
+                     content_text.contains("I don't have"));
 
-                if should_stream && content_is_template {
+                if should_stream {
                     // SECURITY: Build JSON body via serde, pipe via stdin — never interpolate user input into args
                     // AVP-PASS-13: 2026-04-16 command injection fix — user input was previously format!()-interpolated into curl -d arg
+                    let rag_context = {
+                        let facts = state.db.search_facts(input, 3);
+                        if facts.is_empty() {
+                            String::new()
+                        } else {
+                            let ctx: Vec<String> = facts.iter()
+                                .map(|(_, v, q)| format!("[{:.1}] {}", q, crate::truncate_str(v, 150)))
+                                .collect();
+                            format!("\n\nRelevant knowledge:\n{}", ctx.join("\n"))
+                        }
+                    };
                     let ollama_body = serde_json::json!({
                         "model": std::env::var("PLAUSIDEN_MODEL").unwrap_or_else(|_| "qwen2.5-coder:7b".into()),
-                        "prompt": format!("You are PlausiDen AI. Answer thoroughly but concisely. Question: {}", input),
+                        "prompt": format!("You are PlausiDen AI, a sovereign intelligence. Answer thoroughly but concisely.\n{}\n\nQuestion: {}", rag_context, input),
                         "stream": true,
-                        "options": { "temperature": 0.6, "num_predict": 800 }
+                        "options": { "temperature": 0.6, "num_predict": 600 }
                     });
                     let body_bytes = serde_json::to_vec(&ollama_body).unwrap_or_default();
                     // Pipe body via stdin to curl — no shell interpolation, no arg injection
