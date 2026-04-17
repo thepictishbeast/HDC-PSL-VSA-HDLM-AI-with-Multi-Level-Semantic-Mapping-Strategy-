@@ -2517,30 +2517,12 @@ ${cmdList}
 
         {/* Middle cluster: theme toggle only. Tier/model moved to the input
             bar per 2026-04-15 — single source of truth avoids the double-
-            selector "it snaps back to default" bug the user was hitting. */}
+            selector "it snaps back to default" bug the user was hitting.
+            2026-04-17 c0-020: mobile "Stats" + "Admin" buttons removed.
+            Admin is now reached via the centered [Chat][Classroom][Admin]
+            tablist (works on all viewports) and mobile telemetry still has
+            the toggle in the account menu. Keeps the header minimal. */}
         <div style={{ display: 'flex', alignItems: 'center', gap: isMobile ? '6px' : '10px', order: 2, marginLeft: 'auto' }}>
-          {/* Stats toggle (mobile/tablet) */}
-          {!isDesktop && (
-            <button onClick={() => setShowTelemetry(!showTelemetry)} style={{
-              padding: '5px 10px', fontSize: '11px', fontWeight: 700,
-              background: showTelemetry ? C.accentBg : 'transparent',
-              border: `1px solid ${showTelemetry ? C.accentBorder : C.border}`, borderRadius: '8px',
-              color: showTelemetry ? C.accent : C.textMuted,
-              cursor: 'pointer', fontFamily: 'inherit', textTransform: 'uppercase',
-            }}>Stats</button>
-          )}
-
-          {/* Admin toggle (mobile/tablet) */}
-          {!isDesktop && (
-            <button onClick={() => setShowAdmin(!showAdmin)} style={{
-              padding: '5px 10px', fontSize: '11px', fontWeight: 700,
-              background: showAdmin ? C.purpleBg : 'transparent',
-              border: `1px solid ${showAdmin ? C.purpleBorder : C.border}`, borderRadius: '8px',
-              color: showAdmin ? C.purple : C.textMuted,
-              cursor: 'pointer', fontFamily: 'inherit', textTransform: 'uppercase',
-            }}>Admin</button>
-          )}
-
           {/* Theme toggle removed — accessible via account menu, Cmd+K palette,
               and Settings → Appearance. Keeping the header slim. */}
         </div>
@@ -3227,10 +3209,12 @@ ${cmdList}
 
               <div style={{
                 background: C.bgCard,
-                border: `1px solid ${input ? C.borderFocus : C.border}`,
-                borderRadius: '16px',
-                transition: 'border-color 0.2s, box-shadow 0.2s',
-                boxShadow: input ? `0 0 0 4px ${C.accentGlow}` : `0 2px 18px rgba(0,0,0,0.12)`,
+                // c0-019/020: professional rounded-card, 8px radius, no glow.
+                // Ring halo only on focus via box-shadow in a muted accent.
+                border: `1px solid ${input ? C.accent : C.border}`,
+                borderRadius: '8px',
+                transition: 'border-color 0.15s, box-shadow 0.15s',
+                boxShadow: input ? `0 0 0 3px ${C.accentBg}` : '0 1px 2px rgba(15,17,23,0.24)',
                 display: 'flex', flexDirection: 'column', position: 'relative',
               }}>
                 {/* Character counter — silent until >70% of the 100k limit.
@@ -3659,17 +3643,21 @@ ${cmdList}
 
       {/* ========== GLOBAL STYLES ========== */}
       <style>{`
+        /* c0-019/020: thinking dots now a subtle scale pulse (0.6→1.0)
+           instead of a scale(0)→scale(1) bounce — professional not bouncy. */
         @keyframes scc-bounce {
-          0%,80%,100% { transform: scale(0); opacity: 0.5; }
+          0%,80%,100% { transform: scale(0.6); opacity: 0.45; }
           40% { transform: scale(1); opacity: 1; }
         }
         @keyframes lfi-fadein {
           0% { opacity: 0; transform: translateY(8px); }
           100% { opacity: 1; transform: translateY(0); }
         }
+        /* lfi-glow retained as a no-op (accentGlow is transparent per c0-019
+           which disables glow system-wide). Kept so any lingering class refs
+           don't throw; can be removed after a sweep confirms no usages. */
         @keyframes lfi-glow {
-          0%,100% { text-shadow: 0 0 12px ${C.accentGlow}; }
-          50% { text-shadow: 0 0 24px ${C.accentGlow}, 0 0 4px ${C.accent}; }
+          0%,100% { opacity: 1; }
         }
         @keyframes lfi-cursor {
           0%,49% { opacity: 1; }

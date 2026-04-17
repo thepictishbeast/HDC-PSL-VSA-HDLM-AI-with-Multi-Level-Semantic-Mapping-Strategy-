@@ -83,7 +83,9 @@ function ChatViewInner<T extends { id: number | string }>(
         <div style={{
           maxWidth: chatMaxWidth, margin: '0 auto',
           padding: `0 ${chatPadding.split(' ')[1] || '16px'}`,
-          marginBottom: isDesktop ? '20px' : '14px',
+          // c0-020: generous whitespace between messages. Bumped from 20/14
+          // to 28/18 so bubbles breathe instead of stacking.
+          marginBottom: isDesktop ? '28px' : '18px',
         }}>
           {renderMessage(msg, index)}
         </div>
