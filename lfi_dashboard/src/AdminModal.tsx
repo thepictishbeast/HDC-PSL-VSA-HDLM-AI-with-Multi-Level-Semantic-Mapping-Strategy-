@@ -6,6 +6,8 @@ import { T } from './tokens';
 // caps at 22px which is visually a large shrink for the big dashboard numbers).
 import { typography as dsType } from './design-system';
 import { compactNum, formatRelative } from './util';
+// c2-345 / c0-auto-2 task 24: shared uppercase meta-label component.
+import { Label } from './components/Label';
 
 // Full-screen admin modal per c0-017. Six tabs: Dashboard / Domains /
 // Training / Quality / System / Logs. Replaces the prior sidebar-slide admin
@@ -404,9 +406,9 @@ export const AdminModal: React.FC<AdminModalProps> = ({
                   background: C.bgInput, border: `1px solid ${C.borderSubtle}`,
                 }}>
                   <div style={{ textAlign: 'center' }}>
-                    <div style={{ fontSize: T.typography.sizeXs, color: C.textMuted, fontWeight: T.typography.weightBold, textTransform: 'uppercase', letterSpacing: T.typography.trackingLoose }}>
+                    <Label color={C.textMuted}>
                       Accuracy grade
-                    </div>
+                    </Label>
                     <div style={{
                       fontSize: '72px', fontWeight: T.typography.weightBlack,
                       color: (() => {
@@ -426,9 +428,9 @@ export const AdminModal: React.FC<AdminModalProps> = ({
                     )}
                   </div>
                   <div>
-                    <div style={{ fontSize: T.typography.sizeXs, color: C.textMuted, fontWeight: T.typography.weightBold, textTransform: 'uppercase', letterSpacing: T.typography.trackingLoose, marginBottom: T.spacing.md }}>
+                    <Label color={C.textMuted} mb={T.spacing.md}>
                       Score breakdown
-                    </div>
+                    </Label>
                     {dashboard.score.breakdown && (
                       <div style={{ display: 'flex', flexDirection: 'column', gap: T.spacing.sm }}>
                         {(['quality', 'adversarial', 'coverage', 'training'] as const).map(k => {
@@ -481,9 +483,9 @@ export const AdminModal: React.FC<AdminModalProps> = ({
                     padding: '16px 18px', borderRadius: T.radii.lg,
                     background: C.bgInput, border: `1px solid ${C.borderSubtle}`,
                   }}>
-                    <div style={{ fontSize: T.typography.sizeXs, color: C.textMuted, fontWeight: T.typography.weightBold, textTransform: 'uppercase', letterSpacing: T.typography.trackingLoose }}>
+                    <Label color={C.textMuted}>
                       {card.label}
-                    </div>
+                    </Label>
                     <div style={{ fontSize: dsType.sizes['3xl'], fontWeight: T.typography.weightBlack, color: card.color, marginTop: '4px', fontFamily: T.typography.fontMono }}>
                       {card.value}
                     </div>
@@ -504,9 +506,9 @@ export const AdminModal: React.FC<AdminModalProps> = ({
                 const max = Math.max(...top.map(d => d.value), 1);
                 return (
                   <div style={{ marginBottom: T.spacing.xl }}>
-                    <div style={{ fontSize: T.typography.sizeXs, fontWeight: T.typography.weightBold, color: C.textMuted, textTransform: 'uppercase', letterSpacing: T.typography.trackingLoose, marginBottom: T.spacing.md }}>
+                    <Label color={C.textMuted} mb={T.spacing.md}>
                       Top 10 domains by fact count
-                    </div>
+                    </Label>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
                       {top.map(d => (
                         <div key={d.label} style={{ display: 'flex', alignItems: 'center', gap: T.spacing.sm }}>
@@ -530,9 +532,9 @@ export const AdminModal: React.FC<AdminModalProps> = ({
               {/* Training files list from consolidated endpoint */}
               {dashboard?.training_files && dashboard.training_files.length > 0 && (
                 <div>
-                  <div style={{ fontSize: T.typography.sizeXs, fontWeight: T.typography.weightBold, color: C.textMuted, textTransform: 'uppercase', letterSpacing: T.typography.trackingLoose, marginBottom: T.spacing.md }}>
+                  <Label color={C.textMuted} mb={T.spacing.md}>
                     Training datasets ({dashboard.training_files.length})
-                  </div>
+                  </Label>
                   <div style={{ border: `1px solid ${C.borderSubtle}`, borderRadius: T.radii.md, overflow: 'hidden' }}>
                     <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: T.typography.sizeMd }}>
                       <thead>
@@ -601,7 +603,7 @@ export const AdminModal: React.FC<AdminModalProps> = ({
                       padding: '14px 16px', borderRadius: T.radii.md,
                       background: C.bgInput, border: `1px solid ${C.borderSubtle}`,
                     }}>
-                      <div style={{ fontSize: T.typography.sizeXs, color: C.textMuted, fontWeight: T.typography.weightBold, textTransform: 'uppercase', letterSpacing: T.typography.trackingLoose }}>{c.label}</div>
+                      <Label color={C.textMuted}>{c.label}</Label>
                       <div style={{ fontSize: T.typography.size3xl, fontWeight: T.typography.weightBlack, color: c.color, marginTop: '4px', fontFamily: T.typography.fontMono }}>{c.value}</div>
                     </div>
                   ));
@@ -623,9 +625,9 @@ export const AdminModal: React.FC<AdminModalProps> = ({
                 return (
                   <div style={{ marginBottom: T.spacing.xl }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: '6px' }}>
-                      <div style={{ fontSize: T.typography.sizeXs, fontWeight: T.typography.weightBold, color: C.textMuted, textTransform: 'uppercase', letterSpacing: T.typography.trackingLoose }}>
+                      <Label color={C.textMuted}>
                         Training files ({files.length})
-                      </div>
+                      </Label>
                       <div style={{ fontSize: T.typography.sizeXs, color: C.textDim, fontFamily: T.typography.fontMono }}>
                         {compactNum(totalPairs)} pairs · {totalMb.toFixed(1)} MB
                       </div>
@@ -660,9 +662,9 @@ export const AdminModal: React.FC<AdminModalProps> = ({
                 const top = [...doms].sort((a, b) => b.count - a.count).slice(0, 10);
                 return (
                   <div>
-                    <div style={{ fontSize: T.typography.sizeXs, fontWeight: T.typography.weightBold, color: C.textMuted, textTransform: 'uppercase', letterSpacing: T.typography.trackingLoose, marginBottom: '6px' }}>
+                    <Label color={C.textMuted} mb={'6px'}>
                       Top 10 domains
-                    </div>
+                    </Label>
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '6px 14px' }}>
                       {top.map(d => (
                         <div key={d.domain} style={{ display: 'flex', justifyContent: 'space-between', gap: T.spacing.sm, fontSize: T.typography.sizeSm, fontFamily: T.typography.fontMono, padding: '3px 0' }}>
@@ -799,9 +801,9 @@ export const AdminModal: React.FC<AdminModalProps> = ({
                           padding: '16px 18px', borderRadius: T.radii.xl,
                           background: C.bgInput, border: `1px solid ${C.borderSubtle}`,
                         }}>
-                          <div style={{ fontSize: T.typography.sizeXs, color: C.textMuted, fontWeight: T.typography.weightBold, textTransform: 'uppercase', letterSpacing: T.typography.trackingLoose }}>
+                          <Label color={C.textMuted}>
                             Pass rate
-                          </div>
+                          </Label>
                           <div style={{
                             fontSize: dsType.sizes['3xl'], fontWeight: T.typography.weightBlack,
                             color: p != null ? (p >= 95 ? C.green : p >= 80 ? C.yellow : C.red) : C.textMuted,
@@ -811,13 +813,13 @@ export const AdminModal: React.FC<AdminModalProps> = ({
                       );
                     })()}
                     <div style={{ padding: '16px 18px', borderRadius: T.radii.xl, background: C.bgInput, border: `1px solid ${C.borderSubtle}` }}>
-                      <div style={{ fontSize: T.typography.sizeXs, color: C.textMuted, fontWeight: T.typography.weightBold, textTransform: 'uppercase', letterSpacing: T.typography.trackingLoose }}>Samples</div>
+                      <Label color={C.textMuted}>Samples</Label>
                       <div style={{ fontSize: dsType.sizes['3xl'], fontWeight: T.typography.weightBlack, color: C.text, marginTop: '4px', fontFamily: T.typography.fontMono }}>
                         {typeof accuracy.samples === 'number' ? accuracy.samples.toLocaleString() : '—'}
                       </div>
                     </div>
                     <div style={{ padding: '16px 18px', borderRadius: T.radii.xl, background: C.bgInput, border: `1px solid ${C.borderSubtle}` }}>
-                      <div style={{ fontSize: T.typography.sizeXs, color: C.textMuted, fontWeight: T.typography.weightBold, textTransform: 'uppercase', letterSpacing: T.typography.trackingLoose }}>Last run</div>
+                      <Label color={C.textMuted}>Last run</Label>
                       <div style={{ fontSize: T.typography.sizeMd, color: C.text, marginTop: '10px' }}>
                         {accuracy.last_run ? (typeof accuracy.last_run === 'number' ? new Date(accuracy.last_run * 1000).toLocaleString() : accuracy.last_run) : '—'}
                       </div>
@@ -825,9 +827,9 @@ export const AdminModal: React.FC<AdminModalProps> = ({
                   </div>
                   {accuracy.per_domain && Object.keys(accuracy.per_domain).length > 0 && (
                     <div>
-                      <div style={{ fontSize: T.typography.sizeXs, fontWeight: T.typography.weightBold, color: C.textMuted, textTransform: 'uppercase', letterSpacing: T.typography.trackingLoose, marginBottom: T.spacing.md }}>
+                      <Label color={C.textMuted} mb={T.spacing.md}>
                         Accuracy by domain
-                      </div>
+                      </Label>
                       <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
                         {Object.entries(accuracy.per_domain).sort((a, b) => (b[1] ?? 0) - (a[1] ?? 0)).map(([dom, v]) => {
                           const p = pctNorm(v) ?? 0;
@@ -882,9 +884,9 @@ export const AdminModal: React.FC<AdminModalProps> = ({
                     const total = entries.reduce((s, [, v]) => s + v, 0);
                     return (
                       <div>
-                        <div style={{ fontSize: T.typography.sizeXs, fontWeight: T.typography.weightBold, color: C.textMuted, textTransform: 'uppercase', letterSpacing: T.typography.trackingLoose, marginBottom: T.spacing.md }}>
+                        <Label color={C.textMuted} mb={T.spacing.md}>
                           Quality distribution
-                        </div>
+                        </Label>
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
                           {entries.map(([bucket, n]) => {
                             // Color-grade buckets by their label — numeric
@@ -1077,9 +1079,9 @@ export const AdminModal: React.FC<AdminModalProps> = ({
                   )}
                   {fleet.timeline && fleet.timeline.length > 0 && (
                     <div>
-                      <div style={{ fontSize: T.typography.sizeXs, fontWeight: T.typography.weightBold, color: C.textMuted, textTransform: 'uppercase', letterSpacing: T.typography.trackingLoose, marginBottom: T.spacing.md }}>
+                      <Label color={C.textMuted} mb={T.spacing.md}>
                         Recent activity ({fleet.timeline.length})
-                      </div>
+                      </Label>
                       <div style={{ border: `1px solid ${C.borderSubtle}`, borderRadius: T.radii.md, overflow: 'hidden', maxHeight: '320px', overflowY: 'auto' }}>
                         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: T.typography.sizeSm }}>
                           <thead>
@@ -1116,9 +1118,9 @@ export const AdminModal: React.FC<AdminModalProps> = ({
               {/* Server logs (primary) */}
               {logs && logs.length > 0 && (
                 <div style={{ marginBottom: T.spacing.lg }}>
-                  <div style={{ fontSize: T.typography.sizeXs, fontWeight: T.typography.weightBold, color: C.textMuted, textTransform: 'uppercase', letterSpacing: T.typography.trackingLoose, marginBottom: '6px' }}>
+                  <Label color={C.textMuted} mb={'6px'}>
                     Server log ({logs.length} lines)
-                  </div>
+                  </Label>
                   <pre style={{
                     margin: 0, padding: T.spacing.lg, background: C.bgInput,
                     border: `1px solid ${C.borderSubtle}`, borderRadius: T.radii.md,
@@ -1151,9 +1153,9 @@ export const AdminModal: React.FC<AdminModalProps> = ({
                 return (
                   <div>
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: T.spacing.md, marginBottom: '6px', flexWrap: 'wrap' }}>
-                      <div style={{ fontSize: T.typography.sizeXs, fontWeight: T.typography.weightBold, color: C.textMuted, textTransform: 'uppercase', letterSpacing: T.typography.trackingLoose }}>
+                      <Label color={C.textMuted}>
                         Client events ({filtered.length} of {localEvents.length}, this session)
-                      </div>
+                      </Label>
                       <div style={{ display: 'flex', gap: T.spacing.sm, alignItems: 'center' }}>
                         <input
                           type='search' value={logFilter} onChange={e => setLogFilter(e.target.value)}
@@ -1330,9 +1332,9 @@ const DashCard: React.FC<{ C: any; label: string; value: string; color: string }
     padding: '16px 18px', borderRadius: T.radii.xl,
     background: C.bgInput, border: `1px solid ${C.borderSubtle}`,
   }}>
-    <div style={{ fontSize: T.typography.sizeXs, color: C.textMuted, fontWeight: T.typography.weightBold, textTransform: 'uppercase', letterSpacing: T.typography.trackingLoose }}>
+    <Label color={C.textMuted}>
       {label}
-    </div>
+    </Label>
     <div style={{ fontSize: T.typography.sizeXl, fontWeight: T.typography.weightBlack, color, marginTop: '6px', fontFamily: T.typography.fontMono, wordBreak: 'break-word' }}>
       {value}
     </div>
