@@ -3816,199 +3816,39 @@ ${cmdList}
 
                 {/* Assistant messages — decluttered. No tier/mode/confidence
                     badges, no inline timestamp/intent. Copy + Regenerate are
-                    hover-revealed below the bubble, right-aligned. Plan now
-                    lives in the right-side Tasks panel, not inline. */}
+                    hover-revealed below the bubble, right-aligned. */}
                 {msg.role === 'assistant' && (
-                  <div
-                    onMouseEnter={(e) => { (e.currentTarget.querySelector('.lfi-msg-actions') as HTMLElement)?.style.setProperty('opacity', '1'); }}
-                    onMouseLeave={(e) => { (e.currentTarget.querySelector('.lfi-msg-actions') as HTMLElement)?.style.setProperty('opacity', '0'); }}
-                    style={{ display: 'flex', justifyContent: 'flex-start' }}>
-                    <div style={{ maxWidth: isDesktop ? '80%' : '96%', width: '100%' }}>
-                      {/* Response body */}
-                      <div style={{
-                        padding: '14px 18px',
-                        background: C.bgCard,
-                        border: `1px solid ${C.border}`,
-                        borderRadius: '4px 16px 16px 16px',
-                        fontSize: '14px', lineHeight: '1.7',
-                        color: C.text,
-                        whiteSpace: 'pre-wrap', wordBreak: 'break-word',
-                      }}>
-                        {renderMessageBody(msg.content)}
-                        {/* Provenance badge — dev mode only, per Bible §3.4.
-                            Clicking fetches the derivation chain. */}
-                        {settings.developerMode && msg.conclusion_id != null && (
-                          <span title={`Provenance: conclusion #${msg.conclusion_id}`}
-                            onClick={() => {
-                              fetch(`http://${getHost()}:3000/api/provenance/${msg.conclusion_id}`)
-                                .then(r => r.json())
-                                .then(d => {
-                                  setMessages(prev => [...prev, {
-                                    id: msgId(), role: 'system',
-                                    content: `Provenance #${msg.conclusion_id}:\n${d.explanation || JSON.stringify(d, null, 2).slice(0, 500)}`,
-                                    timestamp: Date.now(),
-                                  }]);
-                                }).catch(() => {});
-                            }}
-                            style={{
-                              display: 'inline-block', marginLeft: '8px',
-                              padding: '1px 6px', fontSize: '10px',
-                              background: C.bgInput, border: `1px solid ${C.borderSubtle}`,
-                              borderRadius: '4px', color: C.textDim,
-                              cursor: 'pointer', fontFamily: "'JetBrains Mono',monospace",
-                            }}>
-                            #{msg.conclusion_id}
-                          </span>
-                        )}
-                      </div>
-
-                      {/* Hover-revealed actions, right-aligned under the bubble */}
-                      <div className='lfi-msg-actions'
-                        style={{
-                          display: 'flex', gap: '4px', marginTop: '4px',
-                          justifyContent: 'flex-end',
-                          opacity: isMobile ? 1 : 0,   // always visible on mobile
-                          transition: 'opacity 0.15s',
-                        }}>
-                        <button onClick={() => copyToClipboard(msg.content)} title='Copy message'
-                          style={{
-                            width: '30px', height: '30px',
-                            display: 'flex', alignItems: 'center', justifyContent: 'center',
-                            background: 'transparent', border: 'none',
-                            color: C.textMuted, borderRadius: '6px', cursor: 'pointer',
-                            fontFamily: 'inherit',
-                          }}
-                          onMouseEnter={(e) => { e.currentTarget.style.background = C.bgHover; e.currentTarget.style.color = C.text; }}
-                          onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = C.textMuted; }}>
-                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                            <rect x="9" y="9" width="13" height="13" rx="2"/>
-                            <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
-                          </svg>
-                        </button>
-                        {messages[messages.length - 1]?.id === msg.id && (
-                          <button onClick={regenerateLast} title='Regenerate'
-                            disabled={isThinking}
-                            style={{
-                              width: '30px', height: '30px',
-                              display: 'flex', alignItems: 'center', justifyContent: 'center',
-                              background: 'transparent', border: 'none',
-                              color: C.textMuted, borderRadius: '6px',
-                              cursor: isThinking ? 'wait' : 'pointer', fontFamily: 'inherit',
-                            }}
-                            onMouseEnter={(e) => { e.currentTarget.style.background = C.bgHover; e.currentTarget.style.color = C.text; }}
-                            onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = C.textMuted; }}>
-                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                              <polyline points="1 4 1 10 7 10"/>
-                              <path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/>
-                            </svg>
-                          </button>
-                        )}
-                        {/* Feedback thumbs — "Help us improve" per user ask */}
-                        <button onClick={() => { logEvent('feedback_positive', { msgId: msg.id }); }}
-                          title='Good response'
-                          style={{
-                            width: '30px', height: '30px',
-                            display: 'flex', alignItems: 'center', justifyContent: 'center',
-                            background: 'transparent', border: 'none',
-                            color: C.textMuted, borderRadius: '6px', cursor: 'pointer',
-                          }}
-                          onMouseEnter={(e) => { e.currentTarget.style.color = C.green; }}
-                          onMouseLeave={(e) => { e.currentTarget.style.color = C.textMuted; }}>
-                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                            <path d="M14 9V5a3 3 0 0 0-3-3l-4 9v11h11.28a2 2 0 0 0 2-1.7l1.38-9a2 2 0 0 0-2-2.3zM7 22H4a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2h3"/>
-                          </svg>
-                        </button>
-                        <button onClick={() => {
-                          const feedback = prompt('What should the AI have said instead? (optional)');
-                          logEvent('feedback_negative', { msgId: msg.id, feedback: feedback || '' });
-                        }}
-                          title='Bad response — tell us what it should have said'
-                          style={{
-                            width: '30px', height: '30px',
-                            display: 'flex', alignItems: 'center', justifyContent: 'center',
-                            background: 'transparent', border: 'none',
-                            color: C.textMuted, borderRadius: '6px', cursor: 'pointer',
-                          }}
-                          onMouseEnter={(e) => { e.currentTarget.style.color = C.red; }}
-                          onMouseLeave={(e) => { e.currentTarget.style.color = C.textMuted; }}>
-                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                            <path d="M10 15v4a3 3 0 0 0 3 3l4-9V2H5.72a2 2 0 0 0-2 1.7l-1.38 9a2 2 0 0 0 2 2.3zm7-13h2.67A2.31 2.31 0 0 1 22 4v7a2.31 2.31 0 0 1-2.33 2H17"/>
-                          </svg>
-                        </button>
-                        <span style={{
-                          fontSize: '10px', color: C.textDim, alignSelf: 'center',
-                          padding: '0 8px',
-                        }}>{formatTime(msg.timestamp)}</span>
-                      </div>
-
-                      {/* Follow-up suggestion chips (ChatGPT / Perplexity style).
-                          Only on the LAST assistant message. Generates 2-3
-                          clickable prompts based on keywords in the response. */}
-                      {messages[messages.length - 1]?.id === msg.id && msg.content.length > 40 && (() => {
-                        const words = msg.content.toLowerCase().split(/\s+/).filter(w => w.length > 5);
-                        const unique = [...new Set(words)].slice(0, 20);
-                        const topics = unique.filter(w => !['about','which','would','could','should','these','those','there','their','really','actually','because','through'].includes(w)).slice(0, 3);
-                        if (topics.length === 0) return null;
-                        const chips = [
-                          topics[0] ? `Tell me more about ${topics[0]}` : null,
-                          topics[1] ? `How does ${topics[1]} work?` : null,
-                          topics[2] ? `What's the connection to ${topics[2]}?` : null,
-                        ].filter(Boolean) as string[];
-                        if (chips.length === 0) return null;
-                        return (
-                          <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginTop: '8px' }}>
-                            {chips.map((chip, ci) => (
-                              <button key={ci}
-                                onClick={() => { setInput(chip); inputRef.current?.focus(); }}
-                                style={{
-                                  padding: '6px 12px', fontSize: '12px',
-                                  background: C.bgInput, border: `1px solid ${C.borderSubtle}`,
-                                  color: C.textSecondary, borderRadius: '999px',
-                                  cursor: 'pointer', fontFamily: 'inherit',
-                                  transition: 'border-color 0.15s',
-                                }}
-                                onMouseEnter={(e) => e.currentTarget.style.borderColor = C.accent}
-                                onMouseLeave={(e) => e.currentTarget.style.borderColor = C.borderSubtle}>
-                                {chip}
-                              </button>
-                            ))}
-                          </div>
-                        );
-                      })()}
-
-                      {/* Reasoning toggle — only when reasoning was actually
-                          produced AND the user has opted-in via settings. */}
-                      {settings.showReasoning && msg.reasoning && msg.reasoning.length > 0 && (
-                        <div style={{ marginTop: '8px' }}>
-                          <button
-                            onClick={() => setExpandedReasoning(expandedReasoning === msg.id ? null : msg.id)}
-                            style={{
-                              display: 'flex', alignItems: 'center', gap: '6px',
-                              padding: '5px 10px', fontSize: '11px', fontWeight: 600,
-                              color: C.textMuted, background: 'transparent',
-                              border: `1px solid ${C.borderSubtle}`, borderRadius: '6px',
-                              cursor: 'pointer', fontFamily: 'inherit',
-                            }}>
-                            Show reasoning ({msg.reasoning.length}) {expandedReasoning === msg.id ? '\u25B2' : '\u25BC'}
-                          </button>
-                          {expandedReasoning === msg.id && (
-                            <div style={{
-                              marginTop: '8px', padding: '12px 14px',
-                              background: C.bgInput,
-                              borderLeft: `3px solid ${C.accent}`,
-                              borderRadius: '0 8px 8px 0',
-                            }}>
-                              {msg.reasoning.map((step, j) => (
-                                <p key={j} style={{ fontSize: '12px', color: C.textSecondary, lineHeight: '1.6', margin: '4px 0' }}>
-                                  <span style={{ color: C.accent, fontWeight: 700 }}>[{j}]</span> {step}
-                                </p>
-                              ))}
-                            </div>
-                          )}
-                        </div>
-                      )}
-                    </div>
-                  </div>
+                  <AssistantMessage
+                    msg={msg}
+                    C={C} isMobile={isMobile} isDesktop={isDesktop}
+                    isLast={messages[messages.length - 1]?.id === msg.id}
+                    isThinking={isThinking}
+                    showReasoning={!!settings.showReasoning}
+                    developerMode={!!settings.developerMode}
+                    reasoningExpanded={expandedReasoning === msg.id}
+                    renderBody={(text) => renderMessageBody(text)}
+                    onToggleReasoning={() => setExpandedReasoning(expandedReasoning === msg.id ? null : msg.id)}
+                    onRegenerate={regenerateLast}
+                    onCopy={copyToClipboard}
+                    onOpenProvenance={(cid) => {
+                      fetch(`http://${getHost()}:3000/api/provenance/${cid}`)
+                        .then(r => r.json())
+                        .then(d => {
+                          setMessages(prev => [...prev, {
+                            id: msgId(), role: 'system',
+                            content: `Provenance #${cid}:\n${d.explanation || JSON.stringify(d, null, 2).slice(0, 500)}`,
+                            timestamp: Date.now(),
+                          }]);
+                        }).catch(() => {});
+                    }}
+                    onFollowUpChip={(chip) => { setInput(chip); inputRef.current?.focus(); }}
+                    onFeedbackPositive={() => { logEvent('feedback_positive', { msgId: msg.id }); }}
+                    onFeedbackNegative={() => {
+                      const feedback = prompt('What should the AI have said instead? (optional)');
+                      logEvent('feedback_negative', { msgId: msg.id, feedback: feedback || '' });
+                    }}
+                    formatTime={formatTime}
+                  />
                 )}
               </div>
             ))}
