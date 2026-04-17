@@ -128,6 +128,11 @@ export const ClassroomView: React.FC<ClassroomViewProps> = ({ C, host, isDesktop
   // c2-261: last successful fetch timestamp, surfaced next to the refresh
   // button as "Updated Xs ago" so users know staleness at a glance.
   const [lastUpdated, setLastUpdated] = useState<number | null>(null);
+  // c2-365 / tasks 125+126: sortable + filterable Curriculum table state.
+  // Default sort matches the previous fixed behaviour (pairs desc) so the
+  // page looks identical on first render.
+  const [curricFilter, setCurricFilter] = useState('');
+  const [curricSort, setCurricSort] = useState<{ col: 'file' | 'pairs' | 'size'; dir: 'asc' | 'desc' }>({ col: 'pairs', dir: 'desc' });
   // c2-231 / #75: rolling history of per-domain counts, surfaced as
   // sparklines next to the coverage bars.
   const [history, setHistory] = useState<GradebookSnapshot[]>(() => loadGradebookHistory());
@@ -381,28 +386,94 @@ export const ClassroomView: React.FC<ClassroomViewProps> = ({ C, host, isDesktop
                 ))}
               </div>
             )}
-            {data?.training_files && data.training_files.length > 0 ? (
-              <div style={{ border: `1px solid ${C.borderSubtle}`, borderRadius: T.radii.md, overflow: 'hidden' }}>
-                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: T.typography.sizeMd }}>
-                  <thead>
-                    <tr>
-                      <th style={{ textAlign: 'left', padding: '10px 14px', fontWeight: T.typography.weightBold, color: C.textSecondary, background: C.bgCard, borderBottom: `1px solid ${C.borderSubtle}` }}>Dataset</th>
-                      <th style={{ textAlign: 'right', padding: '10px 14px', fontWeight: T.typography.weightBold, color: C.textSecondary, background: C.bgCard, borderBottom: `1px solid ${C.borderSubtle}` }}>Pairs</th>
-                      <th style={{ textAlign: 'right', padding: '10px 14px', fontWeight: T.typography.weightBold, color: C.textSecondary, background: C.bgCard, borderBottom: `1px solid ${C.borderSubtle}` }}>Size</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {[...data.training_files].sort((a, b) => b.pairs - a.pairs).map(f => (
-                      <tr key={f.file}>
-                        <td style={{ padding: '10px 14px', fontFamily: T.typography.fontMono, color: C.text }}>{f.file}</td>
-                        <td style={{ padding: '10px 14px', textAlign: 'right', fontFamily: T.typography.fontMono, color: C.accent, fontWeight: T.typography.weightBold }}>{f.pairs.toLocaleString()}</td>
-                        <td style={{ padding: '10px 14px', textAlign: 'right', fontFamily: T.typography.fontMono, color: C.textMuted }}>{f.size_mb.toFixed(1)} MB</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            ) : (
+            {data?.training_files && data.training_files.length > 0 ? (() => {
+              // c2-365 / tasks 125+126: filter + sort pipeline. Filtering
+              // happens before sort so the sort doesn't run on hidden rows.
+              // Case-insensitive substring match on file name only.
+              const q = curricFilter.trim().toLowerCase();
+              const filtered = q
+                ? data.training_files.filter(f => f.file.toLowerCase().includes(q))
+                : data.training_files;
+              const sorted = [...filtered].sort((a, b) => {
+                const sign = curricSort.dir === 'asc' ? 1 : -1;
+                if (curricSort.col === 'file') return sign * a.file.localeCompare(b.file);
+                if (curricSort.col === 'pairs') return sign * (a.pairs - b.pairs);
+                return sign * (a.size_mb - b.size_mb);
+              });
+              const toggleSort = (col: 'file' | 'pairs' | 'size') =>
+                setCurricSort(s => s.col === col
+                  ? { col, dir: s.dir === 'asc' ? 'desc' : 'asc' }
+                  : { col, dir: col === 'file' ? 'asc' : 'desc' });
+              const arrow = (col: 'file' | 'pairs' | 'size') =>
+                curricSort.col !== col ? '' : curricSort.dir === 'asc' ? ' \u25B2' : ' \u25BC';
+              const ariaSort = (col: 'file' | 'pairs' | 'size'): 'ascending' | 'descending' | 'none' =>
+                curricSort.col !== col ? 'none' : curricSort.dir === 'asc' ? 'ascending' : 'descending';
+              const thBase: React.CSSProperties = {
+                padding: '10px 14px', fontWeight: T.typography.weightBold,
+                color: C.textSecondary, background: C.bgCard,
+                borderBottom: `1px solid ${C.borderSubtle}`, cursor: 'pointer',
+                userSelect: 'none',
+              };
+              return (
+                <>
+                  <div style={{ marginBottom: T.spacing.md }}>
+                    <input type='search' value={curricFilter}
+                      onChange={(e) => setCurricFilter(e.target.value)}
+                      onKeyDown={(e) => { if (e.key === 'Escape') setCurricFilter(''); }}
+                      placeholder={`Filter datasets... (${data.training_files.length})`}
+                      aria-label='Filter curriculum datasets'
+                      style={{
+                        width: '100%', maxWidth: '420px',
+                        padding: `${T.spacing.sm} ${T.spacing.md}`,
+                        background: C.bgInput,
+                        border: `1px solid ${C.borderSubtle}`,
+                        borderRadius: T.radii.sm,
+                        color: C.text, fontSize: T.typography.sizeSm,
+                        fontFamily: 'inherit', outline: 'none',
+                      }} />
+                    {q && (
+                      <span style={{
+                        marginLeft: T.spacing.md, fontSize: T.typography.sizeXs,
+                        color: C.textMuted, fontFamily: T.typography.fontMono,
+                      }}>{filtered.length} match{filtered.length === 1 ? '' : 'es'}</span>
+                    )}
+                  </div>
+                  <div style={{ border: `1px solid ${C.borderSubtle}`, borderRadius: T.radii.md, overflow: 'hidden' }}>
+                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: T.typography.sizeMd }}>
+                      <thead>
+                        <tr>
+                          <th onClick={() => toggleSort('file')}
+                            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleSort('file'); } }}
+                            tabIndex={0} role='button' aria-sort={ariaSort('file')}
+                            style={{ ...thBase, textAlign: 'left' }}>Dataset{arrow('file')}</th>
+                          <th onClick={() => toggleSort('pairs')}
+                            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleSort('pairs'); } }}
+                            tabIndex={0} role='button' aria-sort={ariaSort('pairs')}
+                            style={{ ...thBase, textAlign: 'right' }}>Pairs{arrow('pairs')}</th>
+                          <th onClick={() => toggleSort('size')}
+                            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleSort('size'); } }}
+                            tabIndex={0} role='button' aria-sort={ariaSort('size')}
+                            style={{ ...thBase, textAlign: 'right' }}>Size{arrow('size')}</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {sorted.length === 0 ? (
+                          <tr><td colSpan={3} style={{ padding: '20px', textAlign: 'center', color: C.textMuted, fontSize: T.typography.sizeSm }}>
+                            No datasets match "{curricFilter}"
+                          </td></tr>
+                        ) : sorted.map(f => (
+                          <tr key={f.file}>
+                            <td style={{ padding: '10px 14px', fontFamily: T.typography.fontMono, color: C.text }}>{f.file}</td>
+                            <td style={{ padding: '10px 14px', textAlign: 'right', fontFamily: T.typography.fontMono, color: C.accent, fontWeight: T.typography.weightBold }}>{f.pairs.toLocaleString()}</td>
+                            <td style={{ padding: '10px 14px', textAlign: 'right', fontFamily: T.typography.fontMono, color: C.textMuted }}>{f.size_mb.toFixed(1)} MB</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </>
+              );
+            })() : (
               <div style={{ padding: '40px', textAlign: 'center', color: C.textMuted }}>
                 {loading ? 'Loading curriculum…' : 'No training files reported.'}
               </div>
@@ -910,6 +981,33 @@ const OfficeHoursTab: React.FC<{ C: any; events: Array<{ t: number; kind: string
           <Label color={C.red}>Negative</Label>
           <div style={{ fontSize: T.typography.size3xl, fontWeight: T.typography.weightBlack, color: C.red, fontFamily: T.typography.fontMono }}>{negCount}</div>
         </div>
+        {/* c2-365 / task 152: overall sentiment card. Green at >=70%,
+            yellow at 50-70%, red below 50%. Hidden when no feedback has
+            been captured yet -- division by zero + "0% positive" on an
+            empty log is noise rather than information. */}
+        {feedback.length > 0 && (() => {
+          const pct = Math.round((posCount / feedback.length) * 100);
+          const col = pct >= 70 ? C.green : pct >= 50 ? C.yellow : C.red;
+          const bg = pct >= 70 ? C.greenBg : pct >= 50 ? C.yellowBg : C.redBg;
+          const border = pct >= 70 ? C.greenBorder : pct >= 50 ? C.accentBorder : C.redBorder;
+          return (
+            <div style={{
+              flex: 1, padding: T.spacing.md,
+              background: bg, border: `1px solid ${border}`,
+              borderRadius: T.radii.md,
+            }}>
+              <Label color={col}>Sentiment</Label>
+              <div style={{
+                fontSize: T.typography.size3xl, fontWeight: T.typography.weightBlack,
+                color: col, fontFamily: T.typography.fontMono,
+              }}>{pct}%</div>
+              <div style={{
+                fontSize: T.typography.sizeXs, color: C.textMuted,
+                fontFamily: T.typography.fontMono, marginTop: '2px',
+              }}>{feedback.length} total</div>
+            </div>
+          );
+        })()}
       </div>
       {feedback.length === 0 ? (
         <div style={{ padding: '40px', textAlign: 'center', color: C.textMuted, fontSize: T.typography.sizeMd, fontStyle: 'italic' }}>
