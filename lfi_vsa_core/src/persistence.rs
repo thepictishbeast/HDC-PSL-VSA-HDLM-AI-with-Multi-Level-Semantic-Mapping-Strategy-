@@ -24,11 +24,14 @@ impl BrainDb {
         let conn = Connection::open(path)?;
         // SECURITY: WAL mode allows concurrent reads during writes.
         // Critical for 40M+ fact DB where ingestion and serving overlap.
+        // PERFORMANCE: Disable auto-checkpoint on startup to prevent 24GB WAL
+        // blocking server for 10+ minutes. Nightly cron handles checkpointing.
         conn.execute_batch(
             "PRAGMA journal_mode=WAL;\
-             PRAGMA busy_timeout=30000;\
+             PRAGMA busy_timeout=5000;\
              PRAGMA synchronous=NORMAL;\
-             PRAGMA cache_size=-64000;"
+             PRAGMA cache_size=-64000;\
+             PRAGMA wal_autocheckpoint=0;"
         )?;
         let db = Self { conn: Mutex::new(conn) };
         db.migrate()?;

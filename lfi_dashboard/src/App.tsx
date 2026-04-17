@@ -1510,6 +1510,11 @@ ${cmdList}
     }
     const incoming = conversations.find(c => c.id === currentConversationId);
     setInput(incoming?.draft || '');
+    // c2-278: switching into a convo with a short draft (or none) needs the
+    // textarea to re-size — otherwise it retains whatever height the prior
+    // convo's long draft grew it to. Clear style.height; the next input
+    // change re-runs the grower, and CSS minHeight applies immediately.
+    if (inputRef.current) inputRef.current.style.height = '';
     lastActiveConvoRef.current = currentConversationId;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentConversationId]);
