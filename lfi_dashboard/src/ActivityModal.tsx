@@ -100,7 +100,7 @@ export const ActivityModal: React.FC<ActivityModalProps> = ({
             }}>{t.label}</button>
         ))}
       </div>
-      <div style={{ flex: 1, overflowY: 'auto', padding: '16px 20px' }}>
+      <div role='tabpanel' aria-label={tab} style={{ flex: 1, overflowY: 'auto', padding: '16px 20px' }}>
         {tab === 'chat' && (
           <>
             {serverChatLog.length === 0 && (
