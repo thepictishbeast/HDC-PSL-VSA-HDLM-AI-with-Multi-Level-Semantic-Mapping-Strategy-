@@ -52,6 +52,7 @@ import { QosPanel } from './QosPanel';
 import { TelemetryCard } from './TelemetryCards';
 import { SidebarStatus } from './SidebarStatus';
 import { SubstrateTelemetry } from './SubstrateTelemetry';
+import { AdminActions } from './AdminActions';
 const TicTacToeModal = React.lazy(() => import('./TicTacToeModal').then(m => ({ default: m.TicTacToeModal })));
 const KnowledgeBrowser = React.lazy(() => import('./KnowledgeBrowser').then(m => ({ default: m.KnowledgeBrowser })));
 const ActivityModal = React.lazy(() => import('./ActivityModal').then(m => ({ default: m.ActivityModal })));
@@ -1724,39 +1725,17 @@ ${cmdList}
         diskTotal={sysInfo.disk_total}
       />
       {/* Admin actions */}
-      <div style={{ padding: '20px' }}>
-        <div style={{ fontSize: '11px', fontWeight: 800, color: C.textMuted, textTransform: 'uppercase', letterSpacing: '0.12em', marginBottom: '14px' }}>
-          Administration
-        </div>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-          <button onClick={fetchFacts} disabled={adminLoading === 'facts'} style={{
-            padding: '10px', fontSize: '12px', fontWeight: 700, color: C.accent,
-            background: C.accentBg, border: `1px solid ${C.accentBorder}`, borderRadius: '8px',
-            cursor: 'pointer', fontFamily: 'inherit', textTransform: 'uppercase', letterSpacing: '0.05em',
-          }}>{adminLoading === 'facts' ? 'Loading...' : 'View Facts'}</button>
-          <button onClick={fetchQos} disabled={adminLoading === 'qos'} style={{
-            padding: '10px', fontSize: '12px', fontWeight: 700, color: C.purple,
-            background: C.purpleBg, border: `1px solid ${C.purpleBorder}`, borderRadius: '8px',
-            cursor: 'pointer', fontFamily: 'inherit', textTransform: 'uppercase', letterSpacing: '0.05em',
-          }}>{adminLoading === 'qos' ? 'Loading...' : 'QoS Report'}</button>
-          <button onClick={clearChat} style={{
-            padding: '10px', fontSize: '12px', fontWeight: 700, color: C.textMuted,
-            background: 'transparent', border: `1px solid ${C.border}`, borderRadius: '8px',
-            cursor: 'pointer', fontFamily: 'inherit', textTransform: 'uppercase', letterSpacing: '0.05em',
-          }}>Clear Chat</button>
-          <button onClick={() => setShowSettings(true)} style={{
-            padding: '10px', fontSize: '12px', fontWeight: 700, color: C.accent,
-            background: 'transparent', border: `1px solid ${C.accentBorder}`, borderRadius: '8px',
-            cursor: 'pointer', fontFamily: 'inherit', textTransform: 'uppercase', letterSpacing: '0.05em',
-          }}>Settings</button>
-        </div>
-        {/* Facts display: render empty/error states explicitly so a "successful but empty"
-            response is distinguishable from "user hasn't clicked yet". */}
+      <AdminActions
+        C={C}
+        adminLoading={adminLoading}
+        onFetchFacts={fetchFacts}
+        onFetchQos={fetchQos}
+        onClearChat={clearChat}
+        onOpenSettings={() => setShowSettings(true)}
+      >
         <FactsPanel C={C} facts={facts} fetchedAt={factsFetchedAt} error={factsError} />
-        {/* QoS display — explicit error/empty/loaded states (was invisible before
-            on fetch failure, reading as 'nothing happened' to the user). */}
         <QosPanel C={C} report={qosReport} fetchedAt={qosFetchedAt} error={qosError} />
-      </div>
+      </AdminActions>
     </aside>
   );
 
