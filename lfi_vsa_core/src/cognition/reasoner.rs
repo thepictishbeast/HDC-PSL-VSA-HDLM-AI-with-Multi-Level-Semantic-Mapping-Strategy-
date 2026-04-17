@@ -13,6 +13,7 @@
 // ============================================================
 
 use crate::hdc::vector::BipolarVector;
+use chrono::Timelike;
 use crate::hdc::holographic::HolographicMemory;
 use crate::hdc::error::HdcError;
 use crate::cognition::planner::{Plan, Planner};
@@ -1084,9 +1085,21 @@ impl CognitiveCore {
             String::new()
         };
 
+        // BUG ASSUMPTION: time formatting could fail on exotic systems; fallback to empty string
+        let now = chrono::Local::now();
+        let time_context = format!(
+            "Current time: {} ({}). ",
+            now.format("%I:%M %p"),
+            if now.hour() >= 21 || now.hour() < 6 { "nighttime" }
+            else if now.hour() < 12 { "morning" }
+            else if now.hour() < 17 { "afternoon" }
+            else { "evening" }
+        );
+
+        let time_ctx_escaped = time_context.replace('"', "\\\"");
         let body = format!(
-            r#"{{"model":"qwen2.5-coder:7b","prompt":"You are PlausiDen AI, built by PlausiDen Technologies. You are a sovereign, knowledgeable AI that runs locally on the user's hardware. You have access to a database of 52 million facts.\\n\\nRules:\\n- Answer the question directly. No preamble.\\n- If knowledge from your database is provided below, USE IT as your primary source.\\n- Be specific and detailed. Give real examples, real numbers, real names.\\n- If you're not sure, say so honestly.\\n- Match the tone to the question: technical for technical, casual for casual.\\n- Never say 'As an AI' or 'I don't have feelings'. Just answer like a knowledgeable person.\\n\\n{}Question: {}","stream":false,"options":{{"temperature":0.5,"num_predict":800,"top_p":0.9}}}}"#,
-            context_block, safe
+            r#"{{"model":"qwen2.5-coder:7b","prompt":"You are PlausiDen AI, built by PlausiDen Technologies. You are a sovereign, knowledgeable AI that runs locally on the user's hardware. You have access to a database of 56 million facts.\\n\\n{}\\n\\nRules:\\n- Answer the question directly. No preamble.\\n- If knowledge from your database is provided below, USE IT as your primary source.\\n- Be specific and detailed. Give real examples, real numbers, real names.\\n- If you're not sure, say so honestly.\\n- Match the tone to the question: technical for technical, casual for casual.\\n- Never say 'As an AI' or 'I don't have feelings'. Just answer like a knowledgeable person.\\n- Be aware of the time of day — don't say 'good morning' at night.\\n- Don't repeat the same jokes or phrases across conversations.\\n\\n{}Question: {}","stream":false,"options":{{"temperature":0.6,"num_predict":800,"top_p":0.9}}}}"#,
+            time_ctx_escaped, context_block, safe
         );
 
         let output = std::process::Command::new("curl")
