@@ -1,4 +1,5 @@
-import React from 'react';
+import React, { useRef } from 'react';
+import { useModalFocus } from './useModalFocus';
 
 // Tic-Tac-Toe easter egg. Purely presentational — board/turn/winner state and
 // the play/reset handlers live in the parent so the game logic stays alongside
@@ -12,7 +13,10 @@ export interface TicTacToeModalProps {
   onClose: () => void;
 }
 
-export const TicTacToeModal: React.FC<TicTacToeModalProps> = ({ C, board, winner, onPlay, onReset, onClose }) => (
+export const TicTacToeModal: React.FC<TicTacToeModalProps> = ({ C, board, winner, onPlay, onReset, onClose }) => {
+  const dialogRef = useRef<HTMLDivElement>(null);
+  useModalFocus(true, dialogRef);
+  return (
   <div onClick={onClose}
     style={{
       position: 'fixed', inset: 0, zIndex: 230,
@@ -20,7 +24,7 @@ export const TicTacToeModal: React.FC<TicTacToeModalProps> = ({ C, board, winner
       display: 'flex', alignItems: 'center', justifyContent: 'center',
       padding: '16px',
     }}>
-    <div role='dialog' aria-modal='true' aria-label='Tic-Tac-Toe'
+    <div ref={dialogRef} role='dialog' aria-modal='true' aria-label='Tic-Tac-Toe'
       onClick={(e) => e.stopPropagation()}
       style={{
         background: C.bgCard, border: `1px solid ${C.border}`,
@@ -68,4 +72,5 @@ export const TicTacToeModal: React.FC<TicTacToeModalProps> = ({ C, board, winner
       </div>
     </div>
   </div>
-);
+  );
+};
