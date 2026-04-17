@@ -54,3 +54,17 @@
     - API key management
     - Connected devices
     - Data export/import
+
+## Audit & Compliance (v2)
+11. **Auditorium** — Central hub for ALL audits
+    - Security audits (AVP-2 tier 1-6 results)
+    - Code audits (unwrap count, test coverage, mutation testing)
+    - Data quality audits (dedup rates, contamination, quality distribution)
+    - Compliance audits (GDPR, HIPAA, SOX, PCI-DSS status)
+    - Network audits (Pineapple captures, adversary tier detection)
+    - Performance audits (response times, throughput, resource usage)
+    - Training audits (data quality, model accuracy, regression detection)
+    - Dependency audits (cargo audit, supply chain, CVE status)
+    - Each audit type has: history, trends, pass/fail, findings, remediation tracking
+    - Part of the orchestration platform — audits can be scheduled, auto-run, assigned to agents
+    - Dashboard view: audit calendar, compliance scorecard, open findings count
