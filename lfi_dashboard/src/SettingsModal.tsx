@@ -65,7 +65,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
         <h2 style={{ margin: 0, fontSize: '15px', fontWeight: 800, letterSpacing: '0.12em', textTransform: 'uppercase' }}>Settings</h2>
-        <button onClick={onClose}
+        <button onClick={onClose} aria-label='Close settings'
           style={{ background: 'transparent', border: 'none', color: C.textMuted, fontSize: '20px', cursor: 'pointer' }}>
           {'\u2715'}
         </button>

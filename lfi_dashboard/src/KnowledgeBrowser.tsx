@@ -39,7 +39,7 @@ export const KnowledgeBrowser: React.FC<KnowledgeBrowserProps> = ({ C, facts, co
           <span style={{ fontSize: '12px', color: C.textMuted }}>
             {facts.length} facts &middot; {concepts.length} concepts &middot; {due.length} due
           </span>
-          <button onClick={onClose}
+          <button onClick={onClose} aria-label='Close knowledge browser'
             style={{ background: 'transparent', border: 'none', color: C.textMuted, fontSize: '20px', cursor: 'pointer' }}>
             {'\u2715'}
           </button>
