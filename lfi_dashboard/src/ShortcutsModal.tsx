@@ -1,6 +1,8 @@
 import React, { useRef } from 'react';
 import { useModalFocus } from './useModalFocus';
 import { T } from './tokens';
+// c2-341: 20px close button sourced from design-system (T.typography caps at 22).
+import { typography as dsType } from './design-system';
 import { IS_MAC } from './util';
 
 // Keyboard-shortcut cheatsheet. Opened with "?" (standard pattern from
@@ -95,18 +97,18 @@ export const ShortcutsModal: React.FC<ShortcutsModalProps> = ({ C, onClose }) =>
           padding: T.spacing.xl, boxShadow: T.shadows.modal,
         }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: T.spacing.lg }}>
-          <h2 id='scc-shortcuts-title' style={{ margin: 0, fontSize: '15px', fontWeight: T.typography.weightBlack, letterSpacing: '0.12em', textTransform: 'uppercase', color: C.text }}>
+          <h2 id='scc-shortcuts-title' style={{ margin: 0, fontSize: T.typography.sizeLg, fontWeight: T.typography.weightBlack, letterSpacing: '0.12em', textTransform: 'uppercase', color: C.text }}>
             Keyboard Shortcuts
           </h2>
           <button onClick={onClose} aria-label='Close shortcuts'
-            style={{ background: 'transparent', border: 'none', color: C.textMuted, fontSize: '20px', cursor: 'pointer' }}>
+            style={{ background: 'transparent', border: 'none', color: C.textMuted, fontSize: dsType.sizes.xl, cursor: 'pointer' }}>
             {'\u2715'}
           </button>
         </div>
         {SHORTCUTS.map(g => (
           <div key={g.group} style={{ marginBottom: '18px' }}>
             <div style={{
-              fontSize: '10px', fontWeight: T.typography.weightBold, color: C.textMuted,
+              fontSize: T.typography.sizeXs, fontWeight: T.typography.weightBold, color: C.textMuted,
               textTransform: 'uppercase', letterSpacing: '0.12em', marginBottom: T.spacing.sm,
             }}>{g.group}</div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
@@ -124,7 +126,7 @@ export const ShortcutsModal: React.FC<ShortcutsModalProps> = ({ C, onClose }) =>
                           padding: '2px 8px', fontSize: T.typography.sizeXs, fontWeight: T.typography.weightBold,
                           background: C.bgInput, border: `1px solid ${C.borderSubtle}`,
                           borderRadius: T.radii.xs, color: C.text,
-                          fontFamily: "'JetBrains Mono', monospace",
+                          fontFamily: T.typography.fontMono,
                           minWidth: '22px', textAlign: 'center',
                         }}>{renderKey(k)}</kbd>
                       </React.Fragment>
@@ -140,9 +142,9 @@ export const ShortcutsModal: React.FC<ShortcutsModalProps> = ({ C, onClose }) =>
           paddingTop: T.spacing.sm, borderTop: `1px solid ${C.borderSubtle}`,
         }}>
           Press <kbd style={{
-            padding: '1px 6px', fontSize: '10px',
+            padding: '1px 6px', fontSize: T.typography.sizeXs,
             background: C.bgInput, border: `1px solid ${C.borderSubtle}`,
-            borderRadius: '3px', fontFamily: "'JetBrains Mono', monospace",
+            borderRadius: T.radii.xs, fontFamily: T.typography.fontMono,
           }}>?</kbd> any time to reopen this.
         </div>
       </div>

@@ -69,7 +69,7 @@ export const MIDNIGHT: typeof DARK = {
   red: '#ff6b84', redBg: 'rgba(255,107,132,0.10)', redBorder: 'rgba(255,107,132,0.24)',
   purple: '#c79dff', purpleBg: 'rgba(199,157,255,0.10)', purpleBorder: 'rgba(199,157,255,0.24)',
   yellow: '#ffd36b', yellowBg: 'rgba(255,211,107,0.10)',
-  font: DARK.font,
+  font: ds_type.fontFamily,
 };
 
 export const FOREST: typeof DARK = {
@@ -87,7 +87,7 @@ export const FOREST: typeof DARK = {
   red: '#ff7388', redBg: 'rgba(255,115,136,0.10)', redBorder: 'rgba(255,115,136,0.24)',
   purple: '#d58bff', purpleBg: 'rgba(213,139,255,0.10)', purpleBorder: 'rgba(213,139,255,0.24)',
   yellow: '#ffd96b', yellowBg: 'rgba(255,217,107,0.10)',
-  font: DARK.font,
+  font: ds_type.fontFamily,
 };
 
 export const SUNSET: typeof DARK = {
@@ -105,7 +105,7 @@ export const SUNSET: typeof DARK = {
   red: '#ff677e', redBg: 'rgba(255,103,126,0.10)', redBorder: 'rgba(255,103,126,0.24)',
   purple: '#e18bff', purpleBg: 'rgba(225,139,255,0.10)', purpleBorder: 'rgba(225,139,255,0.24)',
   yellow: '#ffcf5e', yellowBg: 'rgba(255,207,94,0.10)',
-  font: DARK.font,
+  font: ds_type.fontFamily,
 };
 
 export const ROSE: typeof DARK = {
@@ -123,7 +123,7 @@ export const ROSE: typeof DARK = {
   red: '#b82040', redBg: 'rgba(184,32,64,0.08)', redBorder: 'rgba(184,32,64,0.28)',
   purple: '#7a3abf', purpleBg: 'rgba(122,58,191,0.08)', purpleBorder: 'rgba(122,58,191,0.28)',
   yellow: '#966612', yellowBg: 'rgba(150,102,18,0.10)',
-  font: DARK.font,
+  font: ds_type.fontFamily,
 };
 
 export const CONTRAST: typeof DARK = {
@@ -141,7 +141,7 @@ export const CONTRAST: typeof DARK = {
   red: '#ff5577', redBg: 'rgba(255,85,119,0.15)', redBorder: '#ff5577',
   purple: '#ff77ff', purpleBg: 'rgba(255,119,255,0.15)', purpleBorder: '#ff77ff',
   yellow: '#ffff00', yellowBg: 'rgba(255,255,0,0.15)',
-  font: DARK.font,
+  font: ds_type.fontFamily,
 };
 
 export const THEMES: Record<string, typeof DARK> = {

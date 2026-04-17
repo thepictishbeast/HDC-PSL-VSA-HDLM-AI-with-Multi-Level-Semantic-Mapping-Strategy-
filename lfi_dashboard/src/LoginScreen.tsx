@@ -56,7 +56,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
         type="password" autoFocus
         autoComplete="current-password" spellCheck={false} aria-label="Sovereign key"
         style={{
-          width: '100%', padding: '14px 16px',
+          width: '100%', padding: `${T.spacing.md} ${T.spacing.lg}`,
           background: 'rgba(0,0,0,0.3)', border: `1px solid ${C.accentBorder}`,
           borderRadius: T.radii.lg, outline: 'none', color: C.text,
           fontSize: T.typography.sizeXl, fontFamily: 'inherit', boxSizing: 'border-box', marginBottom: T.spacing.md,
@@ -75,7 +75,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
       )}
       <button onClick={onLogin} disabled={authLoading || !password}
         style={{
-          width: '100%', padding: '14px',
+          width: '100%', padding: T.spacing.md,
           background: C.accentBg, border: `1px solid ${C.accentBorder}`,
           borderRadius: T.radii.lg, color: C.accent, fontSize: T.typography.sizeBody, fontWeight: T.typography.weightBlack,
           textTransform: 'uppercase', letterSpacing: T.typography.trackingCap,
