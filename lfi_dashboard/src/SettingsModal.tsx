@@ -95,7 +95,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
       {/* ===== Profile tab ===== */}
       {tab === 'profile' && (
-        <div>
+        <div role='tabpanel' aria-label='Profile'>
           <label style={{ fontSize: '11px', fontWeight: 700, color: C.textMuted, textTransform: 'uppercase', letterSpacing: '0.08em' }}>Display Name</label>
           <input type='text' value={settings.displayName}
             onChange={(e) => setSettings(s => ({ ...s, displayName: e.target.value.slice(0, 40) }))}
@@ -182,7 +182,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
       {/* ===== Appearance tab ===== */}
       {tab === 'appearance' && (
-        <div>
+        <div role='tabpanel' aria-label='Appearance'>
           <label style={{ fontSize: '11px', fontWeight: 700, color: C.textMuted, textTransform: 'uppercase', letterSpacing: '0.08em' }}>Theme</label>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '10px', marginTop: '10px' }}>
             {([
@@ -296,7 +296,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
       {/* ===== Behavior tab ===== */}
       {tab === 'behavior' && (
-        <div>
+        <div role='tabpanel' aria-label='Behavior'>
           {([
             { key: 'sendOnEnter', label: 'Send on Enter', sub: 'Shift+Enter inserts a newline.' },
             { key: 'persistConversations', label: 'Save conversations locally', sub: 'Stored in this browser only; never uploaded. Per PSA policy.' },
@@ -370,7 +370,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
       {/* ===== Data tab ===== */}
       {tab === 'data' && (
-        <div>
+        <div role='tabpanel' aria-label='Data'>
           <div style={{ fontSize: '11px', fontWeight: 700, color: C.textMuted, textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: '10px' }}>Export</div>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
             <button onClick={onExportEvents}
