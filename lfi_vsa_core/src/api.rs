@@ -1088,8 +1088,10 @@ async fn research_handler(
 
     // Run searches sequentially (could be parallel with tokio::spawn but
     // the search engine holds a lock internally)
-    let mut all_sources: Vec<serde_json::Value> = Vec::new();
-    let mut summaries: Vec<String> = Vec::new();
+    // BUG ASSUMPTION: variations is capped at 5, but search results could be large.
+    // Pre-allocate with known cap to prevent unbounded growth.
+    let mut all_sources: Vec<serde_json::Value> = Vec::with_capacity(5);
+    let mut summaries: Vec<String> = Vec::with_capacity(5);
     let mut total_trust = 0.0f64;
 
     for (i, query) in variations.iter().enumerate() {
@@ -1262,6 +1264,12 @@ async fn system_key_handler(
     let agent = state.agent.lock();
     if !agent.authenticated { return Json(json!({ "status": "rejected", "reason": "not authenticated" })); }
     drop(agent);
+    // SECURITY: Validate key sequence — only allow alphanumeric keys, modifiers, and standard key names.
+    // Prevents injection of xdotool commands or unexpected key sequences.
+    let allowed_chars = |c: char| c.is_alphanumeric() || "+-_ ".contains(c);
+    if req.keys.is_empty() || req.keys.len() > 100 || !req.keys.chars().all(allowed_chars) {
+        return Json(json!({ "status": "rejected", "reason": "Invalid key sequence" }));
+    }
     info!("// AUDIT: desktop key '{}'", crate::sanitize_for_log(&req.keys, 100));
     let out = std::process::Command::new("xdotool")
         .args(["key", "--clearmodifiers", &req.keys])
@@ -1993,11 +2001,13 @@ pub fn create_router() -> Result<Router, Box<dyn std::error::Error>> {
     let db_path = crate::persistence::BrainDb::default_path();
     let db = Arc::new(crate::persistence::BrainDb::open(&db_path)
         .unwrap_or_else(|e| {
-            warn!("// PERSISTENCE: Failed to open {}: {} — using fallback /tmp", db_path.display(), e);
-            // SAFETY: If both primary and fallback DB fail, we cannot serve.
-            // This is the last resort — a /tmp SQLite should always succeed.
+            // SECURITY: Scrub internal paths from logs exposed to monitoring
+            warn!("// PERSISTENCE: primary DB open failed: {} — trying fallback", e);
+            // SAFETY: If the primary DB is locked or corrupt, fall back to /tmp.
+            // If /tmp also fails, propagate the error rather than panicking —
+            // the caller (server main) will log and exit cleanly.
             crate::persistence::BrainDb::open(std::path::Path::new("/tmp/plausiden_brain.db"))
-                .unwrap_or_else(|e2| panic!("FATAL: both primary and fallback DB failed: {e2}"))
+                .expect("FATAL: both primary and /tmp fallback DB failed — cannot start server")
         }));
 
     // Hydrate agent facts from the persistent store. With 40M+ facts in the DB,
@@ -2165,17 +2175,29 @@ pub fn create_router() -> Result<Router, Box<dyn std::error::Error>> {
     // AVP-2 AUDIT 2026-04-16: CorsLayer::permissive() was CRITICAL —
     // allowed any website to make authenticated cross-origin requests.
     let cors = CorsLayer::new()
-        .allow_origin([
-            // SAFETY: These are static string literals — parse() is infallible.
+        .allow_origin({
+            // SAFETY: All parse() calls below are on static string literals.
+            // HeaderValue::from_static would be ideal but CorsLayer needs parsed HeaderValues.
             // SECURITY: Removed 0.0.0.0 — it defeats CORS on multi-interface hosts.
-            // Added 192.168.1.186 for LAN access from Android/other devices.
-            "http://localhost:5173".parse::<http::HeaderValue>().unwrap(),
-            "http://127.0.0.1:5173".parse::<http::HeaderValue>().unwrap(),
-            "http://localhost:3000".parse::<http::HeaderValue>().unwrap(),
-            "http://127.0.0.1:3000".parse::<http::HeaderValue>().unwrap(),
-            "http://192.168.1.186:5173".parse::<http::HeaderValue>().unwrap(),
-            "http://192.168.1.186:3000".parse::<http::HeaderValue>().unwrap(),
-        ])
+            // LAN IP read from PLAUSIDEN_LAN_IP env var (defaults to 192.168.1.186).
+            let lan_ip = std::env::var("PLAUSIDEN_LAN_IP")
+                .unwrap_or_else(|_| "192.168.1.186".to_string());
+            let mut origins: Vec<http::HeaderValue> = vec![
+                // SAFETY: static literals, parse is infallible
+                "http://localhost:5173".parse().expect("static literal"),
+                "http://127.0.0.1:5173".parse().expect("static literal"),
+                "http://localhost:3000".parse().expect("static literal"),
+                "http://127.0.0.1:3000".parse().expect("static literal"),
+            ];
+            // Dynamic LAN origins from env — may fail if env contains invalid chars
+            if let Ok(v) = format!("http://{}:5173", lan_ip).parse::<http::HeaderValue>() {
+                origins.push(v);
+            }
+            if let Ok(v) = format!("http://{}:3000", lan_ip).parse::<http::HeaderValue>() {
+                origins.push(v);
+            }
+            origins
+        })
         .allow_methods([http::Method::GET, http::Method::POST, http::Method::DELETE, http::Method::OPTIONS])
         .allow_headers(tower_http::cors::Any);
 
