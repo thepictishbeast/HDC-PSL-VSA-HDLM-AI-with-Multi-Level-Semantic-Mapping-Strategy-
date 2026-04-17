@@ -11,6 +11,8 @@ import { ErrorAlert } from './components/ErrorAlert';
 import { SkeletonLoader } from './components/SkeletonLoader';
 // c2-350 / task 27: shared horizontal progress bar.
 import { BarChart } from './components/BarChart';
+// c2-351 / task 30: shared WAI-ARIA tablist.
+import { TabBar } from './components/TabBar';
 import { compactNum, formatRelative } from './util';
 
 // ClassroomView — full page (not modal) per c0-027. The "school" metaphor:
@@ -227,64 +229,46 @@ export const ClassroomView: React.FC<ClassroomViewProps> = ({ C, host, isDesktop
       animation: 'lfi-fadein 0.18s ease-out',
     }}>
       {/* Sub-nav — WAI-ARIA tablist with arrow-key navigation. */}
-      <div role='tablist' aria-label='Classroom sections'
-        onKeyDown={(e) => {
-          const idx = SUBS.findIndex(s => s.id === sub);
-          if (idx < 0) return;
-          if (e.key === 'ArrowRight') { e.preventDefault(); setSub(SUBS[(idx + 1) % SUBS.length].id); }
-          else if (e.key === 'ArrowLeft') { e.preventDefault(); setSub(SUBS[(idx - 1 + SUBS.length) % SUBS.length].id); }
-          else if (e.key === 'Home') { e.preventDefault(); setSub(SUBS[0].id); }
-          else if (e.key === 'End') { e.preventDefault(); setSub(SUBS[SUBS.length - 1].id); }
-        }}
-        style={{
-          display: 'flex', gap: '2px', padding: '0 24px',
-          borderBottom: `1px solid ${C.borderSubtle}`, overflowX: 'auto',
-          background: C.bgCard,
-        }}>
-        {SUBS.map(s => (
-          <button key={s.id} onClick={() => setSub(s.id)}
-            role='tab' aria-selected={sub === s.id} title={s.hint}
-            tabIndex={sub === s.id ? 0 : -1}
-            style={{
-              padding: '14px 16px', fontSize: T.typography.sizeMd, fontWeight: T.typography.weightSemibold,
-              background: 'transparent', border: 'none', cursor: 'pointer',
-              color: sub === s.id ? C.accent : C.textMuted,
-              borderBottom: `2px solid ${sub === s.id ? C.accent : 'transparent'}`,
-              marginBottom: '-1px', fontFamily: 'inherit', whiteSpace: 'nowrap',
-            }}>{s.label}</button>
-        ))}
-        {/* c2-259 / #121: manual refresh pushed to the right margin. Tabs
-            driven by fresh data (profile/curriculum/gradebook/lessons/reports)
-            already auto-poll at 10s but users want a force-reload after a
-            backend action. Spinner while load in-flight. */}
-        <div style={{ flex: 1 }} />
-        {/* c2-261: staleness indicator — hidden until the first successful
-            fetch so it doesn't flash "Updated 0s ago" before data lands. */}
-        {lastUpdated != null && (
-          <span aria-live='polite' style={{
-            alignSelf: 'center', fontSize: T.typography.sizeXs, color: C.textDim,
-            marginRight: T.spacing.sm, fontFamily: T.typography.fontMono,
-          }}>Updated {formatRelative(lastUpdated)}</span>
-        )}
-        <button onClick={load} disabled={loading} aria-label='Refresh classroom data'
-          title={loading ? 'Refreshing…' : 'Refresh (auto-refreshes every 10s on live tabs)'}
-          style={{
-            alignSelf: 'center', background: 'transparent',
-            border: `1px solid ${C.borderSubtle}`, color: C.textMuted,
-            borderRadius: T.radii.sm, cursor: loading ? 'wait' : 'pointer',
-            padding: '4px 8px', marginRight: T.spacing.md,
-            display: 'flex', alignItems: 'center', fontFamily: 'inherit',
-          }}>
-          <svg width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='currentColor'
-            strokeWidth='2.2' strokeLinecap='round' strokeLinejoin='round'
-            style={loading ? { animation: 'scc-cls-spin 0.8s linear infinite' } : undefined}>
-            <polyline points='23 4 23 10 17 10' />
-            <polyline points='1 20 1 14 7 14' />
-            <path d='M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15' />
-          </svg>
-        </button>
-        <style>{`@keyframes scc-cls-spin { to { transform: rotate(360deg); } }`}</style>
-      </div>
+      <TabBar<Sub> C={C} label='Classroom sections'
+        padding='0 24px'
+        background={C.bgCard}
+        tabs={SUBS.map(s => ({ id: s.id, label: s.label, title: s.hint }))}
+        active={sub}
+        onChange={setSub}
+        rightContent={(
+          /* c2-259 / #121: manual refresh pushed to the right margin. Tabs
+             driven by fresh data (profile/curriculum/gradebook/lessons/reports)
+             already auto-poll at 10s but users want a force-reload after a
+             backend action. Spinner while load in-flight. */
+          <>
+            {/* c2-261: staleness indicator — hidden until the first successful
+                fetch so it doesn't flash "Updated 0s ago" before data lands. */}
+            {lastUpdated != null && (
+              <span aria-live='polite' style={{
+                alignSelf: 'center', fontSize: T.typography.sizeXs, color: C.textDim,
+                marginRight: T.spacing.sm, fontFamily: T.typography.fontMono,
+              }}>Updated {formatRelative(lastUpdated)}</span>
+            )}
+            <button onClick={load} disabled={loading} aria-label='Refresh classroom data'
+              title={loading ? 'Refreshing…' : 'Refresh (auto-refreshes every 10s on live tabs)'}
+              style={{
+                alignSelf: 'center', background: 'transparent',
+                border: `1px solid ${C.borderSubtle}`, color: C.textMuted,
+                borderRadius: T.radii.sm, cursor: loading ? 'wait' : 'pointer',
+                padding: '4px 8px', marginRight: T.spacing.md,
+                display: 'flex', alignItems: 'center', fontFamily: 'inherit',
+              }}>
+              <svg width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='currentColor'
+                strokeWidth='2.2' strokeLinecap='round' strokeLinejoin='round'
+                style={loading ? { animation: 'scc-cls-spin 0.8s linear infinite' } : undefined}>
+                <polyline points='23 4 23 10 17 10' />
+                <polyline points='1 20 1 14 7 14' />
+                <path d='M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15' />
+              </svg>
+            </button>
+            <style>{`@keyframes scc-cls-spin { to { transform: rotate(360deg); } }`}</style>
+          </>
+        )} />
 
       {/* Body */}
       <div role='tabpanel' aria-label={sub}

@@ -14,5 +14,6 @@ export { ErrorAlert } from './ErrorAlert';
 export { Label } from './Label';
 export { SkeletonLoader } from './SkeletonLoader';
 export { StatCard } from './StatCard';
+export { TabBar } from './TabBar';
+export type { TabDef } from './TabBar';
 // DataTable  -- task 26, pending
-// TabBar     -- task 30, pending

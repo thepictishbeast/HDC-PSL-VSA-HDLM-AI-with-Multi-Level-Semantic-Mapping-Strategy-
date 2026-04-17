@@ -14,6 +14,8 @@ import { ErrorAlert } from './components/ErrorAlert';
 import { SkeletonLoader } from './components/SkeletonLoader';
 // c2-350 / task 27: shared horizontal progress bar.
 import { BarChart } from './components/BarChart';
+// c2-351 / task 30: shared WAI-ARIA tablist.
+import { TabBar } from './components/TabBar';
 
 // Full-screen admin modal per c0-017. Six tabs: Dashboard / Domains /
 // Training / Quality / System / Logs. Replaces the prior sidebar-slide admin
@@ -331,21 +333,10 @@ export const AdminModal: React.FC<AdminModalProps> = ({
         <style>{`@keyframes scc-admin-spin { to { transform: rotate(360deg); } }`}</style>
 
         {/* Tab bar — WAI-ARIA tablist with arrow-key navigation. */}
-        <div role='tablist' aria-label='Admin sections'
-          onKeyDown={(e) => {
-            const all: AdminTab[] = ['dashboard', 'inventory', 'domains', 'training', 'quality', 'system', 'fleet', 'logs'];
-            const idx = all.indexOf(tab);
-            if (idx < 0) return;
-            if (e.key === 'ArrowRight') { e.preventDefault(); setTab(all[(idx + 1) % all.length]); }
-            else if (e.key === 'ArrowLeft') { e.preventDefault(); setTab(all[(idx - 1 + all.length) % all.length]); }
-            else if (e.key === 'Home') { e.preventDefault(); setTab(all[0]); }
-            else if (e.key === 'End') { e.preventDefault(); setTab(all[all.length - 1]); }
-          }}
-          style={{
-            display: 'flex', gap: '2px', padding: '0 22px',
-            borderBottom: `1px solid ${C.borderSubtle}`, overflowX: 'auto',
-          }}>
-          {([
+        <TabBar<AdminTab> C={C} label='Admin sections'
+          padding='0 22px'
+          weight={T.typography.weightBold}
+          tabs={[
             { id: 'dashboard', label: 'Dashboard' },
             { id: 'inventory', label: 'Inventory' },
             { id: 'domains', label: 'Domains' },
@@ -354,20 +345,9 @@ export const AdminModal: React.FC<AdminModalProps> = ({
             { id: 'system', label: 'System' },
             { id: 'fleet', label: 'Fleet' },
             { id: 'logs', label: 'Logs' },
-          ] as const).map(t => (
-            <button key={t.id} onClick={() => setTab(t.id)}
-              role='tab' aria-selected={tab === t.id}
-              tabIndex={tab === t.id ? 0 : -1}
-              style={{
-                padding: '12px 16px', fontSize: T.typography.sizeMd, fontWeight: T.typography.weightBold,
-                background: 'transparent', border: 'none', cursor: 'pointer',
-                color: tab === t.id ? C.accent : C.textMuted,
-                borderBottom: `2px solid ${tab === t.id ? C.accent : 'transparent'}`,
-                marginBottom: '-1px', fontFamily: 'inherit',
-                whiteSpace: 'nowrap',
-              }}>{t.label}</button>
-          ))}
-        </div>
+          ]}
+          active={tab}
+          onChange={setTab} />
 
         {/* Body */}
         <div role='tabpanel' aria-label={tab} style={{ flex: 1, overflowY: 'auto', padding: '20px 22px' }}>
