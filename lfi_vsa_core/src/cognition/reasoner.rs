@@ -1161,16 +1161,42 @@ impl CognitiveCore {
                 "-H", "Content-Type: application/json",
                 "-d", &body_str,
             ])
-            .output()
-            .ok()?;
+            .output();
 
-        if !output.status.success() { return None; }
+        // AUDIT FIX #4: Log Ollama errors instead of silently returning None
+        let output = match output {
+            Ok(o) => o,
+            Err(e) => {
+                tracing::warn!("// OLLAMA: curl failed to execute: {}", e);
+                return None;
+            }
+        };
+
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            tracing::warn!("// OLLAMA: curl returned status {}: {}", output.status, stderr.chars().take(200).collect::<String>());
+            return None;
+        }
 
         let resp = String::from_utf8_lossy(&output.stdout);
-        // Parse Ollama JSON response
-        let parsed: serde_json::Value = serde_json::from_str(&resp).ok()?;
-        let answer = parsed.get("response")?.as_str()?.trim().to_string();
-        if answer.is_empty() || answer.len() < 10 { return None; }
+        let parsed: serde_json::Value = match serde_json::from_str(&resp) {
+            Ok(v) => v,
+            Err(e) => {
+                tracing::warn!("// OLLAMA: JSON parse failed: {} (first 200 chars: {})", e, resp.chars().take(200).collect::<String>());
+                return None;
+            }
+        };
+        let answer = match parsed.get("response").and_then(|v| v.as_str()) {
+            Some(a) if a.trim().len() >= 10 => a.trim().to_string(),
+            Some(a) => {
+                tracing::debug!("// OLLAMA: response too short ({} chars)", a.len());
+                return None;
+            }
+            None => {
+                tracing::warn!("// OLLAMA: no 'response' field in JSON");
+                return None;
+            }
+        };
         Some(answer)
     }
 

@@ -645,15 +645,25 @@ async fn chat_log_handler(
         return Json(json!({ "error": "Authentication required" }));
     }
     let limit: usize = q.get("limit").and_then(|s| s.parse().ok()).unwrap_or(50).min(500);
-    let content = std::fs::read_to_string("/var/log/lfi/chat.jsonl").unwrap_or_default();
-    // Collect the tail without allocating the whole thing twice.
-    let mut lines: Vec<serde_json::Value> = content
-        .lines()
-        .rev()
-        .take(limit)
-        .filter_map(|l| serde_json::from_str(l).ok())
-        .collect();
-    lines.reverse();
+    // AUDIT FIX #9: Don't load unbounded file. Read last 1MB max.
+    let max_bytes: u64 = 1_024_1024;
+    let mut lines: Vec<serde_json::Value> = Vec::new();
+    if let Ok(file) = std::fs::File::open("/var/log/lfi/chat.jsonl") {
+        use std::io::{Read, Seek, SeekFrom};
+        let mut file = file;
+        let file_len = file.metadata().map(|m| m.len()).unwrap_or(0);
+        if file_len > max_bytes {
+            let _ = file.seek(SeekFrom::End(-(max_bytes as i64)));
+        }
+        let mut buf = String::new();
+        let _ = file.read_to_string(&mut buf);
+        lines = buf.lines()
+            .rev()
+            .take(limit)
+            .filter_map(|l| serde_json::from_str(l).ok())
+            .collect();
+        lines.reverse();
+    }
     // SECURITY: Don't leak filesystem paths in response.
     Json(json!({
         "count": lines.len(),
