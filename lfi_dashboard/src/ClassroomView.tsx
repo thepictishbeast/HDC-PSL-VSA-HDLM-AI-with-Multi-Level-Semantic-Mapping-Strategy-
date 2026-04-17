@@ -23,6 +23,9 @@ export interface ClassroomViewProps {
   C: any;
   host: string;
   isDesktop: boolean;
+  // Optional: recent feedback/UI events captured locally. When provided,
+  // Office Hours renders a quick activity log instead of a placeholder.
+  localEvents?: Array<{ t: number; kind: string; data?: any }>;
 }
 
 const SUBS: Array<{ id: Sub; label: string; hint: string }> = [
@@ -48,7 +51,7 @@ const pctNorm = (raw: number | undefined): number | null => {
   return raw <= 1.5 ? raw * 100 : raw;
 };
 
-export const ClassroomView: React.FC<ClassroomViewProps> = ({ C, host, isDesktop }) => {
+export const ClassroomView: React.FC<ClassroomViewProps> = ({ C, host, isDesktop, localEvents = [] }) => {
   const [sub, setSub] = useState<Sub>('profile');
   const [data, setData] = useState<DashboardShape | null>(null);
   const [err, setErr] = useState<string | null>(null);
@@ -322,9 +325,7 @@ export const ClassroomView: React.FC<ClassroomViewProps> = ({ C, host, isDesktop
 
         {/* --- Office Hours --- */}
         {sub === 'office' && (
-          <Placeholder C={C} title='Office Hours'
-            body='Review user feedback (thumbs-down categories + free-text). Awaiting /api/classroom/feedback endpoint. Until then, feedback is logged to logs and forwarded via /api/feedback.'
-            data={null} />
+          <OfficeHoursTab C={C} events={localEvents} />
         )}
 
         {/* --- Library --- */}
@@ -362,6 +363,71 @@ const DomainBars: React.FC<{ C: any; rows: Array<{ domain: string; count: number
           <span style={{ width: '96px', textAlign: 'right', fontSize: '12px', fontFamily: 'ui-monospace, monospace', color: C.textMuted }}>{r.count.toLocaleString()}</span>
         </div>
       ))}
+    </div>
+  );
+};
+
+const OfficeHoursTab: React.FC<{ C: any; events: Array<{ t: number; kind: string; data?: any }> }> = ({ C, events }) => {
+  const feedback = events
+    .filter(e => e.kind === 'feedback_positive' || e.kind === 'feedback_negative')
+    .slice()
+    .reverse();
+  const posCount = feedback.filter(e => e.kind === 'feedback_positive').length;
+  const negCount = feedback.length - posCount;
+  return (
+    <div>
+      <h2 style={{ fontSize: '18px', fontWeight: 600, color: C.text, margin: '0 0 12px' }}>Office Hours</h2>
+      <p style={{ fontSize: '13px', color: C.textSecondary, margin: '0 0 16px', lineHeight: 1.55 }}>
+        Review user feedback captured from thumbs-up/down on AI responses.
+        Session-local only until /api/classroom/feedback aggregates server-side history.
+      </p>
+      <div style={{ display: 'flex', gap: T.spacing.md, marginBottom: T.spacing.xl }}>
+        <div style={{ flex: 1, padding: T.spacing.md, background: C.greenBg, border: `1px solid ${C.greenBorder}`, borderRadius: T.radii.md }}>
+          <div style={{ fontSize: '10px', fontWeight: T.typography.weightBold, color: C.green, textTransform: 'uppercase', letterSpacing: T.typography.trackingLoose }}>Positive</div>
+          <div style={{ fontSize: '22px', fontWeight: T.typography.weightBlack, color: C.green, fontFamily: 'ui-monospace, monospace' }}>{posCount}</div>
+        </div>
+        <div style={{ flex: 1, padding: T.spacing.md, background: C.redBg, border: `1px solid ${C.redBorder}`, borderRadius: T.radii.md }}>
+          <div style={{ fontSize: '10px', fontWeight: T.typography.weightBold, color: C.red, textTransform: 'uppercase', letterSpacing: T.typography.trackingLoose }}>Negative</div>
+          <div style={{ fontSize: '22px', fontWeight: T.typography.weightBlack, color: C.red, fontFamily: 'ui-monospace, monospace' }}>{negCount}</div>
+        </div>
+      </div>
+      {feedback.length === 0 ? (
+        <div style={{ padding: '40px', textAlign: 'center', color: C.textMuted, fontSize: '13px', fontStyle: 'italic' }}>
+          No feedback captured this session yet. Use 👍 / 👎 on any AI response to populate this log.
+        </div>
+      ) : (
+        <div style={{ border: `1px solid ${C.borderSubtle}`, borderRadius: T.radii.md, overflow: 'hidden' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px' }}>
+            <thead>
+              <tr>
+                <th style={{ textAlign: 'left', padding: '8px 12px', fontWeight: T.typography.weightBold, color: C.textSecondary, background: C.bgCard, borderBottom: `1px solid ${C.borderSubtle}` }}>When</th>
+                <th style={{ textAlign: 'left', padding: '8px 12px', fontWeight: T.typography.weightBold, color: C.textSecondary, background: C.bgCard, borderBottom: `1px solid ${C.borderSubtle}` }}>Rating</th>
+                <th style={{ textAlign: 'left', padding: '8px 12px', fontWeight: T.typography.weightBold, color: C.textSecondary, background: C.bgCard, borderBottom: `1px solid ${C.borderSubtle}` }}>Category</th>
+                <th style={{ textAlign: 'left', padding: '8px 12px', fontWeight: T.typography.weightBold, color: C.textSecondary, background: C.bgCard, borderBottom: `1px solid ${C.borderSubtle}` }}>Detail</th>
+              </tr>
+            </thead>
+            <tbody>
+              {feedback.slice(0, 50).map((e, i) => {
+                const isPos = e.kind === 'feedback_positive';
+                const category = e.data?.category || (isPos ? '—' : '—');
+                const msgId = e.data?.msgId != null ? `msg ${e.data.msgId}` : '';
+                return (
+                  <tr key={i}>
+                    <td style={{ padding: '8px 12px', color: C.textMuted, fontFamily: 'ui-monospace, monospace' }}>
+                      {new Date(e.t).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                    </td>
+                    <td style={{ padding: '8px 12px', color: isPos ? C.green : C.red, fontWeight: T.typography.weightBold }}>
+                      {isPos ? 'Positive' : 'Negative'}
+                    </td>
+                    <td style={{ padding: '8px 12px', color: C.text }}>{category}</td>
+                    <td style={{ padding: '8px 12px', color: C.textMuted, fontFamily: 'ui-monospace, monospace' }}>{msgId}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
     </div>
   );
 };

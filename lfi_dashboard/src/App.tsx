@@ -2992,7 +2992,7 @@ ${cmdList}
               Loading classroom…
             </div>
           }>
-            <ClassroomView C={C} host={host} isDesktop={isDesktop} />
+            <ClassroomView C={C} host={host} isDesktop={isDesktop} localEvents={localEvents} />
           </React.Suspense>
         )}
         <main id='main-content' role='main' aria-label='Chat' style={{
