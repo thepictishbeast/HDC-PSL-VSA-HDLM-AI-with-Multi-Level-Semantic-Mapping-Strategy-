@@ -2,65 +2,69 @@
 // maps the string key used in localStorage / Settings to its palette.
 
 export const DARK = {
-  // Ported from reference: Ideas-for-improvement.jsx "onyx" tokens
-  bg: '#08080D',
-  bgCard: '#0C0C14',
-  bgInput: '#13131E',
-  bgHover: '#1A1A28',
-  border: 'rgba(255,255,255,0.10)',
-  borderFocus: 'rgba(139,123,247,0.60)',
-  borderSubtle: 'rgba(255,255,255,0.06)',
-  text: '#E8E6F0',
-  textSecondary: '#9A96AD',
-  textMuted: '#6B6780',
-  textDim: '#4A4660',
-  accent: '#8b7bf7',           // desaturated indigo-violet — enterprise calm
-  accentGlow: 'rgba(139,123,247,0.35)',
-  accentBg: 'rgba(139,123,247,0.10)',
-  accentBorder: 'rgba(139,123,247,0.28)',
-  green: '#22c55e',            // vivid emerald — reads as success, clearly green
-  greenBg: 'rgba(34,197,94,0.12)',
-  greenBorder: 'rgba(34,197,94,0.28)',
-  red: '#ff6f81',
-  redBg: 'rgba(255,111,129,0.10)',
-  redBorder: 'rgba(255,111,129,0.24)',
-  purple: '#e879f9',           // magenta-leaning — distinct from the indigo accent
-  purpleBg: 'rgba(232,121,249,0.10)',
-  purpleBorder: 'rgba(232,121,249,0.28)',
-  yellow: '#ffd36b',
-  yellowBg: 'rgba(255,211,107,0.10)',
+  // c0-018 THEME OVERHAUL 2026-04-17: Linear/Vercel/Raycast aesthetic.
+  // Layered depth via subtle bg variation (surface → elevated), warm-white
+  // text, indigo #6366f1 primary accent, emerald / amber / rose accents.
+  bg: '#0a0a0f',              // --bg-deep
+  bgCard: '#12121a',          // --bg-surface
+  bgInput: '#1a1a2e',         // --bg-elevated
+  bgHover: '#22223a',         // --bg-hover
+  border: '#2a2a40',          // --border-default
+  borderFocus: 'rgba(99,102,241,0.60)',    // indigo 60%
+  borderSubtle: '#1e1e30',    // --border-subtle
+  text: '#e8e8f0',            // warm white
+  textSecondary: '#8888a0',   // --text-secondary
+  textMuted: '#555570',       // --text-tertiary
+  textDim: '#3a3a55',         // --border-strong as dim text reference
+  accent: '#6366f1',          // indigo — primary actions
+  accentGlow: 'rgba(99,102,241,0.35)',
+  accentBg: 'rgba(99,102,241,0.12)',
+  accentBorder: 'rgba(99,102,241,0.30)',
+  green: '#34d399',           // emerald — positive
+  greenBg: 'rgba(52,211,153,0.12)',
+  greenBorder: 'rgba(52,211,153,0.30)',
+  red: '#f87171',             // rose red — errors
+  redBg: 'rgba(248,113,113,0.12)',
+  redBorder: 'rgba(248,113,113,0.30)',
+  purple: '#a78bfa',          // softer violet — secondary accent
+  purpleBg: 'rgba(167,139,250,0.12)',
+  purpleBorder: 'rgba(167,139,250,0.30)',
+  yellow: '#fbbf24',          // amber — caution
+  yellowBg: 'rgba(251,191,36,0.12)',
   // Per Architectural Bible §6.3: DM Sans (distinctive, not generic).
   // Mono reserved for code blocks + reasoning/PLAN.
   font: "'DM Sans', 'Outfit', 'Satoshi', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
 };
 
 export const LIGHT: typeof DARK = {
-  bg: '#FAFAFA',
-  bgCard: '#FFFFFF',
-  bgInput: '#F5F3F7',
-  bgHover: '#F0ECF4',
-  border: 'rgba(0,0,0,0.10)',
-  borderFocus: 'rgba(124,107,240,0.55)',
-  borderSubtle: 'rgba(0,0,0,0.06)',
-  text: '#1A1525',
-  textSecondary: '#6B6280',
-  textMuted: '#9A93AD',
-  textDim: '#B5B0C5',
-  accent: '#7C6BF0',
-  accentGlow: 'rgba(124,107,240,0.28)',
-  accentBg: 'rgba(124,107,240,0.08)',
-  accentBorder: 'rgba(92,74,220,0.28)',
-  green: '#108a4e',
-  greenBg: 'rgba(16,138,78,0.10)',
-  greenBorder: 'rgba(16,138,78,0.30)',
-  red: '#b83040',
-  redBg: 'rgba(184,48,64,0.08)',
-  redBorder: 'rgba(184,48,64,0.28)',
-  purple: '#b520c8',
-  purpleBg: 'rgba(181,32,200,0.08)',
-  purpleBorder: 'rgba(181,32,200,0.30)',
-  yellow: '#966612',
-  yellowBg: 'rgba(150,102,18,0.10)',
+  // c0-018 THEME OVERHAUL: warm-gray page, pure-white surfaces, deeper
+  // indigo accent for AA contrast on white, deeper success/warn/danger.
+  bg: '#f8f9fc',              // --bg-deep, warm gray
+  bgCard: '#ffffff',          // --bg-surface
+  bgInput: '#f0f1f5',         // --bg-hover (used as elevated input bg)
+  bgHover: '#e8e9f0',         // --bg-active
+  border: '#d1d5e0',          // --border-default
+  borderFocus: 'rgba(79,70,229,0.55)',
+  borderSubtle: '#e8e9f0',    // --border-subtle
+  text: '#1a1a2e',            // near-black with blue tint
+  textSecondary: '#6b6b80',
+  textMuted: '#9b9bb0',
+  textDim: '#b0b5c5',
+  accent: '#4f46e5',          // deeper indigo for AA on white
+  accentGlow: 'rgba(79,70,229,0.25)',
+  accentBg: 'rgba(79,70,229,0.08)',
+  accentBorder: 'rgba(79,70,229,0.28)',
+  green: '#059669',           // deeper emerald
+  greenBg: 'rgba(5,150,105,0.10)',
+  greenBorder: 'rgba(5,150,105,0.30)',
+  red: '#dc2626',             // deeper red
+  redBg: 'rgba(220,38,38,0.08)',
+  redBorder: 'rgba(220,38,38,0.28)',
+  purple: '#7c3aed',          // deeper violet
+  purpleBg: 'rgba(124,58,237,0.08)',
+  purpleBorder: 'rgba(124,58,237,0.28)',
+  yellow: '#d97706',          // deeper amber
+  yellowBg: 'rgba(217,119,6,0.10)',
   font: DARK.font,
 };
 

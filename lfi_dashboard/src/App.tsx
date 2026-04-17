@@ -51,6 +51,7 @@ import { WelcomeScreen } from './WelcomeScreen';
 import { FactsPanel } from './FactsPanel';
 import { QosPanel } from './QosPanel';
 import { DomainsPanel } from './DomainsPanel';
+import { AccuracyPanel } from './AccuracyPanel';
 import { TelemetryCard } from './TelemetryCards';
 import { SidebarStatus } from './SidebarStatus';
 import { SubstrateTelemetry } from './SubstrateTelemetry';
@@ -1716,6 +1717,7 @@ ${cmdList}
         <FactsPanel C={C} facts={facts} fetchedAt={factsFetchedAt} error={factsError} />
         <QosPanel C={C} report={qosReport} fetchedAt={qosFetchedAt} error={qosError} />
         <DomainsPanel C={C} host={host} />
+        <AccuracyPanel C={C} host={host} />
       </AdminActions>
     </aside>
   );
