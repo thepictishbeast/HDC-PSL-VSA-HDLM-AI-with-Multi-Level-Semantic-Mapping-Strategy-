@@ -52,6 +52,12 @@ pub struct LfiAgent {
     /// Causal reasoning graph — Pearl's 3-level framework.
     /// SUPERSOCIETY: Transforms "what IS" into "what WOULD HAPPEN IF".
     pub causal_graph: crate::cognition::causal::CausalGraph,
+    /// Global Workspace — capacity-bounded attention bottleneck.
+    pub workspace: crate::cognition::global_workspace::GlobalWorkspace,
+    /// Grokking phase monitor — detects memorization→cleanup transitions.
+    pub grok_monitor: crate::cognition::grokking_monitor::GrokMonitor,
+    /// Commitment registry — cross-cutting commit-reveal fabric.
+    pub commitments: crate::crypto_commitment::CommitmentRegistry,
 }
 
 impl LfiAgent {
@@ -138,6 +144,9 @@ impl LfiAgent {
             provenance: Arc::new(Mutex::new(ProvenanceEngine::new())),
             rag_context: Vec::new(),
             causal_graph: crate::cognition::causal::CausalGraph::new(),
+            workspace: crate::cognition::global_workspace::GlobalWorkspace::standard(),
+            grok_monitor: crate::cognition::grokking_monitor::GrokMonitor::new(100),
+            commitments: crate::crypto_commitment::CommitmentRegistry::new(),
         })
     }
 
