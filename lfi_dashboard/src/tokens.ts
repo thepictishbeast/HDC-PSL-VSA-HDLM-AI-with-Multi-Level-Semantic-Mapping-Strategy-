@@ -1,0 +1,97 @@
+// Design tokens — non-color primitives. Palette values live in `themes.ts`;
+// this file owns everything else (spacing, radii, shadows, motion, type scale).
+//
+// Phase 1.2 of FRONTEND_SUPERSOCIETY_PLAN.md. Target is a 4/8 px grid so all
+// layouts snap to consistent rhythm (AVP-2 §30 design-system consistency).
+
+// ---- Spacing (4 px base; step 1 = 4 px, step 2 = 8 px, … ) ----
+// Named in conventional t-shirt sizes for legibility.
+export const spacing = {
+  none: '0',
+  xs: '4px',   // 1 step
+  sm: '8px',   // 2 step
+  md: '12px',  // 3 step
+  lg: '16px',  // 4 step
+  xl: '24px',  // 6 step
+  xxl: '32px', // 8 step
+  xxxl: '48px',// 12 step
+} as const;
+
+// ---- Radii ----
+export const radii = {
+  xs: '4px',
+  sm: '6px',
+  md: '8px',
+  lg: '10px',
+  xl: '12px',
+  xxl: '16px',
+  round: '50%',
+} as const;
+
+// ---- Shadows ----
+// Layered set of elevations. Card-light for resting UI; modal for overlays.
+export const shadows = {
+  none: 'none',
+  cardLight: '0 2px 18px rgba(0,0,0,0.12)',
+  card: '0 4px 22px rgba(0,0,0,0.28)',
+  modal: '0 24px 60px rgba(0,0,0,0.45)',
+  modalDeep: '0 12px 48px rgba(0,0,0,0.6)',
+} as const;
+
+// ---- Motion ----
+// Standardized durations. Prefer `fast` (120 ms) for hovers,
+// `base` (200 ms) for most transitions, `slow` (300 ms) for modal transitions.
+export const motion = {
+  fast: '120ms',
+  base: '200ms',
+  slow: '300ms',
+  easeOut: 'cubic-bezier(0.16, 1, 0.3, 1)',
+  easeInOut: 'cubic-bezier(0.4, 0, 0.2, 1)',
+} as const;
+
+// ---- Typography scale ----
+// Ordered so readers can pick a step by visual hierarchy without doing math.
+// `body` is the default; step up/down one level at a time for contrast.
+export const typography = {
+  // Sizes
+  sizeXs: '11px',    // metadata, badges
+  sizeSm: '12px',    // secondary text
+  sizeMd: '13px',    // body-adjacent
+  sizeBody: '14px',  // body default
+  sizeLg: '15.5px',  // chat input
+  sizeXl: '16px',    // heading-5
+  size2xl: '18px',   // heading-4
+  size3xl: '22px',   // heading-3
+  // Weights
+  weightRegular: 400,
+  weightMedium: 500,
+  weightSemibold: 600,
+  weightBold: 700,
+  weightBlack: 800,
+  // Line heights
+  lineTight: 1.3,
+  lineNormal: 1.55,
+  lineLoose: 1.7,
+  // Letter spacing — used on all-caps labels to reduce tightness
+  trackingTight: '-0.01em',
+  trackingNormal: '0',
+  trackingLoose: '0.10em',
+  trackingCap: '0.15em',
+  trackingCapWide: '0.20em',
+} as const;
+
+// ---- Z-index scale ----
+// Named so the render order is easy to reason about at a glance.
+export const z = {
+  base: 0,
+  sticky: 10,
+  overlay: 100,
+  modal: 200,
+  palette: 220,
+  toast: 300,
+} as const;
+
+// Convenience re-export for brevity at call sites:
+//   import { T } from './tokens';
+//   style={{ padding: T.spacing.lg, borderRadius: T.radii.xl }}
+export const T = { spacing, radii, shadows, motion, typography, z } as const;

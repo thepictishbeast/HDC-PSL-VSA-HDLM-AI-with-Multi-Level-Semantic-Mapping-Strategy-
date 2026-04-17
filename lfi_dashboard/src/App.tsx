@@ -496,6 +496,10 @@ ${cmdList}
   const telemetryWsRef = useRef<WebSocket | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  // Ref-based send lock. Closes a race where rapid Enter presses can call
+  // handleSend twice before React flushes setInput('') — the second call
+  // reads stale `input` from closure and would double-post.
+  const sendingRef = useRef(false);
 
   // ---- Helpers ----
   const getHost = () => {
@@ -1090,9 +1094,11 @@ ${cmdList}
   // web/analyze/opsec hit REST endpoints and render results inline without
   // disturbing the conversation flow.
   const handleSend = async () => {
+    if (sendingRef.current) return; // guard: in-flight send in progress
     const trimmed = input.trim();
     console.debug("// SCC: handleSend, len:", trimmed.length, "skill:", activeSkill);
     if (!trimmed) return;
+    sendingRef.current = true;
 
     // Record user message.
     setMessages(prev => [...prev, {
@@ -1280,6 +1286,7 @@ ${cmdList}
       }]);
       setIsThinking(false);
     } finally {
+      sendingRef.current = false;
       inputRef.current?.focus();
     }
   };
@@ -2576,6 +2583,7 @@ ${cmdList}
                 aria-label='Chat message input'
                 autoComplete='off'
                 spellCheck={true}
+                dir='auto'
                 value={input}
                 onChange={handleInputChange}
                 onKeyDown={(e) => {
@@ -2598,6 +2606,7 @@ ${cmdList}
                   if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); }
                 }}
                 placeholder={settings.sendOnEnter ? 'Message PlausiDen AI' : 'Message PlausiDen AI (click send when ready)'}
+                maxLength={100000}
                 style={{
                   background: 'transparent', border: 'none', outline: 'none',
                   resize: 'none', fontSize: '15.5px', lineHeight: '1.55',
@@ -2793,10 +2802,11 @@ ${cmdList}
                 {/* Send */}
                 <button
                   onClick={handleSend}
-                  disabled={!input.trim() || !isConnected}
+                  disabled={!input.trim() || !isConnected || isThinking}
                   className="scc-send-btn"
                   title='Send (Enter)'
-                  aria-label='Send message'
+                  aria-label={isThinking ? 'Sending…' : 'Send message'}
+                  aria-busy={isThinking}
                   style={{
                     width: '36px', height: '36px',
                     display: 'flex', alignItems: 'center', justifyContent: 'center',

@@ -1,5 +1,6 @@
 import React, { useRef } from 'react';
 import { useModalFocus } from './useModalFocus';
+import { T } from './tokens';
 
 // Keyboard-shortcut cheatsheet. Opened with "?" (standard pattern from
 // GitHub/Gmail/etc). Content is static — if shortcuts change in App.tsx,
@@ -52,17 +53,17 @@ export const ShortcutsModal: React.FC<ShortcutsModalProps> = ({ C, onClose }) =>
         position: 'fixed', inset: 0, zIndex: 240,
         background: 'rgba(0,0,0,0.55)',
         display: 'flex', alignItems: 'center', justifyContent: 'center',
-        padding: '16px',
+        padding: T.spacing.lg,
       }}>
       <div ref={dialogRef} role='dialog' aria-modal='true' aria-label='Keyboard shortcuts'
         onClick={(e) => e.stopPropagation()}
         style={{
           width: '100%', maxWidth: '520px', maxHeight: '85vh', overflowY: 'auto',
-          background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: '14px',
-          padding: '24px', boxShadow: '0 24px 60px rgba(0,0,0,0.45)',
+          background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: T.radii.xxl,
+          padding: T.spacing.xl, boxShadow: T.shadows.modal,
         }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-          <h2 style={{ margin: 0, fontSize: '15px', fontWeight: 800, letterSpacing: '0.12em', textTransform: 'uppercase', color: C.text }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: T.spacing.lg }}>
+          <h2 style={{ margin: 0, fontSize: '15px', fontWeight: T.typography.weightBlack, letterSpacing: '0.12em', textTransform: 'uppercase', color: C.text }}>
             Keyboard Shortcuts
           </h2>
           <button onClick={onClose} aria-label='Close shortcuts'
@@ -73,24 +74,24 @@ export const ShortcutsModal: React.FC<ShortcutsModalProps> = ({ C, onClose }) =>
         {SHORTCUTS.map(g => (
           <div key={g.group} style={{ marginBottom: '18px' }}>
             <div style={{
-              fontSize: '10px', fontWeight: 700, color: C.textMuted,
-              textTransform: 'uppercase', letterSpacing: '0.12em', marginBottom: '8px',
+              fontSize: '10px', fontWeight: T.typography.weightBold, color: C.textMuted,
+              textTransform: 'uppercase', letterSpacing: '0.12em', marginBottom: T.spacing.sm,
             }}>{g.group}</div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
               {g.items.map((sc, i) => (
                 <div key={i} style={{
                   display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                  fontSize: '13px', padding: '4px 0',
+                  fontSize: T.typography.sizeMd, padding: '4px 0',
                 }}>
                   <span style={{ color: C.textSecondary }}>{sc.label}</span>
-                  <span style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
+                  <span style={{ display: 'flex', gap: T.spacing.xs, alignItems: 'center' }}>
                     {sc.keys.map((k, j) => (
                       <React.Fragment key={j}>
-                        {j > 0 && <span style={{ color: C.textDim, fontSize: '11px' }}>+</span>}
+                        {j > 0 && <span style={{ color: C.textDim, fontSize: T.typography.sizeXs }}>+</span>}
                         <kbd style={{
-                          padding: '2px 8px', fontSize: '11px', fontWeight: 700,
+                          padding: '2px 8px', fontSize: T.typography.sizeXs, fontWeight: T.typography.weightBold,
                           background: C.bgInput, border: `1px solid ${C.borderSubtle}`,
-                          borderRadius: '4px', color: C.text,
+                          borderRadius: T.radii.xs, color: C.text,
                           fontFamily: "'JetBrains Mono', monospace",
                           minWidth: '22px', textAlign: 'center',
                         }}>{renderKey(k)}</kbd>
@@ -103,8 +104,8 @@ export const ShortcutsModal: React.FC<ShortcutsModalProps> = ({ C, onClose }) =>
           </div>
         ))}
         <div style={{
-          fontSize: '11px', color: C.textDim, textAlign: 'center',
-          paddingTop: '8px', borderTop: `1px solid ${C.borderSubtle}`,
+          fontSize: T.typography.sizeXs, color: C.textDim, textAlign: 'center',
+          paddingTop: T.spacing.sm, borderTop: `1px solid ${C.borderSubtle}`,
         }}>
           Press <kbd style={{
             padding: '1px 6px', fontSize: '10px',

@@ -1,4 +1,5 @@
 import React from 'react';
+import { T } from './tokens';
 
 // Login gate shown when isAuthenticated is false. Kept as a pure render — all
 // state + handlers come in via props. Theme/palette passed as `C` opaquely so
@@ -20,20 +21,20 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
   <div style={{
     display: 'flex', alignItems: 'center', justifyContent: 'center',
     minHeight: '100vh', width: '100%',
-    background: C.bg, padding: isMobile ? '24px' : '48px',
+    background: C.bg, padding: isMobile ? T.spacing.xl : T.spacing.xxxl,
     fontFamily: C.font,
   }}>
     <div style={{
       width: '100%', maxWidth: isDesktop ? '440px' : '400px',
-      padding: isDesktop ? '48px' : '32px',
+      padding: isDesktop ? T.spacing.xxxl : T.spacing.xxl,
       background: C.bgCard, border: `1px solid ${C.accentBorder}`,
-      borderRadius: '16px',
-      boxShadow: '0 12px 48px rgba(0,0,0,0.6)',
+      borderRadius: T.radii.xxl,
+      boxShadow: T.shadows.modalDeep,
     }}>
       <div style={{ textAlign: 'center', marginBottom: '28px' }}>
         <div style={{
           display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-          width: '72px', height: '72px', borderRadius: '50%',
+          width: '72px', height: '72px', borderRadius: T.radii.round,
           background: C.accentBg, border: `2px solid ${C.accentBorder}`,
           boxShadow: `0 0 24px ${C.accentGlow}`,
         }}>
@@ -44,11 +45,11 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
         </div>
       </div>
       <h1 style={{
-        fontSize: '16px', fontWeight: 800, textAlign: 'center',
-        letterSpacing: '0.2em', textTransform: 'uppercase',
+        fontSize: T.typography.sizeXl, fontWeight: T.typography.weightBlack, textAlign: 'center',
+        letterSpacing: T.typography.trackingCapWide, textTransform: 'uppercase',
         color: C.text, marginBottom: '6px',
       }}>Sovereign Command Console</h1>
-      <p style={{ fontSize: '13px', textAlign: 'center', color: C.textMuted, marginBottom: '32px' }}>
+      <p style={{ fontSize: T.typography.sizeMd, textAlign: 'center', color: C.textMuted, marginBottom: T.spacing.xxl }}>
         Enter your sovereign key to authenticate
       </p>
       <input
@@ -57,8 +58,8 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
         style={{
           width: '100%', padding: '14px 16px',
           background: 'rgba(0,0,0,0.3)', border: `1px solid ${C.accentBorder}`,
-          borderRadius: '10px', outline: 'none', color: C.text,
-          fontSize: '16px', fontFamily: 'inherit', boxSizing: 'border-box', marginBottom: '12px',
+          borderRadius: T.radii.lg, outline: 'none', color: C.text,
+          fontSize: T.typography.sizeXl, fontFamily: 'inherit', boxSizing: 'border-box', marginBottom: T.spacing.md,
         }}
         placeholder="AUTH_KEY"
         value={password}
@@ -67,8 +68,8 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
       />
       {authError && (
         <p style={{
-          color: C.red, fontSize: '13px', textAlign: 'center', marginBottom: '12px',
-          padding: '10px', background: C.redBg, borderRadius: '8px',
+          color: C.red, fontSize: T.typography.sizeMd, textAlign: 'center', marginBottom: T.spacing.md,
+          padding: T.spacing.sm, background: C.redBg, borderRadius: T.radii.md,
           border: `1px solid ${C.redBorder}`,
         }}>{authError}</p>
       )}
@@ -76,11 +77,11 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
         style={{
           width: '100%', padding: '14px',
           background: C.accentBg, border: `1px solid ${C.accentBorder}`,
-          borderRadius: '10px', color: C.accent, fontSize: '14px', fontWeight: 800,
-          textTransform: 'uppercase', letterSpacing: '0.15em',
+          borderRadius: T.radii.lg, color: C.accent, fontSize: T.typography.sizeBody, fontWeight: T.typography.weightBlack,
+          textTransform: 'uppercase', letterSpacing: T.typography.trackingCap,
           cursor: authLoading ? 'wait' : 'pointer', fontFamily: 'inherit',
           opacity: !password ? 0.4 : 1,
-          transition: 'all 0.2s',
+          transition: `all ${T.motion.base}`,
         }}>
         {authLoading ? 'Authenticating...' : 'Initiate Link'}
       </button>
