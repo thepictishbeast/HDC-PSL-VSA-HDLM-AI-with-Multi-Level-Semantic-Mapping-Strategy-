@@ -63,3 +63,34 @@ This is DIFFERENT from:
 - Dependency audits (cargo audit, supply chain, CVE status)
 - Each audit: history, trends, pass/fail, findings, remediation tracking
 - Part of orchestration platform — audits auto-scheduled, assigned to agents
+
+## Data Inventory (visible in Library + Classroom)
+
+Every data source, dataset, and tool must be listed in the app UI:
+
+### Data Sources Registry
+- Every source in brain.db with: name, URL, license, size, fact count, quality avg, domain, ingestion date
+- Currently 360+ sources — all must be browsable, searchable, filterable
+- Show: HuggingFace datasets, UCI ML datasets, CVE data, user-uploaded files, Ollama-generated
+
+### Dataset Browser
+- All training data files in /home/user/LFI-data/ listed with sizes and pair counts
+- JSONL viewer — click to preview first 10 entries
+- Import button — drag-and-drop new datasets
+- Export button — download any dataset as JSONL
+
+### Tool Registry
+- Magpie (synthetic data generation)
+- Ollama (local inference + training pair generation)
+- pineapple-harden / capture / ingest (adversary simulation)
+- Quality classifier (heuristic + Rust)
+- DuckDB analytics engine
+- FTS5 search index
+- Contamination detector
+- Dedup engine
+- Each tool: status (running/idle), last run, config, logs
+
+### API Endpoint
+GET /api/library/sources — all sources with counts
+GET /api/library/datasets — all training files
+GET /api/library/tools — all data tools with status
