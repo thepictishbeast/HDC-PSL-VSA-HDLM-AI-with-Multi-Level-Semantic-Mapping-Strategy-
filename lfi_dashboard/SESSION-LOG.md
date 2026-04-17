@@ -49,11 +49,11 @@ Instance: claude-2 (frontend/UI). Session start: 2026-04-16 ~23:05 EDT. Date rol
 
 ## NEXT (when session resumes)
 
-1. Hook `AssistantMessage` feedback buttons to a backend endpoint (currently just `logEvent` to localStorage).
-2. Virtualize message list for long conversations (Phase 2 #1) — need `react-virtuoso` dep, pre-approval.
-3. Extract `renderSidebar` (~230 lines) — many state deps; delayed because the simpler wins were higher ROI.
-4. Add an error boundary around the lazy modal `<Suspense>` so chunk-load failures are recoverable.
-5. Move remaining inline DOM helpers (`scrollToBottom`, `logEvent`) into util — low priority.
+1. Wire `react-virtuoso` (already installed in package.json as of 2026-04-17 01:07) through a dedicated `ChatView.tsx` extraction — the in-place swap in App.tsx needs careful handling of empty-state, thinking-indicator, and messagesEndRef placement so auto-scroll keeps working.
+2. Hook `AssistantMessage` feedback buttons to a backend endpoint (currently just `logEvent` to localStorage).
+3. Add a per-modal error boundary around the lazy `<Suspense>` for chunk-load retry UI.
+4. Service worker (`public/sw.js`) is in place but dev-disabled by `import.meta.env.PROD` guard; validate against a real `npm run build` before shipping.
+5. Full focus-trap with Tab/Shift-Tab cycling inside the 4 aria-modal dialogs — currently only declared semantic modals, not behavior.
 
 ## FILES (25 total in `lfi_dashboard/src/`, 7000+ LOC)
 

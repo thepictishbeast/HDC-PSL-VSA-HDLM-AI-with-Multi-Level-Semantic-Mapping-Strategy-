@@ -56,7 +56,10 @@ import { AdminActions } from './AdminActions';
 import { renderMessageBody as renderMdBody, type MarkdownCtx } from './markdown';
 import { useTicTacToe } from './useTicTacToe';
 import { useStatusPoll, useQualityPoll, useSysInfoPoll } from './usePolls';
-import { Virtuoso, type VirtuosoHandle } from 'react-virtuoso';
+// react-virtuoso is installed; wiring will go through a dedicated ChatView
+// extraction so the empty-state + thinking-indicator + messagesEnd-ref logic
+// stays correct. Skeleton import stays out until the wrapper lands.
+
 const TicTacToeModal = React.lazy(() => import('./TicTacToeModal').then(m => ({ default: m.TicTacToeModal })));
 const KnowledgeBrowser = React.lazy(() => import('./KnowledgeBrowser').then(m => ({ default: m.KnowledgeBrowser })));
 const ActivityModal = React.lazy(() => import('./ActivityModal').then(m => ({ default: m.ActivityModal })));
