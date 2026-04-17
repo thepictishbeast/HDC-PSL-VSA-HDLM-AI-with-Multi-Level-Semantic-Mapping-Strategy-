@@ -727,19 +727,65 @@ export const AdminModal: React.FC<AdminModalProps> = ({
             <div>
               {err.system && <AdminErr C={C} msg={err.system} />}
               {sysInfo ? (
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: T.spacing.md }}>
-                  <DashCard C={C} label='Hostname' value={sysInfo.hostname || '—'} color={C.accent} />
-                  <DashCard C={C} label='OS' value={sysInfo.os || '—'} color={C.textSecondary} />
-                  <DashCard C={C} label='CPU cores' value={sysInfo.cpu_count != null ? String(sysInfo.cpu_count) : '—'} color={C.purple} />
-                  <DashCard C={C} label='CPU temp' value={sysInfo.cpu_temp_c != null ? `${sysInfo.cpu_temp_c.toFixed(0)}°C` : '—'} color={(sysInfo.cpu_temp_c ?? 0) > 65 ? C.red : C.green} />
-                  <DashCard C={C} label='RAM available' value={sysInfo.ram_available_mb != null ? `${sysInfo.ram_available_mb} MB` : '—'} color={C.accent} />
-                  <DashCard C={C} label='Disk free' value={fmtBytes(sysInfo.disk_root_free_bytes)} color={C.green} />
-                  <DashCard C={C} label='Disk total' value={fmtBytes(sysInfo.disk_root_total_bytes)} color={C.textSecondary} />
-                  <DashCard C={C} label='Uptime' value={fmtSeconds(sysInfo.uptime_seconds)} color={C.yellow} />
-                  {sysInfo.ollama && (
-                    <DashCard C={C} label='Ollama' value={sysInfo.ollama.status || '—'} color={sysInfo.ollama.status === 'up' ? C.green : C.red} />
-                  )}
-                </div>
+                <>
+                  {/* Resource gauges — CPU temp / RAM / Disk as horizontal
+                      bars so saturation is obvious at a glance. */}
+                  <div style={{ marginBottom: T.spacing.xl }}>
+                    {(() => {
+                      // CPU temp gauge (0 baseline, 100°C ceiling is a fine
+                      // upper for desktop — most CPUs throttle at 95-100°C).
+                      const temp = sysInfo.cpu_temp_c;
+                      const tempPct = typeof temp === 'number' ? Math.min(100, Math.max(0, temp)) : 0;
+                      const tempColor = temp == null ? C.textMuted : temp > 80 ? C.red : temp > 65 ? C.yellow : C.green;
+                      // RAM: if total available, compute used%; else show
+                      // available MB raw.
+                      const ramTotal = sysInfo.ram_total_mb;
+                      const ramAvail = sysInfo.ram_available_mb;
+                      const ramUsedPct = (typeof ramTotal === 'number' && ramTotal > 0 && typeof ramAvail === 'number')
+                        ? Math.min(100, Math.max(0, ((ramTotal - ramAvail) / ramTotal) * 100)) : null;
+                      const ramColor = ramUsedPct == null ? C.textMuted : ramUsedPct > 90 ? C.red : ramUsedPct > 75 ? C.yellow : C.green;
+                      // Disk: used% from free/total.
+                      const diskFree = sysInfo.disk_root_free_bytes;
+                      const diskTotal = sysInfo.disk_root_total_bytes;
+                      const diskUsedPct = (typeof diskFree === 'number' && typeof diskTotal === 'number' && diskTotal > 0)
+                        ? Math.min(100, Math.max(0, ((diskTotal - diskFree) / diskTotal) * 100)) : null;
+                      const diskColor = diskUsedPct == null ? C.textMuted : diskUsedPct > 90 ? C.red : diskUsedPct > 75 ? C.yellow : C.green;
+                      const rows: Array<{ label: string; pct: number | null; color: string; right: string }> = [
+                        { label: 'CPU temp', pct: typeof temp === 'number' ? tempPct : null, color: tempColor, right: typeof temp === 'number' ? `${temp.toFixed(0)}°C` : '—' },
+                        { label: 'RAM used', pct: ramUsedPct, color: ramColor, right: ramUsedPct != null ? `${ramUsedPct.toFixed(0)}% · ${ramAvail ?? '?'} MB free` : (typeof ramAvail === 'number' ? `${ramAvail} MB free` : '—') },
+                        { label: 'Disk used', pct: diskUsedPct, color: diskColor, right: diskUsedPct != null ? `${diskUsedPct.toFixed(0)}% · ${fmtBytes(diskFree)} free / ${fmtBytes(diskTotal)}` : '—' },
+                      ];
+                      return (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: T.spacing.md }}>
+                          {rows.map(r => (
+                            <div key={r.label}>
+                              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: '6px' }}>
+                                <span style={{ fontSize: '11px', fontWeight: T.typography.weightBold, color: C.textMuted, textTransform: 'uppercase', letterSpacing: T.typography.trackingLoose }}>{r.label}</span>
+                                <span style={{ fontSize: '12px', color: r.color, fontFamily: 'ui-monospace, monospace', fontWeight: T.typography.weightBold }}>{r.right}</span>
+                              </div>
+                              <div style={{ background: C.bgInput, height: '14px', borderRadius: T.radii.xs, overflow: 'hidden', border: `1px solid ${C.borderSubtle}` }}>
+                                <div style={{
+                                  width: r.pct != null ? `${r.pct}%` : '0%', height: '100%',
+                                  background: r.color, transition: 'width 0.4s',
+                                }} />
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      );
+                    })()}
+                  </div>
+                  {/* Descriptive cards remain for info that isn't gauge-shaped */}
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: T.spacing.md }}>
+                    <DashCard C={C} label='Hostname' value={sysInfo.hostname || '—'} color={C.accent} />
+                    <DashCard C={C} label='OS' value={sysInfo.os || '—'} color={C.textSecondary} />
+                    <DashCard C={C} label='CPU cores' value={sysInfo.cpu_count != null ? String(sysInfo.cpu_count) : '—'} color={C.purple} />
+                    <DashCard C={C} label='Uptime' value={fmtSeconds(sysInfo.uptime_seconds)} color={C.yellow} />
+                    {sysInfo.ollama && (
+                      <DashCard C={C} label='Ollama' value={sysInfo.ollama.status || '—'} color={sysInfo.ollama.status === 'up' ? C.green : C.red} />
+                    )}
+                  </div>
+                </>
               ) : (
                 <div style={{ padding: '40px', textAlign: 'center', color: C.textMuted }}>
                   {loading === 'system' ? 'Loading…' : 'No system data loaded.'}
