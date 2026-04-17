@@ -863,7 +863,17 @@ ${cmdList}
             }]);
           }
         } catch (e) {
+          // c0-020/E3: JSON.parse or handler exceptions used to drop silently
+          // to console. Surface them as a system message so users see the
+          // dashboard didn't understand the server frame — and log an event
+          // so the Admin Logs tab captures it too.
           console.error("// SCC: Chat parse error:", e);
+          logEvent('ws_parse_error', { error: String((e as Error)?.message || e), preview: String(event.data).slice(0, 160) });
+          applyToStreamingConvo(prev => [...prev, {
+            id: msgId(), role: 'system',
+            content: `Could not decode a server frame (${String((e as Error)?.message || e)}). Some AI output may be missing — check the Admin → Logs tab.`,
+            timestamp: Date.now(),
+          }]);
         }
       };
 

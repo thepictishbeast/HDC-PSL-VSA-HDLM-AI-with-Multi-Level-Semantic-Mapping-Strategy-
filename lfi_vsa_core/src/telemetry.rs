@@ -58,6 +58,7 @@ impl MaterialAuditor {
         stats
     }
 
+    #[allow(dead_code)]
     fn read_available_memory() -> u64 {
         Self::read_memory().0
     }
