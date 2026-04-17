@@ -286,6 +286,20 @@ const SovereignCommandConsole: React.FC = () => {
       return { ...defaultSettings, theme: prefersLight ? 'light' : 'dark' };
     } catch { return defaultSettings; }
   });
+  // c0-011 #9: sync theme to backend on change so preferences persist across
+  // devices. Fires once per distinct theme value (dedup via ref), including
+  // the initial hydrated value — that one-shot keeps backend in sync with
+  // localStorage if the two diverged (e.g., settings reset on another device).
+  const lastSyncedThemeRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (lastSyncedThemeRef.current === settings.theme) return;
+    lastSyncedThemeRef.current = settings.theme;
+    fetch(`http://${getHost()}:3000/api/settings`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ key: 'theme', value: settings.theme }),
+    }).catch(() => { /* non-fatal */ });
+  }, [settings.theme]);
+
   useEffect(() => {
     try { localStorage.setItem('lfi_settings', JSON.stringify(settings)); } catch {}
     // Runtime Eruda sync: if the setting changes while the app is open, show
@@ -1179,6 +1193,9 @@ ${cmdList}
       // Capture `input` into the outgoing conversation's draft.
       setConversations(prev => prev.map(c => c.id === outgoingId
         ? { ...c, draft: input } : c));
+      // Tell backend to flush its conversation_facts for clean isolation
+      // (c0-011 #1). Skip on initial mount where outgoingId is empty.
+      if (currentConversationId) postConversationSwitch(currentConversationId);
     }
     const incoming = conversations.find(c => c.id === currentConversationId);
     setInput(incoming?.draft || '');
@@ -1207,6 +1224,17 @@ ${cmdList}
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [messages]);
 
+  // Tell the backend which conversation is now active so it can reset its
+  // in-memory conversation_facts / dedupe trackers (c0-011 #1 + #5). Fire-
+  // and-forget — the chat WS still carries the actual message content, and
+  // the backend tolerates missing switch pings.
+  const postConversationSwitch = (conversation_id: string) => {
+    fetch(`http://${getHost()}:3000/api/conversations/switch`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ conversation_id }),
+    }).catch(() => { /* non-fatal */ });
+  };
+
   const createNewConversation = (incognito = false) => {
     const fresh: Conversation = {
       id: newConvoId(),
@@ -1224,6 +1252,7 @@ ${cmdList}
     // page reload. Per Bible §4.5: operator controls their data.
     setCurrentConversationId(fresh.id);
     setMessages([]);
+    postConversationSwitch(fresh.id);
     if (incognito) {
       setMessages([{
         id: msgId(), role: 'system',
@@ -2691,6 +2720,14 @@ ${cmdList}
                             background: 'transparent', border: 'none', color: C.textDim,
                             cursor: 'pointer', fontSize: '10px', padding: '2px 3px',
                           }}>{'\u2B07'}</button>
+                        <button onClick={(e) => { e.stopPropagation(); toggleArchived(c.id); }}
+                          title={c.archived ? 'Unarchive' : 'Archive'}
+                          aria-label={c.archived ? `Unarchive ${c.title}` : `Archive ${c.title}`}
+                          style={{
+                            background: 'transparent', border: 'none',
+                            color: c.archived ? C.accent : C.textDim,
+                            cursor: 'pointer', fontSize: '11px', padding: '2px 3px',
+                          }}>{'\u{1F5C3}'}</button>
                         <button onClick={(e) => {
                           e.stopPropagation();
                           if (confirm(`Delete "${c.title}"?`)) deleteConversation(c.id);
@@ -2703,6 +2740,52 @@ ${cmdList}
                     </div>
                   );
                 })}
+              {/* Archived section — collapsible, hidden by default. Only appears
+                  when at least one conversation is archived. */}
+              {conversations.some(c => c.archived) && (
+                <div style={{ marginTop: '12px', borderTop: `1px solid ${C.borderSubtle}`, paddingTop: '8px' }}>
+                  <button onClick={() => setShowArchived(v => !v)}
+                    aria-expanded={showArchived}
+                    style={{
+                      width: '100%', textAlign: 'left', padding: '6px 8px',
+                      background: 'transparent', border: 'none', cursor: 'pointer',
+                      color: C.textMuted, fontSize: '11px', fontWeight: 700,
+                      fontFamily: 'inherit', textTransform: 'uppercase', letterSpacing: '0.08em',
+                      display: 'flex', alignItems: 'center', gap: '6px',
+                    }}>
+                    <span style={{ transform: showArchived ? 'rotate(90deg)' : 'rotate(0)', transition: 'transform 0.15s', display: 'inline-block' }}>{'\u25B8'}</span>
+                    Archived ({conversations.filter(c => c.archived).length})
+                  </button>
+                  {showArchived && conversations
+                    .filter(c => c.archived)
+                    .sort((a, b) => b.updatedAt - a.updatedAt)
+                    .map(c => {
+                      const isActive = c.id === currentConversationId;
+                      return (
+                        <div key={c.id} onClick={() => setCurrentConversationId(c.id)}
+                          style={{
+                            padding: '8px 12px', borderRadius: '8px', cursor: 'pointer',
+                            background: isActive ? C.accentBg : 'transparent',
+                            marginBottom: '2px', display: 'flex',
+                            alignItems: 'center', justifyContent: 'space-between', gap: '4px',
+                            opacity: 0.7,
+                          }}>
+                          <div style={{ overflow: 'hidden', flex: 1 }}>
+                            <div style={{ fontSize: '12px', color: C.textSecondary, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                              {c.title}
+                            </div>
+                          </div>
+                          <button onClick={(e) => { e.stopPropagation(); toggleArchived(c.id); }}
+                            title='Unarchive' aria-label={`Unarchive ${c.title}`}
+                            style={{
+                              background: 'transparent', border: 'none', color: C.accent,
+                              cursor: 'pointer', fontSize: '11px', padding: '2px 3px',
+                            }}>{'\u21A9'}</button>
+                        </div>
+                      );
+                    })}
+                </div>
+              )}
             </div>
             {/* Sidebar footer — minimal by default. Telemetry + host info
                 only surface when Developer Mode is on, per 2026-04-15 design
