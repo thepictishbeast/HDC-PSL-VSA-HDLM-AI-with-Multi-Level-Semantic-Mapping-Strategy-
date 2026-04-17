@@ -1,5 +1,8 @@
 import React from 'react';
 import { T } from './tokens';
+// c2-352 / task 48: shared Label + design-system for the 20px value size.
+import { Label } from './components';
+import { typography as dsType } from './design-system';
 
 // Small colored card used in the sidebar telemetry grid and the mobile
 // telemetry row. Kept here so the sidebar's `renderTelemetryCard` helper
@@ -29,14 +32,9 @@ export const TelemetryCard: React.FC<TelemetryCardProps> = ({ C, card, compact =
     borderRadius: T.radii.xl,
     background: card.bg, border: `1px solid ${card.border}`,
   }}>
+    <Label color={C.textMuted} mb={compact ? '3px' : '5px'}>{card.label}</Label>
     <div style={{
-      fontSize: T.typography.sizeXs, color: C.textMuted,
-      fontWeight: T.typography.weightBold, textTransform: 'uppercase',
-      letterSpacing: T.typography.trackingLoose,
-      marginBottom: compact ? '3px' : '5px',
-    }}>{card.label}</div>
-    <div style={{
-      fontSize: compact ? T.typography.size2xl : '20px',
+      fontSize: compact ? T.typography.size2xl : dsType.sizes.xl,
       fontWeight: T.typography.weightBlack, color: card.color,
     }}>
       {card.value}<span style={{ fontSize: T.typography.sizeXs, color: C.textDim, marginLeft: '2px' }}>{card.unit}</span>
