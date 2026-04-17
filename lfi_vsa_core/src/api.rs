@@ -3236,14 +3236,29 @@ async fn request_logging_middleware(
     let path = request.uri().path().to_string();
     let start = std::time::Instant::now();
 
-    let response = next.run(request).await;
+    // TASK 166: Generate unique request ID for audit correlation
+    let request_id = format!("{:016x}", {
+        use std::hash::{Hash, Hasher};
+        let mut h = std::collections::hash_map::DefaultHasher::new();
+        start.hash(&mut h);
+        path.hash(&mut h);
+        h.finish()
+    });
+
+    let mut response = next.run(request).await;
 
     let latency_ms = start.elapsed().as_millis();
     let status = response.status().as_u16();
 
+    // Return request ID in response header for client-side correlation
+    if let Ok(v) = axum::http::HeaderValue::from_str(&request_id) {
+        response.headers_mut().insert("x-request-id", v);
+    }
+
     // Skip noisy endpoints (WebSocket upgrades logged elsewhere, health checks)
     if !path.contains("/ws") {
         tracing::info!(
+            request_id = %request_id,
             method = %method,
             path = %path,
             status = status,
