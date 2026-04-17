@@ -1086,6 +1086,13 @@ ${cmdList}
       else if (mod && k === ',') { e.preventDefault(); setShowSettings(true); }
       else if (mod && k === 'e') { e.preventDefault(); inputRef.current?.focus(); }
       else if (mod && k === '/') { e.preventDefault(); inputRef.current?.focus(); }
+      // c0-020: top-level view shortcuts — Cmd/Ctrl + 1 / 2 / 3.
+      else if (mod && !e.shiftKey && (k === '1' || k === '2' || k === '3')) {
+        e.preventDefault();
+        if (k === '1') { setActiveView('chat'); setShowAdmin(false); }
+        else if (k === '2') { setActiveView('classroom'); setShowAdmin(false); }
+        else { setShowAdmin(true); }
+      }
       else if (mod && e.shiftKey && k === 'k') { e.preventDefault(); setShowKnowledge(true); fetchKnowledge(); }
       else if (mod && e.shiftKey && k === 'd') { e.preventDefault(); const themes: Array<typeof settings.theme> = ['dark','light','midnight','forest','sunset','rose','contrast']; const idx = themes.indexOf(settings.theme); const next = themes[(idx+1) % themes.length]; setSettings(s => ({...s, theme: next})); showToast(`Theme: ${next}`); }
       else if (mod && k === 'b') { e.preventDefault(); setShowConvoSidebar(v => !v); }
