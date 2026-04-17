@@ -294,34 +294,7 @@ export const ClassroomView: React.FC<ClassroomViewProps> = ({ C, host, isDesktop
 
         {/* --- Report Cards --- */}
         {sub === 'reports' && (
-          <div>
-            <h2 style={{ fontSize: '18px', fontWeight: 600, color: C.text, margin: '0 0 16px' }}>Report Cards</h2>
-            <div style={{
-              padding: T.spacing.lg, background: C.bgCard,
-              border: `1px solid ${C.borderSubtle}`, borderRadius: T.radii.lg,
-            }}>
-              <div style={{ fontSize: '13px', color: C.textSecondary, lineHeight: 1.6 }}>
-                {typeof data?.system?.uptime_hours === 'number' && (
-                  <div style={{ marginBottom: '10px' }}>
-                    <strong style={{ color: C.text }}>Uptime:</strong> {data.system.uptime_hours.toFixed(1)} hours
-                  </div>
-                )}
-                {typeof data?.training?.sessions === 'number' && (
-                  <div style={{ marginBottom: '10px' }}>
-                    <strong style={{ color: C.text }}>Training sessions:</strong> {data.training.sessions.toLocaleString()}
-                  </div>
-                )}
-                {typeof data?.training?.learning_signals === 'number' && (
-                  <div style={{ marginBottom: '10px' }}>
-                    <strong style={{ color: C.text }}>Learning signals:</strong> {data.training.learning_signals.toLocaleString()}
-                  </div>
-                )}
-              </div>
-              <div style={{ marginTop: T.spacing.md, fontSize: '12px', color: C.textDim, fontStyle: 'italic' }}>
-                Weekly progress rollup will populate when /api/classroom/reports is available.
-              </div>
-            </div>
-          </div>
+          <ReportsTab C={C} data={data} sortedDomains={sortedDomains} />
         )}
 
         {/* --- Office Hours --- */}
@@ -364,6 +337,76 @@ const DomainBars: React.FC<{ C: any; rows: Array<{ domain: string; count: number
           <span style={{ width: '96px', textAlign: 'right', fontSize: '12px', fontFamily: 'ui-monospace, monospace', color: C.textMuted }}>{r.count.toLocaleString()}</span>
         </div>
       ))}
+    </div>
+  );
+};
+
+const ReportsTab: React.FC<{ C: any; data: DashboardShape | null; sortedDomains: Array<{ domain: string; count: number }> }> = ({ C, data, sortedDomains }) => {
+  const topDomain = sortedDomains[0];
+  const totalFacts = data?.overview?.total_facts;
+  const totalPairs = data?.overview?.total_training_pairs ?? (data?.training_files || []).reduce((s, f) => s + f.pairs, 0);
+  const adv = data?.overview?.adversarial_facts ?? 0;
+  const avgQ = data?.quality?.average;
+  const passRate = pctNorm(data?.training?.pass_rate);
+  const grade = data?.score?.grade || '—';
+  return (
+    <div>
+      <h2 style={{ fontSize: '18px', fontWeight: 600, color: C.text, margin: '0 0 12px' }}>Report Cards</h2>
+      <p style={{ fontSize: '13px', color: C.textSecondary, margin: '0 0 16px', lineHeight: 1.55 }}>
+        Point-in-time scorecard. A proper weekly rollup (deltas vs last week) will populate once
+        /api/classroom/reports ships historical aggregates.
+      </p>
+      {/* Big scorecard grid */}
+      <div style={{
+        display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
+        gap: T.spacing.md, marginBottom: T.spacing.xl,
+      }}>
+        <Stat C={C} label='Grade' value={grade} color={(() => {
+          if (grade.startsWith('A')) return C.green;
+          if (grade.startsWith('B')) return C.accent;
+          if (grade.startsWith('C')) return C.yellow;
+          if (grade === '—') return C.textMuted;
+          return C.red;
+        })()} />
+        <Stat C={C} label='Pass rate' value={passRate != null ? `${passRate.toFixed(1)}%` : '—'} color={passRate == null ? C.textMuted : passRate >= 95 ? C.green : passRate >= 80 ? C.yellow : C.red} />
+        <Stat C={C} label='Avg quality' value={typeof avgQ === 'number' ? avgQ.toFixed(2) : '—'} color={typeof avgQ === 'number' ? (avgQ >= 0.8 ? C.green : avgQ >= 0.5 ? C.yellow : C.red) : C.textMuted} />
+        <Stat C={C} label='Total facts' value={typeof totalFacts === 'number' ? totalFacts.toLocaleString() : '—'} color={C.purple} />
+        <Stat C={C} label='Training pairs' value={totalPairs ? totalPairs.toLocaleString() : '—'} color={C.accent} />
+        <Stat C={C} label='Adversarial' value={adv ? adv.toLocaleString() : '—'} color={C.red} />
+        <Stat C={C} label='Domains' value={sortedDomains.length ? String(sortedDomains.length) : '—'} color={C.textSecondary} />
+        <Stat C={C} label='Top domain' value={topDomain ? topDomain.domain : '—'} color={C.green} />
+      </div>
+      <div style={{
+        padding: T.spacing.lg, background: C.bgCard,
+        border: `1px solid ${C.borderSubtle}`, borderRadius: T.radii.md,
+        fontSize: '13px', color: C.textSecondary, lineHeight: 1.6,
+      }}>
+        {typeof data?.system?.uptime_hours === 'number' && (
+          <div style={{ marginBottom: '8px' }}>
+            <strong style={{ color: C.text }}>Server uptime:</strong> {data.system.uptime_hours.toFixed(1)} hours
+          </div>
+        )}
+        {typeof data?.training?.sessions === 'number' && (
+          <div style={{ marginBottom: '8px' }}>
+            <strong style={{ color: C.text }}>Training sessions logged:</strong> {data.training.sessions.toLocaleString()}
+          </div>
+        )}
+        {typeof data?.training?.learning_signals === 'number' && (
+          <div style={{ marginBottom: '8px' }}>
+            <strong style={{ color: C.text }}>Learning signals received:</strong> {data.training.learning_signals.toLocaleString()}
+          </div>
+        )}
+        {typeof data?.training?.total_tested === 'number' && typeof data?.training?.total_correct === 'number' && (
+          <div style={{ marginBottom: '8px' }}>
+            <strong style={{ color: C.text }}>Evaluation record:</strong> {data.training.total_correct.toLocaleString()} correct of {data.training.total_tested.toLocaleString()} tested
+          </div>
+        )}
+        {data?.quality?.high_quality_count != null && data?.quality?.low_quality_count != null && (
+          <div style={{ marginBottom: '8px' }}>
+            <strong style={{ color: C.text }}>Quality distribution:</strong> {data.quality.high_quality_count.toLocaleString()} high &middot; {data.quality.low_quality_count.toLocaleString()} low
+          </div>
+        )}
+      </div>
     </div>
   );
 };
