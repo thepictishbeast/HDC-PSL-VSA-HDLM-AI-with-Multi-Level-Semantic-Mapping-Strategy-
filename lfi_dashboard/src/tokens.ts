@@ -18,24 +18,26 @@ export const spacing = {
 } as const;
 
 // ---- Radii ----
+// c0-019 FINAL: buttons/inputs 4px, cards 6px, larger surfaces 8px. No
+// rounded-full except on avatars. Stripe/Linear/Notion-style restraint.
 export const radii = {
-  xs: '4px',
-  sm: '6px',
-  md: '8px',
-  lg: '10px',
-  xl: '12px',
-  xxl: '16px',
+  xs: '3px',
+  sm: '4px',    // buttons, inputs
+  md: '6px',    // cards, panels
+  lg: '8px',    // modal surfaces
+  xl: '10px',
+  xxl: '12px',
   round: '50%',
 } as const;
 
 // ---- Shadows ----
-// Layered set of elevations. Card-light for resting UI; modal for overlays.
+// c0-019 FINAL: subtle, cool-toned, enterprise restraint. No dramatic drops.
 export const shadows = {
   none: 'none',
-  cardLight: '0 2px 18px rgba(0,0,0,0.12)',
-  card: '0 4px 22px rgba(0,0,0,0.28)',
-  modal: '0 24px 60px rgba(0,0,0,0.45)',
-  modalDeep: '0 12px 48px rgba(0,0,0,0.6)',
+  cardLight: '0 1px 2px rgba(15,17,23,0.24)',
+  card: '0 2px 6px rgba(15,17,23,0.32)',
+  modal: '0 8px 24px rgba(15,17,23,0.42)',
+  modalDeep: '0 16px 48px rgba(15,17,23,0.52)',
 } as const;
 
 // ---- Motion ----

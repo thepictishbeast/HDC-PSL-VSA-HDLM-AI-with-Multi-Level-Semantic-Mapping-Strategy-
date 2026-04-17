@@ -52,6 +52,9 @@ import { FactsPanel } from './FactsPanel';
 import { QosPanel } from './QosPanel';
 import { DomainsPanel } from './DomainsPanel';
 import { AccuracyPanel } from './AccuracyPanel';
+// Full-screen admin console (c0-017). Lazy because it bundles 6 tabs of
+// panels that are only seen when the user clicks the Admin entry.
+const AdminModal = React.lazy(() => import('./AdminModal').then(m => ({ default: m.AdminModal })));
 import { TelemetryCard } from './TelemetryCards';
 import { SidebarStatus } from './SidebarStatus';
 import { SubstrateTelemetry } from './SubstrateTelemetry';
@@ -1073,6 +1076,7 @@ ${cmdList}
         else if (showSettings) setShowSettings(false);
         else if (showKnowledge) setShowKnowledge(false);
         else if (showActivity) setShowActivity(false);
+        else if (showAdmin) setShowAdmin(false);
         else if (showGame) setShowGame(null);
         else if (showChatSearch) { setShowChatSearch(false); setChatSearch(''); }
         // Last-resort Esc binding: cancel an in-flight request when no modal
@@ -2148,6 +2152,17 @@ ${cmdList}
         );
       })()}
 
+      {/* ========== ADMIN CONSOLE MODAL (c0-017) ========== */}
+      {showAdmin && (
+        <AdminModal
+          C={C}
+          host={host}
+          factsCount={kg.facts}
+          sourcesCount={kg.sources}
+          onClose={() => setShowAdmin(false)}
+        />
+      )}
+
       {/* ========== ACTIVITY / LOGS MODAL ========== */}
       {showActivity && (
         <ActivityModal
@@ -2569,48 +2584,9 @@ ${cmdList}
         </div>
       )}
 
-      {/* ========== ADMIN PANEL (mobile/tablet, collapsible) ========== */}
-      {!isDesktop && showAdmin && (
-        <div style={{
-          padding: '14px', background: C.bgCard,
-          borderBottom: `1px solid ${C.border}`, flexShrink: 0,
-        }}>
-          <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-            <button onClick={fetchFacts} disabled={adminLoading === 'facts'} style={{
-              padding: '8px 14px', fontSize: '11px', fontWeight: 700, color: C.accent,
-              background: C.accentBg, border: `1px solid ${C.accentBorder}`, borderRadius: '8px',
-              cursor: 'pointer', fontFamily: 'inherit', textTransform: 'uppercase',
-            }}>{adminLoading === 'facts' ? 'Loading...' : 'Facts'}</button>
-            <button onClick={fetchQos} disabled={adminLoading === 'qos'} style={{
-              padding: '8px 14px', fontSize: '11px', fontWeight: 700, color: C.purple,
-              background: C.purpleBg, border: `1px solid ${C.purpleBorder}`, borderRadius: '8px',
-              cursor: 'pointer', fontFamily: 'inherit', textTransform: 'uppercase',
-            }}>{adminLoading === 'qos' ? 'Loading...' : 'QoS'}</button>
-            <button onClick={clearChat} style={{
-              padding: '8px 14px', fontSize: '11px', fontWeight: 700, color: C.textMuted,
-              background: 'transparent', border: `1px solid ${C.border}`, borderRadius: '8px',
-              cursor: 'pointer', fontFamily: 'inherit', textTransform: 'uppercase',
-            }}>Clear Chat</button>
-          </div>
-          {/* Inline results */}
-          {facts.length > 0 && (
-            <div style={{ marginTop: '10px', maxHeight: '150px', overflowY: 'auto', fontSize: '11px' }}>
-              {facts.map((f, i) => (
-                <div key={i} style={{ padding: '4px 0', borderBottom: `1px solid ${C.borderSubtle}` }}>
-                  <span style={{ color: C.accent, fontWeight: 700 }}>{f.key}</span>
-                  <span style={{ color: C.textDim }}> = </span>
-                  <span style={{ color: C.textSecondary }}>{f.value}</span>
-                </div>
-              ))}
-            </div>
-          )}
-          {qosReport && (
-            <pre style={{ marginTop: '10px', fontSize: '10px', color: C.textMuted, whiteSpace: 'pre-wrap', maxHeight: '150px', overflowY: 'auto' }}>
-              {JSON.stringify(qosReport, null, 2).slice(0, 400)}
-            </pre>
-          )}
-        </div>
-      )}
+      {/* Admin slide panel removed — replaced by the full-screen AdminModal
+          rendered above (c0-017). The `showAdmin` state now drives that modal
+          on all viewports. */}
 
       {/* ========== BODY: Conversation sidebar + Chat + Right sidebar ========== */}
       <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
@@ -3258,7 +3234,7 @@ ${cmdList}
                   if (!settings.sendOnEnter) return;
                   if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); }
                 }}
-                placeholder={settings.sendOnEnter ? 'Message PlausiDen AI' : 'Message PlausiDen AI (click send when ready)'}
+                placeholder='Ask PlausiDen anything…'
                 maxLength={100000}
                 style={{
                   background: 'transparent', border: 'none', outline: 'none',
