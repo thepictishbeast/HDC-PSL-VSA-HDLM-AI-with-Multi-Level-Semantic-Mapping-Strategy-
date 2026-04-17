@@ -88,6 +88,7 @@ export const ClassroomView: React.FC<ClassroomViewProps> = ({ C, host, isDesktop
     <div style={{
       flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0,
       background: C.bg, color: C.text, overflow: 'hidden',
+      animation: 'lfi-fadein 0.18s ease-out',
     }}>
       {/* Sub-nav — WAI-ARIA tablist with arrow-key navigation. */}
       <div role='tablist' aria-label='Classroom sections'
@@ -328,9 +329,7 @@ export const ClassroomView: React.FC<ClassroomViewProps> = ({ C, host, isDesktop
 
         {/* --- Library --- */}
         {sub === 'library' && (
-          <Placeholder C={C} title='Library'
-            body='Searchable fact browser. Use the existing Knowledge Browser (Cmd+Shift+K) for now; this section will land when /api/classroom/library supports pagination + full-text.'
-            data={null} />
+          <LibraryTab C={C} domains={sortedDomains} files={data?.training_files || []} />
         )}
       </div>
     </div>
