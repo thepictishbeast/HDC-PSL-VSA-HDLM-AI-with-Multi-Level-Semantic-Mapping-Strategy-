@@ -85,3 +85,88 @@ pub use reasoning_provenance::{
 };
 pub mod crypto_commitment;
 pub mod mesh;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ========== truncate_str ==========
+
+    #[test]
+    fn truncate_str_within_limit() {
+        assert_eq!(truncate_str("hello", 10), "hello");
+    }
+
+    #[test]
+    fn truncate_str_at_limit() {
+        assert_eq!(truncate_str("hello", 5), "hello");
+    }
+
+    #[test]
+    fn truncate_str_above_limit() {
+        assert_eq!(truncate_str("hello world", 5), "hello");
+    }
+
+    #[test]
+    fn truncate_str_empty() {
+        assert_eq!(truncate_str("", 5), "");
+    }
+
+    #[test]
+    fn truncate_str_zero_limit() {
+        assert_eq!(truncate_str("hello", 0), "");
+    }
+
+    #[test]
+    fn truncate_str_unicode_safe() {
+        // "αβγδ" is 4 chars but 8 bytes — truncating at char boundary
+        let s = "αβγδ";
+        let t = truncate_str(s, 2);
+        assert_eq!(t, "αβ");
+        assert_eq!(t.len(), 4); // 2 UTF-8 chars × 2 bytes each
+    }
+
+    #[test]
+    fn truncate_str_emoji_safe() {
+        let s = "🦀🔥💯";
+        assert_eq!(truncate_str(s, 1), "🦀");
+        assert_eq!(truncate_str(s, 2), "🦀🔥");
+    }
+
+    // ========== sanitize_for_log ==========
+
+    #[test]
+    fn sanitize_strips_newlines() {
+        assert_eq!(sanitize_for_log("hello\nworld", 50), "helloworld");
+    }
+
+    #[test]
+    fn sanitize_strips_null_bytes() {
+        assert_eq!(sanitize_for_log("hello\0world", 50), "helloworld");
+    }
+
+    #[test]
+    fn sanitize_strips_ansi_escape() {
+        assert_eq!(sanitize_for_log("hello\x1b[31mred\x1b[0m", 50), "hello[31mred[0m");
+    }
+
+    #[test]
+    fn sanitize_preserves_spaces() {
+        assert_eq!(sanitize_for_log("hello world", 50), "hello world");
+    }
+
+    #[test]
+    fn sanitize_truncates() {
+        assert_eq!(sanitize_for_log("hello world", 5), "hello");
+    }
+
+    #[test]
+    fn sanitize_empty() {
+        assert_eq!(sanitize_for_log("", 100), "");
+    }
+
+    #[test]
+    fn sanitize_tabs_stripped() {
+        assert_eq!(sanitize_for_log("col1\tcol2", 50), "col1col2");
+    }
+}

@@ -1112,6 +1112,7 @@ export const AdminModal: React.FC<AdminModalProps> = ({
                           placeholder='Filter kind or data…'
                           autoComplete='off' spellCheck={false}
                           aria-label='Filter client events'
+                          onKeyDown={(e) => { if (e.key === 'Escape' && logFilter) { e.preventDefault(); setLogFilter(''); } }}
                           style={{
                             minWidth: '200px', padding: '6px 10px',
                             background: C.bgInput, border: `1px solid ${C.borderSubtle}`,
@@ -1119,6 +1120,21 @@ export const AdminModal: React.FC<AdminModalProps> = ({
                             fontSize: '12px', outline: 'none',
                           }}
                         />
+                        {/* c2-262: explicit Clear button — browsers render
+                            the type=search ✕ inconsistently in dark themes.
+                            Esc in the input does the same thing. */}
+                        {logFilter && (
+                          <button onClick={() => setLogFilter('')}
+                            aria-label='Clear filter'
+                            title='Clear filter (Esc)'
+                            style={{
+                              background: 'transparent', border: `1px solid ${C.borderSubtle}`,
+                              color: C.textMuted, borderRadius: T.radii.sm, cursor: 'pointer',
+                              padding: '4px 8px', fontSize: '11px',
+                              fontFamily: 'inherit', textTransform: 'uppercase',
+                              letterSpacing: '0.06em',
+                            }}>Clear</button>
+                        )}
                         {/* Pills removed below in favor of a dedicated row. */}
                         <button onClick={() => {
                           // Export the currently-filtered events as JSON so the

@@ -951,5 +951,9 @@ const Placeholder: React.FC<{ C: any; title: string; body: string; data: unknown
           border: `1px solid ${C.borderSubtle}`, borderRadius: T.radii.md,
           fontFamily: "'JetBrains Mono','Fira Code',monospace", fontSize: '12px',
           color: C.textMuted, whiteSpace: 'pre-wrap', overflowX: 'auto', maxHeight: '240px',
-        }}>
+        }}>{JSON.stringify(data, null, 2)}</pre>
+      )}
+    </div>
+  </div>
+);
  
