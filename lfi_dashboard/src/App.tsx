@@ -4240,6 +4240,7 @@ ${cmdList}
             isDesktop={isDesktop}
             onAtBottomChange={setChatAtBottom}
             onVisibleRangeChange={(start) => setChatTopIndex(start)}
+            C={C}
             renderEmpty={() => {
               // Pick the most-recent non-empty conversation that isn't the
               // currently-active one (which is empty — that's why we're in
