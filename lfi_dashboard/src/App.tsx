@@ -1853,6 +1853,24 @@ ${cmdList}
             letterSpacing: '0.08em',
           }}>Thermal Throttle</div>
         )}
+        {/* Disk pressure alert — surfaces even without the admin panel open, since
+            runaway disk usage is the most common cause of hangs on this box. */}
+        {sysInfo.disk_free && sysInfo.disk_total && ((sysInfo.disk_total - sysInfo.disk_free) / sysInfo.disk_total) >= 0.90 && (
+          <div style={{
+            marginTop: '10px', padding: '10px',
+            background: ((sysInfo.disk_total - sysInfo.disk_free) / sysInfo.disk_total) >= 0.95 ? C.redBg : C.yellowBg,
+            border: `1px solid ${((sysInfo.disk_total - sysInfo.disk_free) / sysInfo.disk_total) >= 0.95 ? C.redBorder : C.yellowBorder}`,
+            borderRadius: '8px', fontSize: '11px', lineHeight: 1.4,
+            color: ((sysInfo.disk_total - sysInfo.disk_free) / sysInfo.disk_total) >= 0.95 ? C.red : C.yellow,
+          }}>
+            <div style={{ fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: '3px' }}>
+              Disk Pressure · {Math.round(((sysInfo.disk_total - sysInfo.disk_free) / sysInfo.disk_total) * 100)}%
+            </div>
+            <div style={{ fontSize: '10px', opacity: 0.85 }}>
+              {(sysInfo.disk_free / (1024 ** 3)).toFixed(1)}G free on server root. Writes may start failing.
+            </div>
+          </div>
+        )}
       </div>
       {/* Status */}
       <div style={{ padding: '20px', borderBottom: `1px solid ${C.borderSubtle}` }}>
