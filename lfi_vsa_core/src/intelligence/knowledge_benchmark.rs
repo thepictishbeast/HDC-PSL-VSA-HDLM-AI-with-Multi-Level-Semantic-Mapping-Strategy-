@@ -50,4 +50,53 @@ mod tests {
     fn test_benchmark_exists() {
         assert!(BENCHMARK.len() >= 10);
     }
+
+    #[test]
+    fn test_score_empty_response() {
+        let s = score("", &["keyword"]);
+        assert!(s < 0.3, "Empty response should score low: {}", s);
+    }
+
+    #[test]
+    fn test_score_empty_keywords() {
+        let s = score("Some long response with lots of text", &[]);
+        assert!(s > 0.0, "Empty keywords should still give partial score: {}", s);
+    }
+
+    #[test]
+    fn test_score_perfect_match() {
+        let s = score("SQL injection targets database systems", &["SQL", "injection", "database"]);
+        assert!(s > 0.8, "All keywords matched + long response should score high: {}", s);
+    }
+
+    #[test]
+    fn test_score_case_insensitive() {
+        let s1 = score("sql injection", &["SQL", "injection"]);
+        let s2 = score("SQL INJECTION", &["SQL", "injection"]);
+        assert!((s1 - s2).abs() < 0.01, "Score should be case-insensitive: {} vs {}", s1, s2);
+    }
+
+    #[test]
+    fn test_score_bounded() {
+        for response in ["", "short", "A very long response about SQL injection and database security"] {
+            for kw in [&["a"][..], &["x", "y", "z"], &[]] {
+                let s = score(response, kw);
+                assert!(s >= 0.0 && s <= 1.0, "Score must be in [0,1]: {} for {:?}", s, response);
+            }
+        }
+    }
+
+    #[test]
+    fn test_benchmark_categories() {
+        let cats: std::collections::HashSet<&str> = BENCHMARK.iter().map(|q| q.category).collect();
+        assert!(cats.contains("easy"));
+        assert!(cats.contains("adversarial"));
+        assert!(cats.contains("reasoning"));
+    }
+
+    #[test]
+    fn test_benchmark_unique_ids() {
+        let ids: std::collections::HashSet<u32> = BENCHMARK.iter().map(|q| q.id).collect();
+        assert_eq!(ids.len(), BENCHMARK.len(), "Benchmark IDs should be unique");
+    }
 }

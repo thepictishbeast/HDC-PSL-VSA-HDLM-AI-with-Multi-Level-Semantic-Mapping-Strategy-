@@ -182,6 +182,29 @@ export const ClassroomView: React.FC<ClassroomViewProps> = ({ C, host, isDesktop
               marginBottom: '-1px', fontFamily: 'inherit', whiteSpace: 'nowrap',
             }}>{s.label}</button>
         ))}
+        {/* c2-259 / #121: manual refresh pushed to the right margin. Tabs
+            driven by fresh data (profile/curriculum/gradebook/lessons/reports)
+            already auto-poll at 10s but users want a force-reload after a
+            backend action. Spinner while load in-flight. */}
+        <div style={{ flex: 1 }} />
+        <button onClick={load} disabled={loading} aria-label='Refresh classroom data'
+          title={loading ? 'Refreshing…' : 'Refresh (auto-refreshes every 10s on live tabs)'}
+          style={{
+            alignSelf: 'center', background: 'transparent',
+            border: `1px solid ${C.borderSubtle}`, color: C.textMuted,
+            borderRadius: T.radii.sm, cursor: loading ? 'wait' : 'pointer',
+            padding: '4px 8px', marginRight: T.spacing.md,
+            display: 'flex', alignItems: 'center', fontFamily: 'inherit',
+          }}>
+          <svg width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='currentColor'
+            strokeWidth='2.2' strokeLinecap='round' strokeLinejoin='round'
+            style={loading ? { animation: 'scc-cls-spin 0.8s linear infinite' } : undefined}>
+            <polyline points='23 4 23 10 17 10' />
+            <polyline points='1 20 1 14 7 14' />
+            <path d='M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15' />
+          </svg>
+        </button>
+        <style>{`@keyframes scc-cls-spin { to { transform: rotate(360deg); } }`}</style>
       </div>
 
       {/* Body */}
