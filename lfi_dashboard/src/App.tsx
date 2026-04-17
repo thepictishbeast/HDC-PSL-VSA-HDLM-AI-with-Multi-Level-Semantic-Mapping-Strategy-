@@ -36,7 +36,7 @@ import css from 'highlight.js/lib/languages/css';
 import xml from 'highlight.js/lib/languages/xml';
 import go from 'highlight.js/lib/languages/go';
 import 'highlight.js/styles/github-dark.css';
-import { compactNum } from './util';
+import { compactNum, formatRam, formatTime, copyToClipboard } from './util';
 import { TrainingDashboardContent } from './TrainingDashboard';
 import { AppErrorBoundary } from './AppErrorBoundary';
 import { LoginScreen } from './LoginScreen';
@@ -617,13 +617,6 @@ ${cmdList}
   // Shadow the module-scope C with a theme-bound palette, plus any custom overrides.
   const baseTheme = THEMES[settings.theme] || DARK;
   const C = settings.customTheme ? { ...baseTheme, ...settings.customTheme } : baseTheme;
-
-  // Format bytes helper — auto-switches MB -> GB in the obvious range.
-  const formatRam = (mb: number): { value: string; unit: string } => {
-    if (mb <= 0) return { value: '0', unit: 'MB' };
-    if (mb >= 1024) return { value: (mb / 1024).toFixed(1), unit: 'GB' };
-    return { value: String(mb), unit: 'MB' };
-  };
 
   // ---- UX telemetry: rolling event log captured in localStorage ----
   // Lets us (and the agent running training on the server) review what users
@@ -1529,21 +1522,6 @@ ${cmdList}
       setSlashIndex(0);
     } else {
       setShowSlashMenu(false);
-    }
-  };
-
-  const formatTime = (ts: number) => new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-
-  const copyToClipboard = async (text: string) => {
-    try {
-      await navigator.clipboard.writeText(text);
-      console.debug('// SCC: copied', text.length, 'chars');
-    } catch (e) {
-      console.warn('// SCC: clipboard blocked, falling back to execCommand', e);
-      const ta = document.createElement('textarea');
-      ta.value = text; document.body.appendChild(ta); ta.select();
-      try { document.execCommand('copy'); } catch {}
-      ta.remove();
     }
   };
 
