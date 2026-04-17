@@ -524,14 +524,23 @@ async fn status_handler(
 ) -> impl IntoResponse {
     let agent = state.agent.lock();
     let guard = agent.shared_knowledge.lock();
+    // Query brain.db for actual counts — in-memory store is intentionally small
+    let (db_facts, db_sources) = {
+        let conn = state.db.conn.lock().unwrap();
+        let facts: i64 = conn.query_row("SELECT count(*) FROM facts", [], |r| r.get(0)).unwrap_or(0);
+        let sources: i64 = conn.query_row("SELECT count(DISTINCT source) FROM facts", [], |r| r.get(0)).unwrap_or(0);
+        (facts, sources)
+    };
     Json(json!({
         "tier": format!("{:?}", agent.current_tier),
         "authenticated": agent.authenticated,
         "entropy": agent.entropy_level,
-        "facts_count": guard.store.facts.len(),
+        "facts_count": db_facts,
         "concepts_count": guard.store.concepts.len(),
+        "sources_count": db_sources,
         "session_id": guard.store.current_session_id,
         "background_learning": agent.background_learner.is_running(),
+        "adversarial_count": db_facts, // placeholder — adversarial table count added in quality endpoint
     }))
 }
 
