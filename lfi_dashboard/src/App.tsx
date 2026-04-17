@@ -723,6 +723,36 @@ ${cmdList}
     return () => { window.removeEventListener('online', on); window.removeEventListener('offline', off); };
   }, []);
 
+  // c2-291: log uncaught errors + unhandled promise rejections so async
+  // faults (WebSocket/fetch/setTimeout) show up in the client-event log
+  // even when they escape AppErrorBoundary. Lightweight — just records,
+  // no UI disruption. Message + filename clipped to 200 chars to keep the
+  // event payload small.
+  useEffect(() => {
+    const onError = (e: ErrorEvent) => {
+      logEvent('uncaught_error', {
+        message: String(e.message || 'unknown').slice(0, 200),
+        source: String(e.filename || '').slice(0, 200),
+        line: e.lineno, col: e.colno,
+      });
+    };
+    const onRejection = (e: PromiseRejectionEvent) => {
+      const reason: any = e.reason;
+      const msg = reason?.message ? String(reason.message) : String(reason);
+      logEvent('unhandled_rejection', {
+        message: msg.slice(0, 200),
+        stack: reason?.stack ? String(reason.stack).slice(0, 400) : undefined,
+      });
+    };
+    window.addEventListener('error', onError);
+    window.addEventListener('unhandledrejection', onRejection);
+    return () => {
+      window.removeEventListener('error', onError);
+      window.removeEventListener('unhandledrejection', onRejection);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   // Backend health probe — when WS is down, periodically GET /api/status to
   // distinguish "WS hiccup, REST still works" (transient) from "whole backend
   // gone" (worth telling the user to start the dev server). Only runs while
