@@ -16,6 +16,9 @@ import { SkeletonLoader } from './components/SkeletonLoader';
 import { BarChart } from './components/BarChart';
 // c2-351 / task 30: shared WAI-ARIA tablist.
 import { TabBar } from './components/TabBar';
+// c2-375 / BIG #180: shared sortable table.
+import { DataTable } from './components';
+import type { Column } from './components';
 
 // Full-screen admin modal per c0-017. Six tabs: Dashboard / Domains /
 // Training / Quality / System / Logs. Replaces the prior sidebar-slide admin
@@ -497,34 +500,41 @@ export const AdminModal: React.FC<AdminModalProps> = ({
                   </div>
                 );
               })()}
-              {/* Training files list from consolidated endpoint */}
-              {dashboard?.training_files && dashboard.training_files.length > 0 && (
-                <div>
-                  <Label color={C.textMuted} mb={T.spacing.md}>
-                    Training datasets ({dashboard.training_files.length})
-                  </Label>
-                  <div style={{ border: `1px solid ${C.borderSubtle}`, borderRadius: T.radii.md, overflow: 'hidden' }}>
-                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: T.typography.sizeMd }}>
-                      <thead>
-                        <tr>
-                          <th style={{ textAlign: 'left', padding: '8px 12px', fontWeight: T.typography.weightBold, color: C.textSecondary, background: C.bgInput, borderBottom: `1px solid ${C.borderSubtle}` }}>File</th>
-                          <th style={{ textAlign: 'right', padding: '8px 12px', fontWeight: T.typography.weightBold, color: C.textSecondary, background: C.bgInput, borderBottom: `1px solid ${C.borderSubtle}` }}>Pairs</th>
-                          <th style={{ textAlign: 'right', padding: '8px 12px', fontWeight: T.typography.weightBold, color: C.textSecondary, background: C.bgInput, borderBottom: `1px solid ${C.borderSubtle}` }}>Size</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {[...dashboard.training_files].sort((a, b) => b.pairs - a.pairs).map(f => (
-                          <tr key={f.file}>
-                            <td style={{ padding: '8px 12px', fontFamily: T.typography.fontMono, color: C.text }}>{f.file}</td>
-                            <td style={{ padding: '8px 12px', textAlign: 'right', fontFamily: T.typography.fontMono, color: C.accent }}>{f.pairs.toLocaleString()}</td>
-                            <td style={{ padding: '8px 12px', textAlign: 'right', fontFamily: T.typography.fontMono, color: C.textMuted }}>{f.size_mb.toFixed(1)} MB</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
+              {/* Training files list from consolidated endpoint. c2-375:
+                  migrated to DataTable -- columns now sortable for free. */}
+              {dashboard?.training_files && dashboard.training_files.length > 0 && (() => {
+                type Row = { file: string; pairs: number; size_mb: number };
+                const cols: ReadonlyArray<Column<Row>> = [
+                  {
+                    id: 'file', header: 'File', align: 'left',
+                    sortKey: (f) => f.file.toLowerCase(),
+                    accessor: (f) => <span style={{ fontFamily: T.typography.fontMono, color: C.text }}>{f.file}</span>,
+                  },
+                  {
+                    id: 'pairs', header: 'Pairs', align: 'right',
+                    sortKey: (f) => f.pairs,
+                    accessor: (f) => <span style={{ fontFamily: T.typography.fontMono, color: C.accent }}>{f.pairs.toLocaleString()}</span>,
+                  },
+                  {
+                    id: 'size', header: 'Size', align: 'right',
+                    sortKey: (f) => f.size_mb,
+                    accessor: (f) => <span style={{ fontFamily: T.typography.fontMono, color: C.textMuted }}>{f.size_mb.toFixed(1)} MB</span>,
+                  },
+                ];
+                return (
+                  <div>
+                    <Label color={C.textMuted} mb={T.spacing.md}>
+                      Training datasets ({dashboard.training_files.length})
+                    </Label>
+                    <DataTable<Row> C={C}
+                      rows={dashboard.training_files}
+                      columns={cols}
+                      rowKey={(f) => f.file}
+                      sort={{ col: 'pairs', dir: 'desc' }}
+                      cellFontSize={T.typography.sizeMd} />
                   </div>
-                </div>
-              )}
+                );
+              })()}
               {dashboard?.system && (
                 <div style={{ marginTop: T.spacing.xl, fontSize: T.typography.sizeXs, color: C.textDim, textAlign: 'center' }}>
                   Server v{dashboard.system.server_version || '?'}
