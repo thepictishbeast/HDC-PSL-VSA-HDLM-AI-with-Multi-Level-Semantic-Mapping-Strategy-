@@ -44,6 +44,7 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ C, isDesktop, onPi
       {QUICK_STARTS.map(s => (
         <button key={s.t}
           onClick={() => onPickPrompt(s.p)}
+          aria-label={`${s.t}: ${s.p}`}
           style={{
             textAlign: 'left', padding: '12px 14px', borderRadius: '10px',
             background: C.bgCard, border: `1px solid ${C.border}`, cursor: 'pointer',
