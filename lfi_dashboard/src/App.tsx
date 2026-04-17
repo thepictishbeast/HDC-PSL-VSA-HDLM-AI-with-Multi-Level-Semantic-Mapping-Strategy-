@@ -2732,6 +2732,7 @@ ${cmdList}
                   disabled={!input.trim() || !isConnected}
                   className="scc-send-btn"
                   title='Send (Enter)'
+                  aria-label='Send message'
                   style={{
                     width: '36px', height: '36px',
                     display: 'flex', alignItems: 'center', justifyContent: 'center',
