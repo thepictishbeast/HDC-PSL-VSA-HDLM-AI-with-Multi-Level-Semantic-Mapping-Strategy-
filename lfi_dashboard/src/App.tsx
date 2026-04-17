@@ -1082,6 +1082,9 @@ ${cmdList}
     pinned?: boolean;
     starred?: boolean;
     incognito?: boolean;
+    // Unsent draft text preserved across conversation switches so users don't
+    // lose their in-progress message when clicking between conversations.
+    draft?: string;
   };
   const LS_CONVERSATIONS_KEY = 'lfi_conversations_v2';
   const LS_CURRENT_KEY = 'lfi_current_conversation';
@@ -1164,6 +1167,23 @@ ${cmdList}
     document.title = title ? `${title} · PlausiDen AI` : 'PlausiDen AI';
     return () => { document.title = 'PlausiDen AI'; };
   }, [currentConversationId, conversations]);
+
+  // Save draft to conversation when switching away, restore when switching in.
+  // Uses a ref for the LAST-active id so we save the current `input` to the
+  // outgoing conversation before it's replaced.
+  const lastActiveConvoRef = useRef<string>('');
+  useEffect(() => {
+    const outgoingId = lastActiveConvoRef.current;
+    if (outgoingId && outgoingId !== currentConversationId) {
+      // Capture `input` into the outgoing conversation's draft.
+      setConversations(prev => prev.map(c => c.id === outgoingId
+        ? { ...c, draft: input } : c));
+    }
+    const incoming = conversations.find(c => c.id === currentConversationId);
+    setInput(incoming?.draft || '');
+    lastActiveConvoRef.current = currentConversationId;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentConversationId]);
 
   // Hydrate the active `messages` state from the current conversation, and
   // sync changes back. This keeps the rest of the component working against
@@ -1270,6 +1290,12 @@ ${cmdList}
       id: msgId(), role: 'user', content: trimmed, timestamp: Date.now()
     }]);
     setInput('');
+    // Clear the persisted draft on the active conversation so a switch + come-back
+    // doesn't re-hydrate the text we just sent.
+    if (currentConversationId) {
+      setConversations(prev => prev.map(c => c.id === currentConversationId
+        ? { ...c, draft: '' } : c));
+    }
     logEvent('message_sent', { length: trimmed.length, tier: currentTier, skill: activeSkill });
     setIsThinking(true);
     setThinkingStart(Date.now());
@@ -3031,6 +3057,21 @@ ${cmdList}
                       return;
                     }
                     if (e.key === 'Escape') { setShowSlashMenu(false); return; }
+                  }
+                  // Shift+ArrowUp in an empty input recalls the most-recent
+                  // sent user message for quick edit-and-resend.
+                  if (e.key === 'ArrowUp' && e.shiftKey && !input.trim()) {
+                    const lastUser = [...messages].reverse().find(m => m.role === 'user');
+                    if (lastUser) {
+                      e.preventDefault();
+                      setInput(lastUser.content);
+                      // Move cursor to end after the next render.
+                      setTimeout(() => {
+                        const el = inputRef.current;
+                        if (el) { el.selectionStart = el.selectionEnd = el.value.length; }
+                      }, 0);
+                      return;
+                    }
                   }
                   if (!settings.sendOnEnter) return;
                   if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); }

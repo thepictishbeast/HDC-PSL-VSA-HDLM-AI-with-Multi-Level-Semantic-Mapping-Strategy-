@@ -25,6 +25,7 @@ const SHORTCUTS: Array<{ group: string; items: Array<{ keys: string[]; label: st
       { keys: ['⌘', 'E'], label: 'Focus the message input' },
       { keys: ['⌘', '/'], label: 'Focus the message input' },
       { keys: ['any letter'], label: 'Auto-focuses input + types it' },
+      { keys: ['Shift', '↑'], label: 'Recall your last sent message' },
       { keys: ['Enter'], label: 'Send (when sendOnEnter is on)' },
       { keys: ['Shift', 'Enter'], label: 'New line in the input' },
       { keys: ['Esc'], label: 'Stop in-flight request (or close modal)' },
