@@ -599,7 +599,33 @@ export const AdminModal: React.FC<AdminModalProps> = ({
                 }
                 const totalPairs = files.reduce((s, f) => s + (f.pairs || 0), 0);
                 const totalMb = files.reduce((s, f) => s + (f.size_mb || 0), 0);
-                const sorted = [...files].sort((a, b) => (b.pairs || 0) - (a.pairs || 0));
+                // c2-375: Training tab files migrated to DataTable so the
+                // columns sort for free (previously fixed pairs desc).
+                type TFRow = { file: string; pairs: number; size_mb: number };
+                const cols: ReadonlyArray<Column<TFRow>> = [
+                  {
+                    id: 'file', header: 'File', align: 'left',
+                    sortKey: (f) => f.file.toLowerCase(),
+                    accessor: (f) => (
+                      <span style={{
+                        color: C.text, fontFamily: T.typography.fontMono,
+                        whiteSpace: 'nowrap', overflow: 'hidden',
+                        textOverflow: 'ellipsis', display: 'inline-block',
+                        maxWidth: '420px',
+                      }}>{f.file}</span>
+                    ),
+                  },
+                  {
+                    id: 'pairs', header: 'Pairs', align: 'right',
+                    sortKey: (f) => f.pairs,
+                    accessor: (f) => <span style={{ color: C.text, fontFamily: T.typography.fontMono }}>{compactNum(f.pairs)}</span>,
+                  },
+                  {
+                    id: 'size', header: 'Size (MB)', align: 'right',
+                    sortKey: (f) => f.size_mb,
+                    accessor: (f) => <span style={{ color: C.textMuted, fontFamily: T.typography.fontMono }}>{f.size_mb.toFixed(2)}</span>,
+                  },
+                ];
                 return (
                   <div style={{ marginBottom: T.spacing.xl }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: '6px' }}>
@@ -610,25 +636,12 @@ export const AdminModal: React.FC<AdminModalProps> = ({
                         {compactNum(totalPairs)} pairs · {totalMb.toFixed(1)} MB
                       </div>
                     </div>
-                    <div style={{ maxHeight: '300px', overflowY: 'auto', border: `1px solid ${C.borderSubtle}`, borderRadius: T.radii.sm }}>
-                      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: T.typography.sizeSm }}>
-                        <thead style={{ position: 'sticky', top: 0, background: C.bgInput, zIndex: 1 }}>
-                          <tr>
-                            <th style={{ padding: '6px 10px', textAlign: 'left', fontWeight: T.typography.weightBold, color: C.textMuted, borderBottom: `1px solid ${C.borderSubtle}` }}>File</th>
-                            <th style={{ padding: '6px 10px', textAlign: 'right', fontWeight: T.typography.weightBold, color: C.textMuted, borderBottom: `1px solid ${C.borderSubtle}` }}>Pairs</th>
-                            <th style={{ padding: '6px 10px', textAlign: 'right', fontWeight: T.typography.weightBold, color: C.textMuted, borderBottom: `1px solid ${C.borderSubtle}` }}>Size (MB)</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {sorted.map((f, i) => (
-                            <tr key={f.file} style={{ background: i % 2 === 0 ? 'transparent' : C.bgHover }}>
-                              <td style={{ padding: '6px 10px', color: C.text, fontFamily: T.typography.fontMono, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '420px' }}>{f.file}</td>
-                              <td style={{ padding: '6px 10px', textAlign: 'right', color: C.text, fontFamily: T.typography.fontMono }}>{compactNum(f.pairs)}</td>
-                              <td style={{ padding: '6px 10px', textAlign: 'right', color: C.textMuted, fontFamily: T.typography.fontMono }}>{f.size_mb.toFixed(2)}</td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
+                    <div style={{ maxHeight: '300px', overflowY: 'auto' }}>
+                      <DataTable<TFRow> C={C}
+                        rows={files as TFRow[]}
+                        columns={cols}
+                        rowKey={(f) => f.file}
+                        sort={{ col: 'pairs', dir: 'desc' }} />
                     </div>
                   </div>
                 );
