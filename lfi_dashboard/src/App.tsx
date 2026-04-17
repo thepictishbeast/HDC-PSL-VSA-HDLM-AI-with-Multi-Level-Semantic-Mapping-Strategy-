@@ -2201,7 +2201,8 @@ ${cmdList}
                 <span style={{ fontSize: '14px' }}>{'\u002B'}</span> New chat
               </button>
               <input
-                type='text'
+                type='search'
+                aria-label='Search conversations'
                 value={convoSearch}
                 onChange={(e) => setConvoSearch(e.target.value)}
                 placeholder='Search conversations...'
