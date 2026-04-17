@@ -1061,6 +1061,10 @@ ${cmdList}
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isAuthenticated]);
 
+  // Tracks when /api/status last succeeded so the UI can surface staleness
+  // (the prior silent catch hid DB lock windows from users).
+  const [kgLastOk, setKgLastOk] = useState<number | null>(null);
+
   // Poll /api/status every 5 s so the knowledge-graph counters on the telemetry
   // cards reflect new facts and concepts as the agent learns.
   useEffect(() => {
@@ -1083,7 +1087,8 @@ ${cmdList}
           sources: typeof data.sources_count === 'number' ? data.sources_count : k.sources,
           entropy: typeof data.entropy === 'number' ? data.entropy : k.entropy,
         }));
-      } catch (_) { /* server might not be up yet */ }
+        setKgLastOk(Date.now());
+      } catch (_) { /* server might not be up yet — kgLastOk stays frozen, UI can show stale */ }
     };
     fetchStatus();
     const id = setInterval(fetchStatus, 5000);
@@ -1873,8 +1878,24 @@ ${cmdList}
     }}>
       {/* Telemetry */}
       <div style={{ padding: '20px', borderBottom: `1px solid ${C.borderSubtle}` }}>
-        <div style={{ fontSize: '11px', fontWeight: 800, color: C.textMuted, textTransform: 'uppercase', letterSpacing: '0.12em', marginBottom: '14px' }}>
-          Substrate Telemetry
+        <div style={{ fontSize: '11px', fontWeight: 800, color: C.textMuted, textTransform: 'uppercase', letterSpacing: '0.12em', marginBottom: '14px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <span>Substrate Telemetry</span>
+          {(() => {
+            // Surface staleness: no successful /api/status in 20+ seconds → mark stale.
+            // Green dot = fresh (<=20s), amber = degraded (20-90s), red = offline (>90s or never).
+            if (!kgLastOk) {
+              return <span style={{ fontSize: '9px', color: C.red, textTransform: 'none', letterSpacing: 0, fontWeight: 600 }}>offline</span>;
+            }
+            const ageSec = (Date.now() - kgLastOk) / 1000;
+            const color = ageSec <= 20 ? C.green : ageSec <= 90 ? C.yellow : C.red;
+            const label = ageSec <= 20 ? 'live' : ageSec <= 90 ? `${Math.round(ageSec)}s stale` : 'offline';
+            return (
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: '5px', fontSize: '9px', color, textTransform: 'none', letterSpacing: 0, fontWeight: 600 }}>
+                <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: color, boxShadow: ageSec <= 20 ? `0 0 5px ${color}` : 'none' }} />
+                {label}
+              </span>
+            );
+          })()}
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
           {telemetryCards.map(s => renderTelemetryCard(s, true))}
