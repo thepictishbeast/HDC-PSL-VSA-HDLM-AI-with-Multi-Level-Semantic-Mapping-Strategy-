@@ -34,3 +34,21 @@ export const copyToClipboard = async (text: string): Promise<void> => {
     ta.remove();
   }
 };
+
+// Summarise disk pressure from /api/system/info byte counts. Returns null when
+// the inputs aren't usable. Used by sidebar banner + status row so thresholds
+// and GB formatting stay in one place.
+export interface DiskPressure {
+  freeBytes: number;
+  totalBytes: number;
+  usedPct: number;     // 0..100
+  freeGb: number;
+  level: 'ok' | 'warn' | 'critical';
+}
+export const diskPressure = (freeBytes?: number, totalBytes?: number): DiskPressure | null => {
+  if (!freeBytes || !totalBytes || totalBytes <= 0) return null;
+  const usedPct = ((totalBytes - freeBytes) / totalBytes) * 100;
+  const freeGb = freeBytes / (1024 ** 3);
+  const level: DiskPressure['level'] = usedPct >= 95 ? 'critical' : usedPct >= 90 ? 'warn' : usedPct >= 75 ? 'warn' : 'ok';
+  return { freeBytes, totalBytes, usedPct, freeGb, level };
+};

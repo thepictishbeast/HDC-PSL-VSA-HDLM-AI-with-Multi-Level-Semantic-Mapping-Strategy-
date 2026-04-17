@@ -36,7 +36,7 @@ import css from 'highlight.js/lib/languages/css';
 import xml from 'highlight.js/lib/languages/xml';
 import go from 'highlight.js/lib/languages/go';
 import 'highlight.js/styles/github-dark.css';
-import { compactNum, formatRam, formatTime, copyToClipboard } from './util';
+import { compactNum, formatRam, formatTime, copyToClipboard, diskPressure } from './util';
 import { TrainingDashboardContent } from './TrainingDashboard';
 import { AppErrorBoundary } from './AppErrorBoundary';
 import { LoginScreen } from './LoginScreen';
@@ -1742,22 +1742,27 @@ ${cmdList}
         )}
         {/* Disk pressure alert — surfaces even without the admin panel open, since
             runaway disk usage is the most common cause of hangs on this box. */}
-        {sysInfo.disk_free && sysInfo.disk_total && ((sysInfo.disk_total - sysInfo.disk_free) / sysInfo.disk_total) >= 0.90 && (
-          <div style={{
-            marginTop: '10px', padding: '10px',
-            background: ((sysInfo.disk_total - sysInfo.disk_free) / sysInfo.disk_total) >= 0.95 ? C.redBg : C.yellowBg,
-            border: `1px solid ${((sysInfo.disk_total - sysInfo.disk_free) / sysInfo.disk_total) >= 0.95 ? C.redBorder : C.yellowBorder}`,
-            borderRadius: '8px', fontSize: '11px', lineHeight: 1.4,
-            color: ((sysInfo.disk_total - sysInfo.disk_free) / sysInfo.disk_total) >= 0.95 ? C.red : C.yellow,
-          }}>
-            <div style={{ fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: '3px' }}>
-              Disk Pressure · {Math.round(((sysInfo.disk_total - sysInfo.disk_free) / sysInfo.disk_total) * 100)}%
+        {(() => {
+          const dp = diskPressure(sysInfo.disk_free, sysInfo.disk_total);
+          if (!dp || dp.usedPct < 90) return null;
+          const critical = dp.usedPct >= 95;
+          return (
+            <div style={{
+              marginTop: '10px', padding: '10px',
+              background: critical ? C.redBg : C.yellowBg,
+              border: `1px solid ${critical ? C.redBorder : C.yellowBorder}`,
+              borderRadius: '8px', fontSize: '11px', lineHeight: 1.4,
+              color: critical ? C.red : C.yellow,
+            }}>
+              <div style={{ fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: '3px' }}>
+                Disk Pressure · {Math.round(dp.usedPct)}%
+              </div>
+              <div style={{ fontSize: '10px', opacity: 0.85 }}>
+                {dp.freeGb.toFixed(1)}G free on server root. Writes may start failing.
+              </div>
             </div>
-            <div style={{ fontSize: '10px', opacity: 0.85 }}>
-              {(sysInfo.disk_free / (1024 ** 3)).toFixed(1)}G free on server root. Writes may start failing.
-            </div>
-          </div>
-        )}
+          );
+        })()}
       </div>
       {/* Status */}
       <div style={{ padding: '20px', borderBottom: `1px solid ${C.borderSubtle}` }}>
@@ -1796,17 +1801,12 @@ ${cmdList}
               color: C.purple,
             },
             (() => {
-              // Disk pressure on the server's root partition. Claude 0 flagged /root
-              // at ~90% early in the session; showing this lets users spot storage
-              // issues before the server starts failing writes.
-              const free = sysInfo.disk_free, total = sysInfo.disk_total;
-              if (!free || !total) return { label: 'Disk', value: '—', color: C.textMuted };
-              const usedPct = ((total - free) / total) * 100;
-              const freeGb = (free / (1024 ** 3)).toFixed(1);
+              const dp = diskPressure(sysInfo.disk_free, sysInfo.disk_total);
+              if (!dp) return { label: 'Disk', value: '—', color: C.textMuted };
               return {
                 label: 'Disk',
-                value: `${usedPct.toFixed(0)}% · ${freeGb}G free`,
-                color: usedPct >= 90 ? C.red : usedPct >= 75 ? C.yellow : C.green,
+                value: `${dp.usedPct.toFixed(0)}% · ${dp.freeGb.toFixed(1)}G free`,
+                color: dp.usedPct >= 90 ? C.red : dp.usedPct >= 75 ? C.yellow : C.green,
               };
             })(),
           ].map(row => (

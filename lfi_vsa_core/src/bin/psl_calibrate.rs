@@ -13,9 +13,9 @@
 
 use lfi_vsa_core::psl::supervisor::PslSupervisor;
 use lfi_vsa_core::psl::axiom::{
-    AuditTarget, DimensionalityAxiom, StatisticalEquilibriumAxiom,
+    AuditTarget,
     DataIntegrityAxiom, InjectionDetectionAxiom,
-    ForbiddenSpaceAxiom, EntropyAxiom, OutputBoundsAxiom,
+    EntropyAxiom, OutputBoundsAxiom,
     ConfidenceCalibrationAxiom, ExfiltrationDetectionAxiom,
 };
 use std::collections::HashMap;
