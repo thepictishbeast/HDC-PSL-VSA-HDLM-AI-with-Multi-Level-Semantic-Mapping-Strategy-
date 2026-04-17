@@ -1084,25 +1084,26 @@ impl CognitiveCore {
     /// Query Ollama with RAG context — the facts are prepended to the prompt
     /// so the model can reference them when generating the answer.
     pub fn query_ollama_with_context(prompt: &str, rag_facts: &[(String, String, f64)]) -> Option<String> {
-        let safe = prompt.replace('\\', "\\\\")
-            .replace('"', "\\\"")
-            .replace('\n', "\\n")
-            .replace('\r', "\\r")
-            .replace('\t', "\\t");
+        // No manual escaping needed — serde_json handles all escaping properly.
+        // AVP-PASS-3: Removed brittle manual string escaping.
 
         // Build RAG context block — inject relevant facts into the prompt
         let context_block = if !rag_facts.is_empty() {
             let facts_text: String = rag_facts.iter()
                 .take(5) // Max 5 facts to stay within context window
                 .map(|(_, value, score)| {
-                    let truncated = if value.len() > 500 { &value[..500] } else { value.as_str() };
+                    // Truncate on word boundary, not byte boundary
+                    let truncated = if value.len() > 500 {
+                        let cut = &value[..500];
+                        cut.rfind(' ').map(|i| &value[..i]).unwrap_or(cut)
+                    } else { value.as_str() };
                     format!("- [relevance {:.0}%] {}", score * 100.0, truncated)
                 })
                 .collect::<Vec<_>>()
-                .join("\\n");
+                .join("\n");
             format!(
-                "You have access to the following knowledge from your database:\\n{}\\n\\nUse this knowledge to inform your answer where relevant. If the knowledge doesn't apply, answer from your general understanding.\\n\\n",
-                facts_text.replace('"', "\\\"")
+                "You have access to the following knowledge from your database:\n{}\n\nUse this knowledge to inform your answer where relevant. If the knowledge doesn't apply, answer from your general understanding.\n\n",
+                facts_text
             )
         } else {
             String::new()
@@ -1119,18 +1120,46 @@ impl CognitiveCore {
             else { "evening" }
         );
 
-        let time_ctx_escaped = time_context.replace('"', "\\\"");
-        let body = format!(
-            r#"{{"model":"qwen2.5-coder:7b","prompt":"You are PlausiDen AI, built by PlausiDen Technologies. You are a sovereign, knowledgeable AI that runs locally on the user's hardware. You have access to a database of 56 million facts.\\n\\n{}\\n\\nRules:\\n- Answer the question directly. No preamble.\\n- If knowledge from your database is provided below, USE IT as your primary source.\\n- Be specific and detailed. Give real examples, real numbers, real names.\\n- If you're not sure, say so honestly.\\n- Match the tone to the question: technical for technical, casual for casual.\\n- Never say 'As an AI' or 'I don't have feelings'. Just answer like a knowledgeable person.\\n- Be aware of the time of day — don't say 'good morning' at night.\\n- Don't repeat the same jokes or phrases across conversations.\\n\\n{}Question: {}","stream":false,"options":{{"temperature":0.6,"num_predict":800,"top_p":0.9}}}}"#,
-            time_ctx_escaped, context_block, safe
+        // SECURITY: Use serde_json to build the request body instead of string formatting.
+        // This eliminates JSON injection via malformed facts or user input.
+        // AVP-PASS-3: Fixed brittle string escaping that broke on backslashes/quotes in facts.
+        let system_prompt = format!(
+            "You are PlausiDen AI, built by PlausiDen Technologies. You are a sovereign, \
+             knowledgeable AI that runs locally on the user's hardware. You have access to a \
+             database of 56 million facts.\n\n{}\n\nRules:\n\
+             - Answer the question directly. No preamble.\n\
+             - If knowledge from your database is provided below, USE IT as your primary source.\n\
+             - Be specific and detailed. Give real examples, real numbers, real names.\n\
+             - If you're not sure, say so honestly.\n\
+             - Match the tone to the question: technical for technical, casual for casual.\n\
+             - Never say 'As an AI' or 'I don't have feelings'. Just answer like a knowledgeable person.\n\
+             - Be aware of the time of day — don't say 'good morning' at night.\n\
+             - Don't repeat the same jokes or phrases across conversations.\n\n{}",
+            time_context, context_block
         );
+
+        let full_prompt = format!("{}\nQuestion: {}", system_prompt, prompt);
+
+        // Build request body with proper JSON serialization — no manual escaping
+        let request_body = serde_json::json!({
+            "model": "qwen2.5-coder:7b",
+            "prompt": full_prompt,
+            "stream": false,
+            "options": {
+                "temperature": 0.6,
+                "num_predict": 800,
+                "top_p": 0.9
+            }
+        });
+
+        let body_str = serde_json::to_string(&request_body).ok()?;
 
         let output = std::process::Command::new("curl")
             .args(&[
-                "-s", "--max-time", "60",
+                "-s", "--max-time", "45",
                 "-X", "POST", "http://localhost:11434/api/generate",
                 "-H", "Content-Type: application/json",
-                "-d", &body,
+                "-d", &body_str,
             ])
             .output()
             .ok()?;

@@ -2099,11 +2099,15 @@ pub fn create_router() -> Result<Router, Box<dyn std::error::Error>> {
     // allowed any website to make authenticated cross-origin requests.
     let cors = CorsLayer::new()
         .allow_origin([
+            // SAFETY: These are static string literals — parse() is infallible.
+            // SECURITY: Removed 0.0.0.0 — it defeats CORS on multi-interface hosts.
+            // Added 192.168.1.186 for LAN access from Android/other devices.
             "http://localhost:5173".parse::<http::HeaderValue>().unwrap(),
             "http://127.0.0.1:5173".parse::<http::HeaderValue>().unwrap(),
             "http://localhost:3000".parse::<http::HeaderValue>().unwrap(),
             "http://127.0.0.1:3000".parse::<http::HeaderValue>().unwrap(),
-            "http://0.0.0.0:5173".parse::<http::HeaderValue>().unwrap(),
+            "http://192.168.1.186:5173".parse::<http::HeaderValue>().unwrap(),
+            "http://192.168.1.186:3000".parse::<http::HeaderValue>().unwrap(),
         ])
         .allow_methods([http::Method::GET, http::Method::POST, http::Method::DELETE, http::Method::OPTIONS])
         .allow_headers(tower_http::cors::Any);
