@@ -11,6 +11,8 @@
 
 export { BarChart } from './BarChart';
 export { CopyButton } from './CopyButton';
+export { DataTable } from './DataTable';
+export type { Column, SortDir, DataTableProps } from './DataTable';
 export { ErrorAlert } from './ErrorAlert';
 export { Label } from './Label';
 export { SkeletonLoader } from './SkeletonLoader';

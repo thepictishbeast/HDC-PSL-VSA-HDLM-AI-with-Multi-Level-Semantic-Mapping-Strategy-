@@ -2,6 +2,9 @@ import React, { useEffect, useState } from 'react';
 import { T } from './tokens';
 // c2-347: shared stat/summary card (replaces the local Stat helper).
 import { StatCard } from './components/StatCard';
+// c2-373 / BIG #180: canonical DataTable + Label for the activity timeline.
+import { DataTable, Label } from './components';
+import type { Column } from './components';
 import { formatRelative } from './util';
 
 // c0-037 #2 / c2-328: standalone Fleet dashboard page (was Admin tab only).
@@ -164,39 +167,55 @@ export const FleetView: React.FC<FleetViewProps> = ({ C, host, isDesktop }) => {
                 ))}
               </div>
             )}
-            {fleet.timeline && fleet.timeline.length > 0 && (
-              <div>
-                <div style={{
-                  fontSize: T.typography.sizeXs, fontWeight: T.typography.weightBold,
-                  color: C.textMuted, textTransform: 'uppercase',
-                  letterSpacing: T.typography.trackingLoose, marginBottom: T.spacing.sm,
-                }}>
-                  Recent activity ({fleet.timeline.length})
+            {fleet.timeline && fleet.timeline.length > 0 && (() => {
+              // c2-373 / BIG #180: DataTable adoption. Hand-rolled table
+              // collapsed to a column-descriptor array; sort by When (numeric
+              // timestamp) is now default and the Who / Event columns cycle
+              // alphabetical on click. Caps visible rows at 200 for parity
+              // with the previous implementation.
+              type Row = { t: number | string; instance: string; event: string; data?: any };
+              const rows: Row[] = fleet.timeline.slice(0, 200);
+              const toTs = (r: Row): number => typeof r.t === 'number'
+                ? r.t * (r.t < 1e12 ? 1000 : 1)
+                : new Date(r.t).getTime();
+              const cols: ReadonlyArray<Column<Row>> = [
+                {
+                  id: 'when', header: 'When', width: '110px',
+                  sortKey: toTs,
+                  accessor: (r) => (
+                    <span style={{ color: C.textMuted, fontFamily: T.typography.fontMono, whiteSpace: 'nowrap' }}>
+                      {new Date(toTs(r)).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                    </span>
+                  ),
+                },
+                {
+                  id: 'who', header: 'Who', width: '30%',
+                  sortKey: (r) => r.instance,
+                  accessor: (r) => (
+                    <span style={{ color: C.accent, fontFamily: T.typography.fontMono }}>{r.instance}</span>
+                  ),
+                },
+                {
+                  id: 'event', header: 'Event',
+                  sortKey: (r) => r.event,
+                  accessor: (r) => (
+                    <span style={{ color: C.text, fontFamily: T.typography.fontMono }}>{r.event}</span>
+                  ),
+                },
+              ];
+              return (
+                <div>
+                  <Label color={C.textMuted} mb={T.spacing.sm}>
+                    Recent activity ({fleet.timeline.length})
+                  </Label>
+                  <div style={{ maxHeight: '420px', overflowY: 'auto' }}>
+                    <DataTable<Row> C={C} rows={rows} columns={cols}
+                      rowKey={(r) => `${toTs(r)}-${r.instance}-${r.event}`}
+                      sort={{ col: 'when', dir: 'desc' }} />
+                  </div>
                 </div>
-                <div style={{ border: `1px solid ${C.borderSubtle}`, borderRadius: T.radii.md, overflow: 'hidden', maxHeight: '420px', overflowY: 'auto' }}>
-                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: T.typography.sizeSm }}>
-                    <thead>
-                      <tr>
-                        <Th C={C}>When</Th>
-                        <Th C={C}>Who</Th>
-                        <Th C={C}>Event</Th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {fleet.timeline.slice(0, 200).map((row, i) => (
-                        <tr key={i} style={{ background: i % 2 === 0 ? 'transparent' : C.bgHover }}>
-                          <td style={{ padding: '6px 12px', color: C.textMuted, fontFamily: 'ui-monospace, monospace', whiteSpace: 'nowrap' }}>
-                            {typeof row.t === 'number' ? new Date(row.t * (row.t < 1e12 ? 1000 : 1)).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : row.t}
-                          </td>
-                          <td style={{ padding: '6px 12px', color: C.accent, fontFamily: 'ui-monospace, monospace' }}>{row.instance}</td>
-                          <td style={{ padding: '6px 12px', color: C.text, fontFamily: 'ui-monospace, monospace' }}>{row.event}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            )}
+              );
+            })()}
           </>
         )}
       </div>
