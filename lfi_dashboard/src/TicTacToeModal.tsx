@@ -20,7 +20,8 @@ export const TicTacToeModal: React.FC<TicTacToeModalProps> = ({ C, board, winner
       display: 'flex', alignItems: 'center', justifyContent: 'center',
       padding: '16px',
     }}>
-    <div onClick={(e) => e.stopPropagation()}
+    <div role='dialog' aria-modal='true' aria-label='Tic-Tac-Toe'
+      onClick={(e) => e.stopPropagation()}
       style={{
         background: C.bgCard, border: `1px solid ${C.border}`,
         borderRadius: '16px', padding: '28px',
