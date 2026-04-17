@@ -16,4 +16,6 @@ export { SkeletonLoader } from './SkeletonLoader';
 export { StatCard } from './StatCard';
 export { TabBar } from './TabBar';
 export type { TabDef } from './TabBar';
+export { ToastContainer, useToasts } from './Toast';
+export type { ToastMessage, ToastType } from './Toast';
 // DataTable  -- task 26, pending
