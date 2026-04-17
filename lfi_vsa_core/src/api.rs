@@ -526,7 +526,12 @@ async fn status_handler(
     let guard = agent.shared_knowledge.lock();
     // Query brain.db for actual counts — in-memory store is intentionally small
     let (db_facts, db_sources) = {
-        let conn = state.db.conn.lock().unwrap();
+        // SAFETY: lock() can fail if another thread panicked while holding it.
+        // We return zeros rather than propagating the panic.
+        let conn = match state.db.conn.lock() {
+            Ok(c) => c,
+            Err(_) => return Json(json!({"error": "db lock poisoned", "facts_count": 0})),
+        };
         let facts: i64 = conn.query_row("SELECT count(*) FROM facts", [], |r| r.get(0)).unwrap_or(0);
         let sources: i64 = conn.query_row("SELECT count(DISTINCT source) FROM facts", [], |r| r.get(0)).unwrap_or(0);
         (facts, sources)
@@ -919,8 +924,10 @@ async fn conversations_sync_handler(
     state.db.save_conversation(&req.id, &req.title, req.pinned, req.starred);
     // Clear existing messages and re-insert (simple full-replace sync)
     {
-        let conn = state.db.conn.lock().unwrap();
-        let _ = conn.execute("DELETE FROM messages WHERE conversation_id = ?1", params![req.id]);
+        // SAFETY: graceful degradation if lock poisoned — skip delete, messages may duplicate
+        if let Ok(conn) = state.db.conn.lock() {
+            let _ = conn.execute("DELETE FROM messages WHERE conversation_id = ?1", params![req.id]);
+        }
     }
     for msg in &req.messages {
         state.db.save_message(&req.id, &msg.role, &msg.content, msg.timestamp, None);
@@ -1851,7 +1858,10 @@ pub fn create_router() -> Result<Router, Box<dyn std::error::Error>> {
     let db = Arc::new(crate::persistence::BrainDb::open(&db_path)
         .unwrap_or_else(|e| {
             warn!("// PERSISTENCE: Failed to open {}: {} — using fallback /tmp", db_path.display(), e);
-            crate::persistence::BrainDb::open(std::path::Path::new("/tmp/plausiden_brain.db")).expect("fallback DB must open")
+            // SAFETY: If both primary and fallback DB fail, we cannot serve.
+            // This is the last resort — a /tmp SQLite should always succeed.
+            crate::persistence::BrainDb::open(std::path::Path::new("/tmp/plausiden_brain.db"))
+                .unwrap_or_else(|e2| panic!("FATAL: both primary and fallback DB failed: {e2}"))
         }));
 
     // Hydrate agent facts from the persistent store. With 40M+ facts in the DB,
@@ -2033,7 +2043,11 @@ pub fn create_router() -> Result<Router, Box<dyn std::error::Error>> {
         State(state): State<Arc<AppState>>,
     ) -> impl IntoResponse {
         let report = {
-            let conn = state.db.conn.lock().unwrap();
+            // SAFETY: return empty report on lock failure rather than panic
+            let conn = match state.db.conn.lock() {
+                Ok(c) => c,
+                Err(_) => return axum::Json(json!({"error": "db lock poisoned"})),
+            };
             let total: i64 = conn.query_row("SELECT count(*) FROM facts", [], |r| r.get(0)).unwrap_or(0);
             let adversarial: i64 = conn.query_row(
                 "SELECT count(*) FROM facts WHERE source IN ('adversarial','anli_r1','anli_r2','anli_r3','fever_gold','truthfulqa')",
@@ -2087,10 +2101,20 @@ pub fn create_router() -> Result<Router, Box<dyn std::error::Error>> {
     ) -> impl IntoResponse {
         info!("// ADMIN: Training domains endpoint accessed");
         let domains = {
-            let conn = state.db.conn.lock().unwrap();
-            let mut stmt = conn.prepare(
+            // SAFETY: return empty domains on any DB failure
+            let conn = match state.db.conn.lock() {
+                Ok(c) => c,
+                Err(_) => return axum::Json(json!({"domains": [], "error": "db lock poisoned"})),
+            };
+            let mut stmt = match conn.prepare(
                 "SELECT domain, count(*), avg(quality_score), avg(length(value)) FROM facts WHERE domain IS NOT NULL GROUP BY domain ORDER BY count(*) DESC"
-            ).unwrap();
+            ) {
+                Ok(s) => s,
+                Err(e) => {
+                    warn!("// ADMIN: Failed to prepare domain query: {}", e);
+                    return axum::Json(json!({"domains": [], "error": "query failed"}));
+                }
+            };
             let rows: Vec<serde_json::Value> = stmt.query_map([], |row| {
                 Ok(json!({
                     "domain": row.get::<_, String>(0).unwrap_or_default(),
@@ -2098,7 +2122,7 @@ pub fn create_router() -> Result<Router, Box<dyn std::error::Error>> {
                     "avg_quality": row.get::<_, f64>(2).unwrap_or(0.0),
                     "avg_length": row.get::<_, f64>(3).unwrap_or(0.0),
                 }))
-            }).unwrap().filter_map(|r| r.ok()).collect();
+            }).map(|iter| iter.filter_map(|r| r.ok()).collect()).unwrap_or_default();
             rows
         };
         axum::Json(json!({"domains": domains}))
@@ -2110,7 +2134,11 @@ pub fn create_router() -> Result<Router, Box<dyn std::error::Error>> {
     ) -> impl IntoResponse {
         info!("// ADMIN: Training accuracy endpoint accessed");
         let stats = {
-            let conn = state.db.conn.lock().unwrap();
+            // SAFETY: return empty stats on lock failure
+            let conn = match state.db.conn.lock() {
+                Ok(c) => c,
+                Err(_) => return axum::Json(json!({"error": "db lock poisoned"})),
+            };
             let total: i64 = conn.query_row("SELECT count(*) FROM facts", [], |r| r.get(0)).unwrap_or(0);
             let adversarial: i64 = conn.query_row(
                 "SELECT count(*) FROM facts WHERE source IN ('adversarial','anli_r1','anli_r2','anli_r3','fever_gold','truthfulqa')",
