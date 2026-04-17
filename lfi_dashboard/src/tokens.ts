@@ -32,7 +32,11 @@ export const radii = {
   lg: '8px',    // modal surfaces
   xl: '10px',
   xxl: '12px',
-  round: '50%',
+  round: '50%', // only safe on square elements (avatars, perfect circles)
+  // c2-344: pill shape for any rectangle — 9999px is the standard trick
+  // so callers don't have to compute width/2. Use this instead of 999px
+  // inline literals (previous convention).
+  pill: '9999px',
 } as const;
 
 // ---- Shadows ----

@@ -1823,7 +1823,7 @@ ${cmdList}
     const parts = title.split(re);
     if (parts.length === 1) return title; // no match in the title itself
     return parts.map((p, i) => i % 2 === 1
-      ? <mark key={i} style={{ background: 'rgba(255,211,107,0.45)', color: 'inherit', padding: '0 1px', borderRadius: '2px' }}>{p}</mark>
+      ? <mark key={i} style={{ background: 'rgba(255,211,107,0.45)', color: 'inherit', padding: '0 1px', borderRadius: T.radii.xs }}>{p}</mark>
       : <React.Fragment key={i}>{p}</React.Fragment>
     );
   };
@@ -2750,7 +2750,7 @@ ${cmdList}
               style={{
                 width: '100%', padding: '14px',
                 background: C.accent, border: 'none',
-                borderRadius: '10px', color: '#fff',
+                borderRadius: T.radii.xl, color: '#fff',
                 fontSize: '15px', fontWeight: 700,
                 cursor: 'pointer', fontFamily: 'inherit',
               }}>
@@ -3164,7 +3164,7 @@ ${cmdList}
               padding: '4px 10px 4px 4px',
               background: showAccountMenu ? C.bgHover : 'transparent',
               border: `1px solid ${showAccountMenu ? C.border : 'transparent'}`,
-              borderRadius: '10px', cursor: 'pointer', fontFamily: 'inherit',
+              borderRadius: T.radii.xl, cursor: 'pointer', fontFamily: 'inherit',
             }}>
             {/* Avatar */}
             <div style={{
@@ -4276,7 +4276,7 @@ ${cmdList}
                     display: 'flex', alignItems: 'center', gap: T.spacing.md,
                     padding: '12px 16px', margin: '8px 0',
                     background: C.bgCard, border: `1px solid ${borderColor}`,
-                    borderRadius: '10px', fontSize: T.typography.sizeMd,
+                    borderRadius: T.radii.xl, fontSize: T.typography.sizeMd,
                     transition: 'border-color 0.4s', flexWrap: 'wrap',
                   }}>
                     <div style={{ display: 'flex', gap: '5px', alignItems: 'center' }}>
