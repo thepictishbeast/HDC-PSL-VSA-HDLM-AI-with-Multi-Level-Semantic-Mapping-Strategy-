@@ -2,6 +2,9 @@ import React, { useEffect, useState } from 'react';
 import { T } from './tokens';
 // c2-347: shared stat/summary card (replaces the local Stat helper).
 import { StatCard } from './components/StatCard';
+// c2-378 / BIG #180: DataTable adoption for tier + findings tables.
+import { DataTable } from './components';
+import type { Column } from './components';
 import { formatRelative } from './util';
 
 // c0-037 #12 / c2-331: Auditorium — AVP-2 audit state surface.
@@ -182,40 +185,63 @@ export const AuditoriumView: React.FC<AuditoriumViewProps> = ({ C, host, isDeskt
           }}>
             Tier structure (AVP-2 §Loop)
           </div>
-          <div style={{ border: `1px solid ${C.borderSubtle}`, borderRadius: T.radii.md, overflow: 'hidden' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: T.typography.sizeSm }}>
-              <thead>
-                <tr>
-                  <Th C={C} align='left'>Tier</Th>
-                  <Th C={C} align='left'>Name</Th>
-                  <Th C={C} align='right'>Passes</Th>
-                  <Th C={C} align='right'>Range</Th>
-                  <Th C={C} align='center'>Status</Th>
-                </tr>
-              </thead>
-              <tbody>
-                {TIERS.map((t, i) => {
-                  const live = status?.tier_progress?.find(x => x.tier === t.tier);
-                  const statusLabel = live?.status ?? (passesCompleted >= TIERS.slice(0, i + 1).reduce((s, tt) => s + tt.passes, 0) ? 'passed'
-                    : passesCompleted >= TIERS.slice(0, i).reduce((s, tt) => s + tt.passes, 0) ? 'in_progress' : 'pending');
-                  const statusColor = statusLabel === 'passed' ? C.green
-                    : statusLabel === 'in_progress' ? C.yellow
-                    : statusLabel === 'failed' ? C.red : C.textDim;
+          {/* c2-378 / BIG #180: tier structure table -> DataTable. The
+              status column derives both a label and a color from live
+              progress + local rollup, so we bake both into the accessor
+              rather than giving DataTable a custom row-style prop. */}
+          {(() => {
+            type TierRow = typeof TIERS[number];
+            const statusFor = (t: TierRow, i: number): { label: string; color: string } => {
+              const live = status?.tier_progress?.find(x => x.tier === t.tier);
+              const raw = live?.status ?? (passesCompleted >= TIERS.slice(0, i + 1).reduce((s, tt) => s + tt.passes, 0) ? 'passed'
+                : passesCompleted >= TIERS.slice(0, i).reduce((s, tt) => s + tt.passes, 0) ? 'in_progress' : 'pending');
+              const color = raw === 'passed' ? C.green
+                : raw === 'in_progress' ? C.yellow
+                : raw === 'failed' ? C.red : C.textDim;
+              return { label: raw.replace('_', ' '), color };
+            };
+            const cols: ReadonlyArray<Column<TierRow>> = [
+              {
+                id: 'tier', header: 'Tier', align: 'left', width: '72px',
+                sortKey: (t) => t.tier,
+                accessor: (t) => <span style={{ fontFamily: T.typography.fontMono, color: C.accent }}>T{t.tier}</span>,
+              },
+              {
+                id: 'name', header: 'Name', align: 'left',
+                sortKey: (t) => t.name.toLowerCase(),
+                accessor: (t) => <span style={{ color: C.text }}>{t.name}</span>,
+              },
+              {
+                id: 'passes', header: 'Passes', align: 'right', width: '80px',
+                sortKey: (t) => t.passes,
+                accessor: (t) => <span style={{ color: C.textMuted, fontFamily: T.typography.fontMono }}>{t.passes}</span>,
+              },
+              {
+                id: 'range', header: 'Range', align: 'right', width: '110px', sortable: false,
+                accessor: (t) => <span style={{ color: C.textMuted, fontFamily: T.typography.fontMono }}>{t.range}</span>,
+              },
+              {
+                id: 'status', header: 'Status', align: 'center', width: '130px', sortable: false,
+                accessor: (t) => {
+                  const i = TIERS.indexOf(t);
+                  const s = statusFor(t, i);
                   return (
-                    <tr key={t.tier} style={{ background: i % 2 === 0 ? 'transparent' : C.bgHover }}>
-                      <td style={{ padding: '8px 12px', fontFamily: 'ui-monospace, monospace', color: C.accent, width: '56px' }}>T{t.tier}</td>
-                      <td style={{ padding: '8px 12px', color: C.text }}>{t.name}</td>
-                      <td style={{ padding: '8px 12px', textAlign: 'right', color: C.textMuted, fontFamily: 'ui-monospace, monospace' }}>{t.passes}</td>
-                      <td style={{ padding: '8px 12px', textAlign: 'right', color: C.textMuted, fontFamily: 'ui-monospace, monospace' }}>{t.range}</td>
-                      <td style={{ padding: '8px 12px', textAlign: 'center', color: statusColor, fontSize: '11px', fontWeight: T.typography.weightBold, textTransform: 'uppercase', letterSpacing: T.typography.trackingLoose }}>
-                        {statusLabel.replace('_', ' ')}
-                      </td>
-                    </tr>
+                    <span style={{
+                      color: s.color, fontSize: T.typography.sizeXs, fontWeight: T.typography.weightBold,
+                      textTransform: 'uppercase', letterSpacing: T.typography.trackingLoose,
+                    }}>{s.label}</span>
                   );
-                })}
-              </tbody>
-            </table>
-          </div>
+                },
+              },
+            ];
+            return (
+              <DataTable<TierRow> C={C}
+                rows={TIERS as ReadonlyArray<TierRow> as TierRow[]}
+                columns={cols}
+                rowKey={(t) => t.tier}
+                sort={{ col: 'tier', dir: 'asc' }} />
+            );
+          })()}
         </div>
 
         {/* Recent findings — live-only; hidden when backend has none. */}
@@ -226,35 +252,58 @@ export const AuditoriumView: React.FC<AuditoriumViewProps> = ({ C, host, isDeskt
               color: C.textMuted, textTransform: 'uppercase',
               letterSpacing: T.typography.trackingLoose, marginBottom: T.spacing.sm,
             }}>Recent findings ({status.recent_findings.length})</div>
-            <div style={{ border: `1px solid ${C.borderSubtle}`, borderRadius: T.radii.md, overflow: 'hidden', maxHeight: '320px', overflowY: 'auto' }}>
-              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: T.typography.sizeSm }}>
-                <thead>
-                  <tr>
-                    <Th C={C} align='left'>ID</Th>
-                    <Th C={C} align='left'>Title</Th>
-                    <Th C={C} align='center'>Severity</Th>
-                    <Th C={C} align='center'>Status</Th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {status.recent_findings.slice(0, 100).map((f, i) => {
-                    const sevColor = f.severity === 'critical' ? C.red
-                      : f.severity === 'high' ? C.red
+            {/* c2-378 / BIG #180: findings table -> DataTable. Severity
+                sort is a custom key so critical > high > medium > low reads
+                as "most urgent first" when sorted desc. */}
+            {(() => {
+              type FRow = (typeof status.recent_findings)[number];
+              const sevRank = (s?: string): number =>
+                s === 'critical' ? 4 : s === 'high' ? 3 : s === 'medium' ? 2 : s === 'low' ? 1 : 0;
+              const rows = status.recent_findings.slice(0, 100);
+              const cols: ReadonlyArray<Column<FRow>> = [
+                {
+                  id: 'id', header: 'ID', align: 'left', width: '100px',
+                  sortKey: (f) => f.id || '',
+                  accessor: (f, ) => <span style={{ color: C.accent, fontFamily: T.typography.fontMono }}>{f.id || '\u2014'}</span>,
+                },
+                {
+                  id: 'title', header: 'Title', align: 'left',
+                  sortKey: (f) => (f.title || '').toLowerCase(),
+                  accessor: (f) => <span style={{ color: C.text }}>{f.title}</span>,
+                },
+                {
+                  id: 'severity', header: 'Severity', align: 'center', width: '120px',
+                  sortKey: (f) => sevRank(f.severity),
+                  accessor: (f) => {
+                    const col = f.severity === 'critical' || f.severity === 'high' ? C.red
                       : f.severity === 'medium' ? C.yellow : C.textMuted;
                     return (
-                      <tr key={f.id || i} style={{ background: i % 2 === 0 ? 'transparent' : C.bgHover }}>
-                        <td style={{ padding: '6px 12px', color: C.accent, fontFamily: 'ui-monospace, monospace' }}>{f.id || `#${i + 1}`}</td>
-                        <td style={{ padding: '6px 12px', color: C.text }}>{f.title}</td>
-                        <td style={{ padding: '6px 12px', textAlign: 'center', color: sevColor, fontSize: '10px', fontWeight: T.typography.weightBold, textTransform: 'uppercase', letterSpacing: T.typography.trackingLoose }}>{f.severity}</td>
-                        <td style={{ padding: '6px 12px', textAlign: 'center', color: f.fixed ? C.green : C.textMuted, fontSize: '14px' }}>
-                          {f.fixed ? '\u2714' : '\u2022'}
-                        </td>
-                      </tr>
+                      <span style={{
+                        color: col, fontSize: T.typography.sizeXs, fontWeight: T.typography.weightBold,
+                        textTransform: 'uppercase', letterSpacing: T.typography.trackingLoose,
+                      }}>{f.severity}</span>
                     );
-                  })}
-                </tbody>
-              </table>
-            </div>
+                  },
+                },
+                {
+                  id: 'status', header: 'Status', align: 'center', width: '90px',
+                  sortKey: (f) => f.fixed ? 1 : 0,
+                  accessor: (f) => (
+                    <span style={{ color: f.fixed ? C.green : C.textMuted, fontSize: T.typography.sizeBody }}>
+                      {f.fixed ? '\u2714' : '\u2022'}
+                    </span>
+                  ),
+                },
+              ];
+              return (
+                <div style={{ maxHeight: '320px', overflowY: 'auto' }}>
+                  <DataTable<FRow> C={C}
+                    rows={rows}
+                    columns={cols}
+                    rowKey={(f) => f.id || `${f.title}-${f.severity}`} />
+                </div>
+              );
+            })()}
           </div>
         )}
 
