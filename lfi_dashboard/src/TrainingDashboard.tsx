@@ -23,6 +23,10 @@ export const Skeleton: React.FC<{
 export interface TrainingDashboardProps {
   host: string;
   C: any;
+  // Fallback for total facts when /api/admin/training/accuracy doesn't return it
+  // (backend inconsistency — the field is documented but missing in practice).
+  // Parent should pass /api/status.facts_count.
+  totalFactsFallback?: number;
 }
 
 type DomainRow = {
@@ -32,7 +36,7 @@ type DomainRow = {
   avg_length: number | null;
 };
 
-export function TrainingDashboardContent({ host, C }: TrainingDashboardProps) {
+export function TrainingDashboardContent({ host, C, totalFactsFallback }: TrainingDashboardProps) {
   // Three independent fetches — one slow/failed endpoint should not black out the
   // whole panel. Each slice tracks its own state so we can render partial data.
   const [accuracy, setAccuracy] = React.useState<any | null>(null);
@@ -87,10 +91,15 @@ export function TrainingDashboardContent({ host, C }: TrainingDashboardProps) {
     return () => clearInterval(id);
   }, [refetch]);
 
-  const totalFacts: number | null = accuracy?.total_facts ?? null;
+  const totalFacts: number | null = accuracy?.total_facts ?? totalFactsFallback ?? null;
   const adversarialFacts: number | null = accuracy?.adversarial_facts ?? null;
   const psl = accuracy?.psl_calibration || null;
-  const passRatePct: number | null = typeof psl?.pass_rate === 'number' ? psl.pass_rate * 100 : null;
+  // Backend inconsistency: /api/admin/training/accuracy returns pass_rate as a
+  // percent (e.g. 97.2); /api/quality/report returns it as a fraction (0..1).
+  // Detect heuristically: values <= 1.5 are fractions, otherwise already percent.
+  const passRatePct: number | null = typeof psl?.pass_rate === 'number'
+    ? (psl.pass_rate <= 1.5 ? psl.pass_rate * 100 : psl.pass_rate)
+    : null;
   const reasoningChains: number | null = accuracy?.reasoning_chains ?? null;
 
   const trainingState = sessions?.training_state || {};

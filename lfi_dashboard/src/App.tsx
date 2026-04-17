@@ -1899,15 +1899,21 @@ ${cmdList}
             { label: 'Tier', value: currentTier, color: tierColor(currentTier) },
             { label: 'Throttled', value: stats.is_throttled ? 'YES' : 'NO', color: stats.is_throttled ? C.red : C.green },
             { label: 'Logic Density', value: stats.logic_density.toFixed(3), color: C.purple },
-            {
-              label: 'PSL Pass',
-              value: quality?.psl_pass_rate != null
-                ? `${(quality.psl_pass_rate * 100).toFixed(1)}%${quality.stale ? ' (stale)' : ''}`
-                : '—',
-              color: quality?.psl_pass_rate == null
-                ? C.textMuted
-                : (quality.psl_pass_rate >= 0.95 ? C.green : quality.psl_pass_rate >= 0.85 ? C.yellow : C.red),
-            },
+            (() => {
+              // Backend returns pass_rate as fraction (/api/quality/report) OR percent (/api/admin/training/accuracy).
+              // Normalise to percent for display and threshold comparison.
+              const raw = quality?.psl_pass_rate;
+              const pct = raw == null ? null : (raw <= 1.5 ? raw * 100 : raw);
+              return {
+                label: 'PSL Pass',
+                value: pct != null
+                  ? `${pct.toFixed(1)}%${quality?.stale ? ' (stale)' : ''}`
+                  : '—',
+                color: pct == null
+                  ? C.textMuted
+                  : (pct >= 95 ? C.green : pct >= 85 ? C.yellow : C.red),
+              };
+            })(),
             {
               label: 'Adversarial',
               value: quality?.adversarial != null ? compactNum(quality.adversarial) : '—',
@@ -2202,7 +2208,7 @@ ${cmdList}
             </div>
             <div style={{ flex: 1, overflowY: 'auto', padding: '16px 20px' }}>
               {/* Live stats fetched on open */}
-              <TrainingDashboardContent host={getHost()} C={C} />
+              <TrainingDashboardContent host={getHost()} C={C} totalFactsFallback={kg.facts || undefined} />
             </div>
           </div>
         </div>

@@ -28,3 +28,4 @@ pub use metacognitive::{MetaCognitiveProfiler, CognitiveDomain, PerformanceRecor
 pub use knowledge_compiler::{KnowledgeCompiler, AccelerationMetrics, CompiledEntry};
 pub use spaced_repetition::{SpacedRepetitionScheduler, ReviewCard};
 pub mod grokking_monitor;
+pub mod fsrs_scheduler;
