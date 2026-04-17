@@ -14,12 +14,13 @@
 
 use axum::{
     extract::ws::{Message, WebSocket, WebSocketUpgrade},
-    extract::{Path, State},
+    extract::{Path, Query, State},
     response::IntoResponse,
     routing::{get, post},
     Json, Router,
 };
 use tokio::sync::broadcast;
+use std::collections::HashMap;
 use std::sync::Arc;
 use parking_lot::Mutex;
 use serde_json::json;
@@ -45,6 +46,8 @@ pub struct AppState {
     pub experience: Mutex<crate::intelligence::experience_learning::ExperienceLearner>,
     /// Metacognitive calibration — makes confidence trustworthy.
     pub calibration: Mutex<crate::cognition::calibration::CalibrationEngine>,
+    /// Knowledge graph — persistent fact connections and domain cross-references.
+    pub knowledge_graph: crate::cognition::knowledge_graph::KnowledgeGraph,
 }
 
 /// POST /api/auth body
@@ -2018,12 +2021,14 @@ pub fn create_router() -> Result<Router, Box<dyn std::error::Error>> {
         }
     }
 
+    let knowledge_graph = crate::cognition::knowledge_graph::KnowledgeGraph::new(db.clone());
     let state = Arc::new(AppState {
         tx,
         agent,
         search_engine: WebSearchEngine::new(),
         metrics,
         db,
+        knowledge_graph,
         experience: Mutex::new(crate::intelligence::experience_learning::ExperienceLearner::new()),
         calibration: Mutex::new(crate::cognition::calibration::CalibrationEngine::new()),
     });
@@ -2592,6 +2597,172 @@ pub fn create_router() -> Result<Router, Box<dyn std::error::Error>> {
         }))
     }
 
+    // ---- Knowledge Graph Endpoints ----
+
+    /// GET /api/graph/stats — knowledge graph overview
+    async fn graph_stats_handler(
+        State(state): State<Arc<AppState>>,
+    ) -> impl IntoResponse {
+        let stats = state.knowledge_graph.stats();
+        axum::Json(json!({
+            "total_edges": stats.total_edges,
+            "edge_types": stats.edge_types.iter().map(|(t, c)| json!({"type": t, "count": c})).collect::<Vec<_>>(),
+            "domain_xref_count": stats.domain_xref_count,
+            "top_bridges": stats.top_domain_bridges.iter().map(|b| json!({
+                "domain_a": b.domain_a, "domain_b": b.domain_b,
+                "concept": b.concept, "strength": b.strength
+            })).collect::<Vec<_>>(),
+        }))
+    }
+
+    /// GET /api/graph/connections/:fact_key — get edges for a fact
+    async fn graph_connections_handler(
+        State(state): State<Arc<AppState>>,
+        Path(fact_key): Path<String>,
+    ) -> impl IntoResponse {
+        let edges = state.knowledge_graph.connections(&fact_key, 50);
+        axum::Json(json!({
+            "fact_key": fact_key,
+            "connections": edges.iter().map(|e| json!({
+                "source": e.source, "target": e.target,
+                "type": e.edge_type.as_str(), "strength": e.strength,
+            })).collect::<Vec<_>>(),
+            "count": edges.len(),
+        }))
+    }
+
+    /// GET /api/graph/traverse/:fact_key?depth=3&max=100 — BFS subgraph
+    async fn graph_traverse_handler(
+        State(state): State<Arc<AppState>>,
+        Path(fact_key): Path<String>,
+        Query(params): Query<HashMap<String, String>>,
+    ) -> impl IntoResponse {
+        let depth: usize = params.get("depth").and_then(|v| v.parse().ok()).unwrap_or(2);
+        let max_nodes: usize = params.get("max").and_then(|v| v.parse().ok()).unwrap_or(50);
+        let subgraph = state.knowledge_graph.traverse(&fact_key, depth, max_nodes);
+        axum::Json(json!({
+            "center": subgraph.center,
+            "nodes": subgraph.nodes,
+            "edges": subgraph.edges.iter().map(|e| json!({
+                "source": e.source, "target": e.target,
+                "type": e.edge_type.as_str(), "strength": e.strength,
+            })).collect::<Vec<_>>(),
+            "depth_reached": subgraph.depth_reached,
+            "node_count": subgraph.nodes.len(),
+            "edge_count": subgraph.edges.len(),
+        }))
+    }
+
+    /// POST /api/graph/connect — create an edge between two facts
+    async fn graph_connect_handler(
+        State(state): State<Arc<AppState>>,
+        axum::Json(body): axum::Json<serde_json::Value>,
+    ) -> impl IntoResponse {
+        let source = body.get("source").and_then(|v| v.as_str()).unwrap_or("");
+        let target = body.get("target").and_then(|v| v.as_str()).unwrap_or("");
+        let edge_type = body.get("edge_type").and_then(|v| v.as_str()).unwrap_or("related");
+        let strength = body.get("strength").and_then(|v| v.as_f64()).unwrap_or(0.5);
+        let evidence = body.get("evidence").and_then(|v| v.as_str());
+
+        if source.is_empty() || target.is_empty() {
+            return axum::Json(json!({"error": "source and target required"}));
+        }
+
+        use crate::cognition::knowledge_graph::EdgeType;
+        state.knowledge_graph.connect(source, target, EdgeType::from_str(edge_type), strength, evidence);
+        axum::Json(json!({"ok": true, "edge": {"source": source, "target": target, "type": edge_type}}))
+    }
+
+    /// POST /api/graph/build — trigger batch keyword edge building (background)
+    async fn graph_build_handler(
+        State(state): State<Arc<AppState>>,
+        axum::Json(body): axum::Json<serde_json::Value>,
+    ) -> impl IntoResponse {
+        let sample_size = body.get("sample_size").and_then(|v| v.as_u64()).unwrap_or(1000) as usize;
+        // Cap at 10K to prevent runaway
+        let capped = sample_size.min(10_000);
+        let edges = state.knowledge_graph.build_keyword_edges(capped);
+        axum::Json(json!({"ok": true, "edges_created": edges, "sample_size": capped}))
+    }
+
+    /// GET /api/graph/domains — domain cross-reference map
+    async fn graph_domains_handler(
+        State(state): State<Arc<AppState>>,
+    ) -> impl IntoResponse {
+        let xrefs = state.db.get_all_domain_xrefs();
+        axum::Json(json!({
+            "domain_bridges": xrefs.iter().map(|(a, b, concept, strength)| json!({
+                "domain_a": a, "domain_b": b, "concept": concept, "strength": strength
+            })).collect::<Vec<_>>(),
+            "count": xrefs.len(),
+        }))
+    }
+
+    /// GET /api/graph/path/:from/:to — shortest path between two facts
+    async fn graph_path_handler(
+        State(state): State<Arc<AppState>>,
+        Path((from, to)): Path<(String, String)>,
+    ) -> impl IntoResponse {
+        match state.knowledge_graph.shortest_path(&from, &to, 6) {
+            Some(path) => axum::Json(json!({
+                "found": true,
+                "path": path,
+                "hops": path.len() - 1,
+            })),
+            None => axum::Json(json!({
+                "found": false,
+                "path": [],
+                "hops": 0,
+            })),
+        }
+    }
+
+    // ---- Fact Versioning Endpoints ----
+
+    /// GET /api/versions/stats — version tracking overview
+    async fn versions_stats_handler(
+        State(state): State<Arc<AppState>>,
+    ) -> impl IntoResponse {
+        let total = state.db.count_versions();
+        let by_type = state.db.version_stats();
+        axum::Json(json!({
+            "total_versions": total,
+            "by_type": by_type.iter().map(|(t, c)| json!({"type": t, "count": c})).collect::<Vec<_>>(),
+        }))
+    }
+
+    /// GET /api/versions/recent?limit=50 — recent version changes
+    async fn versions_recent_handler(
+        State(state): State<Arc<AppState>>,
+        Query(params): Query<HashMap<String, String>>,
+    ) -> impl IntoResponse {
+        let limit: usize = params.get("limit").and_then(|v| v.parse().ok()).unwrap_or(50);
+        let versions = state.db.get_recent_versions(limit.min(200));
+        axum::Json(json!({
+            "versions": versions.iter().map(|(key, change, by, at)| json!({
+                "fact_key": key, "change_type": change, "changed_by": by, "created_at": at
+            })).collect::<Vec<_>>(),
+            "count": versions.len(),
+        }))
+    }
+
+    /// GET /api/versions/:fact_key — history for a specific fact
+    async fn versions_fact_handler(
+        State(state): State<Arc<AppState>>,
+        Path(fact_key): Path<String>,
+    ) -> impl IntoResponse {
+        let history = state.db.get_fact_history(&fact_key, 50);
+        axum::Json(json!({
+            "fact_key": fact_key,
+            "history": history.iter().map(|(key, old, new, oq, nq, ct, cb, at)| json!({
+                "fact_key": key, "old_value": old, "new_value": new,
+                "old_quality": oq, "new_quality": nq,
+                "change_type": ct, "changed_by": cb, "created_at": at
+            })).collect::<Vec<_>>(),
+            "count": history.len(),
+        }))
+    }
+
     /// GET /api/classroom/overview — student profile, grade, strengths/weaknesses
     async fn classroom_overview_handler(
         State(state): State<Arc<AppState>>,
@@ -2822,6 +2993,16 @@ pub fn create_router() -> Result<Router, Box<dyn std::error::Error>> {
         .route("/api/library/sources", get(library_sources_handler))
         .route("/api/library/vet", post(library_vet_handler))
         .route("/api/library/trust", get(library_trust_handler))
+        .route("/api/graph/stats", get(graph_stats_handler))
+        .route("/api/graph/connections/:fact_key", get(graph_connections_handler))
+        .route("/api/graph/traverse/:fact_key", get(graph_traverse_handler))
+        .route("/api/graph/connect", post(graph_connect_handler))
+        .route("/api/graph/build", post(graph_build_handler))
+        .route("/api/graph/domains", get(graph_domains_handler))
+        .route("/api/graph/path/:from/:to", get(graph_path_handler))
+        .route("/api/versions/stats", get(versions_stats_handler))
+        .route("/api/versions/recent", get(versions_recent_handler))
+        .route("/api/versions/:fact_key", get(versions_fact_handler))
         .route("/api/classroom/overview", get(classroom_overview_handler))
         .route("/api/classroom/curriculum", get(classroom_curriculum_handler))
         .route("/api/admin/training/:action", post(admin_training_control_handler))
