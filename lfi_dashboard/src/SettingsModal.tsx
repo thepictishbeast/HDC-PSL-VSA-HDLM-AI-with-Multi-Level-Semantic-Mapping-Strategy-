@@ -104,6 +104,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
           <input type='text' value={settings.displayName}
             onChange={(e) => setSettings(s => ({ ...s, displayName: e.target.value.slice(0, 40) }))}
             placeholder='Your name'
+            autoComplete='name' aria-label='Display name' maxLength={40}
             style={{
               width: '100%', marginTop: '6px', padding: '10px 12px',
               background: C.bgInput, border: `1px solid ${C.border}`, borderRadius: '8px',
@@ -359,6 +360,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             <label style={{ fontSize: '11px', fontWeight: 700, color: C.textMuted, textTransform: 'uppercase', letterSpacing: '0.08em' }}>Backend Host</label>
             <input type='text' value={settings.apiHost}
               onChange={(e) => setSettings(s => ({ ...s, apiHost: e.target.value }))}
+              autoComplete='off' spellCheck={false} aria-label='Backend host'
               placeholder='Empty = auto-detect'
               style={{
                 width: '100%', marginTop: '6px', padding: '10px 12px',
