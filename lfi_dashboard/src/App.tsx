@@ -57,9 +57,7 @@ import { renderMessageBody as renderMdBody, type MarkdownCtx } from './markdown'
 import { useTicTacToe } from './useTicTacToe';
 import { useStatusPoll, useQualityPoll, useSysInfoPoll } from './usePolls';
 import { useAutoScroll } from './useAutoScroll';
-// react-virtuoso is installed; wiring will go through a dedicated ChatView
-// extraction so the empty-state + thinking-indicator + messagesEnd-ref logic
-// stays correct. Skeleton import stays out until the wrapper lands.
+import { ChatView } from './ChatView';
 
 const TicTacToeModal = React.lazy(() => import('./TicTacToeModal').then(m => ({ default: m.TicTacToeModal })));
 const KnowledgeBrowser = React.lazy(() => import('./KnowledgeBrowser').then(m => ({ default: m.KnowledgeBrowser })));
@@ -2335,32 +2333,62 @@ ${cmdList}
           flex: 1, display: 'flex', flexDirection: 'column',
           overflow: 'hidden', minWidth: 0,
         }}>
-          <div style={{ flex: 1, overflowY: 'auto', padding: chatPadding, WebkitOverflowScrolling: 'touch' as any }}>
-          <div style={{ maxWidth: chatMaxWidth, margin: '0 auto' }}>
-            {/* Empty state */}
-            {messages.length === 0 && (
+          <ChatView
+            messages={messages}
+            chatMaxWidth={chatMaxWidth}
+            chatPadding={chatPadding}
+            isDesktop={isDesktop}
+            renderEmpty={() => (
               <WelcomeScreen
                 C={C} isDesktop={isDesktop}
                 onPickPrompt={(p) => { setInput(p); inputRef.current?.focus(); }}
               />
             )}
-
-            {/* Messages */}
-            {messages.map((msg) => (
-              <div key={msg.id} style={{ marginBottom: isDesktop ? '20px' : '14px' }}>
-                {/* System messages */}
+            renderFooter={() => (
+              <>
+                {isThinking && (
+                  <div role="status" aria-live="polite" style={{
+                    display: 'flex', alignItems: 'center', gap: '12px',
+                    padding: '12px 16px', margin: '8px 0',
+                    background: C.bgCard, border: `1px solid ${C.borderSubtle}`,
+                    borderRadius: '10px', fontSize: '13px',
+                  }}>
+                    <div style={{ display: 'flex', gap: '5px', alignItems: 'center' }}>
+                      {[0, 1, 2].map(i => (
+                        <div key={i} style={{
+                          width: '7px', height: '7px', background: C.accent, borderRadius: '50%',
+                          animation: 'scc-bounce 1.4s infinite ease-in-out',
+                          animationDelay: `${i * 0.16}s`,
+                        }} />
+                      ))}
+                    </div>
+                    <span style={{ color: C.text, fontWeight: 500 }}>{thinkingStep || 'Thinking'}</span>
+                    <span style={{ color: C.textDim, fontSize: '11px', fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace' }}>
+                      {Math.floor(thinkingElapsed / 60) > 0 ? `${Math.floor(thinkingElapsed / 60)}m ` : ''}{thinkingElapsed % 60}s
+                    </span>
+                    <button onClick={() => {
+                      setIsThinking(false);
+                      setThinkingStart(null);
+                      fetch(`http://${getHost()}:3000/api/stop`, { method: 'POST' }).catch(() => {});
+                      logEvent('chat_stop', { elapsed: thinkingElapsed });
+                    }} style={{
+                      marginLeft: 'auto', padding: '4px 12px', fontSize: '12px',
+                      background: 'transparent', border: `1px solid ${C.border}`,
+                      color: C.textMuted, borderRadius: '6px', cursor: 'pointer',
+                      fontFamily: 'inherit',
+                    }}>Stop</button>
+                  </div>
+                )}
+                <div ref={messagesEndRef} />
+              </>
+            )}
+            renderMessage={(msg) => (
+              <>
                 {msg.role === 'system' && <SystemMessage content={msg.content} C={C} />}
-
-                {/* Web results */}
                 {msg.role === 'web' && <WebMessage content={msg.content} C={C} isDesktop={isDesktop} />}
-
-                {/* Tool calls — Claude Code style expandable blocks showing
-                    what tool the AI invoked, its status, and the output. */}
                 {msg.role === 'tool' && (
                   <ToolMessage
-                    msg={msg}
-                    C={C}
-                    isDesktop={isDesktop}
+                    msg={msg} C={C} isDesktop={isDesktop}
                     expanded={expandedTools.has(msg.id)}
                     onToggle={() => setExpandedTools(prev => {
                       const next = new Set(prev);
@@ -2369,18 +2397,12 @@ ${cmdList}
                     })}
                   />
                 )}
-
-                {/* User messages — solid accent bg + white text, like
-                    ChatGPT/Claude/Gemini. The old transparent accentBg was
-                    nearly invisible on light themes (user complaint 2026-04-15). */}
                 {msg.role === 'user' && (
                   <UserMessage
-                    msg={msg}
-                    C={C} isMobile={isMobile}
+                    msg={msg} C={C} isMobile={isMobile}
                     maxWidth={userBubbleMaxWidth}
                     editing={editingMsgId === msg.id}
-                    editText={editText}
-                    setEditText={setEditText}
+                    editText={editText} setEditText={setEditText}
                     onBeginEdit={() => { setEditingMsgId(msg.id); setEditText(msg.content); }}
                     onCancelEdit={() => setEditingMsgId(null)}
                     onCommitEdit={(trimmed) => {
@@ -2394,14 +2416,9 @@ ${cmdList}
                     formatTime={formatTime}
                   />
                 )}
-
-                {/* Assistant messages — decluttered. No tier/mode/confidence
-                    badges, no inline timestamp/intent. Copy + Regenerate are
-                    hover-revealed below the bubble, right-aligned. */}
                 {msg.role === 'assistant' && (
                   <AssistantMessage
-                    msg={msg}
-                    C={C} isMobile={isMobile} isDesktop={isDesktop}
+                    msg={msg} C={C} isMobile={isMobile} isDesktop={isDesktop}
                     isLast={messages[messages.length - 1]?.id === msg.id}
                     isThinking={isThinking}
                     showReasoning={!!settings.showReasoning}
@@ -2431,49 +2448,9 @@ ${cmdList}
                     formatTime={formatTime}
                   />
                 )}
-              </div>
-            ))}
-
-            {/* Thinking indicator — shows elapsed seconds + current step label
-                + stop. Richer than the old 3-dot pulse so the user can see
-                progress and cancel. */}
-            {isThinking && (
-              <div role="status" aria-live="polite" style={{
-                display: 'flex', alignItems: 'center', gap: '12px',
-                padding: '12px 16px', margin: '8px 0',
-                background: C.bgCard, border: `1px solid ${C.borderSubtle}`,
-                borderRadius: '10px',
-                fontSize: '13px',
-              }}>
-                <div style={{ display: 'flex', gap: '5px', alignItems: 'center' }}>
-                  {[0,1,2].map(i => (
-                    <div key={i} style={{
-                      width: '7px', height: '7px', background: C.accent, borderRadius: '50%',
-                      animation: 'scc-bounce 1.4s infinite ease-in-out',
-                      animationDelay: `${i * 0.16}s`,
-                    }} />
-                  ))}
-                </div>
-                <span style={{ color: C.text, fontWeight: 500 }}>{thinkingStep || 'Thinking'}</span>
-                <span style={{ color: C.textDim, fontSize: '11px', fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace' }}>
-                  {Math.floor(thinkingElapsed / 60) > 0 ? `${Math.floor(thinkingElapsed/60)}m ` : ''}{thinkingElapsed % 60}s
-                </span>
-                <button onClick={() => {
-                  setIsThinking(false);
-                  setThinkingStart(null);
-                  fetch(`http://${getHost()}:3000/api/stop`, { method: 'POST' }).catch(() => {});
-                  logEvent('chat_stop', { elapsed: thinkingElapsed });
-                }} style={{
-                  marginLeft: 'auto', padding: '4px 12px', fontSize: '12px',
-                  background: 'transparent', border: `1px solid ${C.border}`,
-                  color: C.textMuted, borderRadius: '6px', cursor: 'pointer',
-                  fontFamily: 'inherit',
-                }}>Stop</button>
-              </div>
+              </>
             )}
-            <div ref={messagesEndRef} />
-          </div>
-          </div>
+          />
 
           {/* ========== INPUT BAR (inside main — centers with the chat column) ========== */}
           {/* Claude.ai-style: textarea on top, actions row below. Taller
