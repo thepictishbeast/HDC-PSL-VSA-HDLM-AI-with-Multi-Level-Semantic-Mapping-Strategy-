@@ -1439,6 +1439,18 @@ ${cmdList}
 
   return (
     <React.Suspense fallback={null}>
+    {/* Skip-to-main-content link for keyboard users. Visually hidden until
+        focused; then it becomes a visible button that jumps past the sidebar. */}
+    <a href='#main-content' className='lfi-skip-link'
+      style={{
+        position: 'absolute', left: '8px', top: '-40px',
+        background: C.accent, color: '#fff',
+        padding: '8px 12px', borderRadius: '0 0 8px 8px',
+        fontSize: '13px', fontWeight: 700, textDecoration: 'none',
+        zIndex: 9999,
+      }}>
+      Skip to chat
+    </a>
     <div style={{
       display: 'flex', flexDirection: 'column', height: '100vh', width: '100%',
       background: C.bg, color: C.text,
@@ -2959,6 +2971,8 @@ ${cmdList}
         /* Push Eruda FAB above our input bar */
         #eruda { z-index: 9999 !important; }
         .eruda-entry-btn { bottom: 80px !important; right: 10px !important; }
+        /* Skip link: keep off-screen until focus lands on it, then slide into view. */
+        .lfi-skip-link:focus { top: 0 !important; outline: 2px solid ${C.accent}; }
       `}</style>
     </div>
     </React.Suspense>
