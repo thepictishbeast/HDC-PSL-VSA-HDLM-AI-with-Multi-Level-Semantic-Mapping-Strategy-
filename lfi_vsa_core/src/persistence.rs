@@ -46,7 +46,9 @@ impl BrainDb {
     }
 
     fn migrate(&self) -> Result<(), rusqlite::Error> {
-        let conn = self.conn.lock().unwrap();
+        // SAFETY: poisoned mutex means another thread panicked while holding the lock.
+        // We recover or return defaults rather than propagating the panic.
+        let conn = self.conn.lock().unwrap_or_else(|e| e.into_inner());
         conn.execute_batch("
             CREATE TABLE IF NOT EXISTS facts (
                 key TEXT PRIMARY KEY,
@@ -107,7 +109,9 @@ impl BrainDb {
     // ---- Facts ----
 
     pub fn upsert_fact(&self, key: &str, value: &str, source: &str, confidence: f64) {
-        let conn = self.conn.lock().unwrap();
+        // SAFETY: poisoned mutex means another thread panicked while holding the lock.
+        // We recover or return defaults rather than propagating the panic.
+        let conn = self.conn.lock().unwrap_or_else(|e| e.into_inner());
         if let Err(e) = conn.execute(
             "INSERT INTO facts (key, value, source, confidence, updated_at)
              VALUES (?1, ?2, ?3, ?4, datetime('now'))
@@ -119,7 +123,9 @@ impl BrainDb {
     }
 
     pub fn get_all_facts(&self) -> Vec<(String, String, String, f64)> {
-        let conn = self.conn.lock().unwrap();
+        // SAFETY: poisoned mutex means another thread panicked while holding the lock.
+        // We recover or return defaults rather than propagating the panic.
+        let conn = self.conn.lock().unwrap_or_else(|e| e.into_inner());
         let mut stmt = conn.prepare(
             "SELECT key, value, source, confidence FROM facts ORDER BY updated_at DESC"
         ).unwrap();
@@ -136,7 +142,9 @@ impl BrainDb {
     /// Get the most recent N facts, prioritizing user-extracted and high-confidence
     /// facts. Used for startup hydration to avoid loading 40M+ rows into memory.
     pub fn get_recent_facts(&self, limit: usize) -> Vec<(String, String, String, f64)> {
-        let conn = self.conn.lock().unwrap();
+        // SAFETY: poisoned mutex means another thread panicked while holding the lock.
+        // We recover or return defaults rather than propagating the panic.
+        let conn = self.conn.lock().unwrap_or_else(|e| e.into_inner());
         // Prioritize: ai_extracted facts first (user conversations), then by
         // confidence descending, then by recency. This ensures the agent knows
         // the user's name, preferences, etc. on startup.
@@ -159,7 +167,9 @@ impl BrainDb {
     }
 
     pub fn delete_fact(&self, key: &str) {
-        let conn = self.conn.lock().unwrap();
+        // SAFETY: poisoned mutex means another thread panicked while holding the lock.
+        // We recover or return defaults rather than propagating the panic.
+        let conn = self.conn.lock().unwrap_or_else(|e| e.into_inner());
         let _ = conn.execute("DELETE FROM facts WHERE key = ?1", params![key]);
     }
 
@@ -168,7 +178,9 @@ impl BrainDb {
     /// Falls back to LIKE if FTS5 is unavailable.
     /// SUPERSOCIETY: This is what makes 52M facts useful in real-time.
     pub fn search_facts(&self, query: &str, limit: usize) -> Vec<(String, String, f64)> {
-        let conn = self.conn.lock().unwrap();
+        // SAFETY: poisoned mutex means another thread panicked while holding the lock.
+        // We recover or return defaults rather than propagating the panic.
+        let conn = self.conn.lock().unwrap_or_else(|e| e.into_inner());
 
         // Extract keywords for FTS5 MATCH query
         let stopwords = ["the","and","for","are","but","not","you","all","can","had",
@@ -220,7 +232,9 @@ impl BrainDb {
     // ---- Conversations ----
 
     pub fn save_conversation(&self, id: &str, title: &str, pinned: bool, starred: bool) {
-        let conn = self.conn.lock().unwrap();
+        // SAFETY: poisoned mutex means another thread panicked while holding the lock.
+        // We recover or return defaults rather than propagating the panic.
+        let conn = self.conn.lock().unwrap_or_else(|e| e.into_inner());
         if let Err(e) = conn.execute(
             "INSERT INTO conversations (id, title, pinned, starred, updated_at)
              VALUES (?1, ?2, ?3, ?4, datetime('now'))
@@ -232,7 +246,9 @@ impl BrainDb {
     }
 
     pub fn save_message(&self, convo_id: &str, role: &str, content: &str, timestamp: i64, meta: Option<&str>) {
-        let conn = self.conn.lock().unwrap();
+        // SAFETY: poisoned mutex means another thread panicked while holding the lock.
+        // We recover or return defaults rather than propagating the panic.
+        let conn = self.conn.lock().unwrap_or_else(|e| e.into_inner());
         if let Err(e) = conn.execute(
             "INSERT INTO messages (conversation_id, role, content, timestamp, meta_json)
              VALUES (?1, ?2, ?3, ?4, ?5)",
@@ -243,7 +259,9 @@ impl BrainDb {
     }
 
     pub fn get_conversations(&self) -> Vec<(String, String, bool, bool, String)> {
-        let conn = self.conn.lock().unwrap();
+        // SAFETY: poisoned mutex means another thread panicked while holding the lock.
+        // We recover or return defaults rather than propagating the panic.
+        let conn = self.conn.lock().unwrap_or_else(|e| e.into_inner());
         let mut stmt = conn.prepare(
             "SELECT id, title, pinned, starred, updated_at FROM conversations ORDER BY updated_at DESC LIMIT 200"
         ).unwrap();
@@ -259,7 +277,9 @@ impl BrainDb {
     }
 
     pub fn get_messages(&self, convo_id: &str) -> Vec<(String, String, i64, Option<String>)> {
-        let conn = self.conn.lock().unwrap();
+        // SAFETY: poisoned mutex means another thread panicked while holding the lock.
+        // We recover or return defaults rather than propagating the panic.
+        let conn = self.conn.lock().unwrap_or_else(|e| e.into_inner());
         let mut stmt = conn.prepare(
             "SELECT role, content, timestamp, meta_json FROM messages WHERE conversation_id = ?1 ORDER BY timestamp"
         ).unwrap();
@@ -274,7 +294,9 @@ impl BrainDb {
     }
 
     pub fn delete_conversation(&self, id: &str) {
-        let conn = self.conn.lock().unwrap();
+        // SAFETY: poisoned mutex means another thread panicked while holding the lock.
+        // We recover or return defaults rather than propagating the panic.
+        let conn = self.conn.lock().unwrap_or_else(|e| e.into_inner());
         let _ = conn.execute("DELETE FROM messages WHERE conversation_id = ?1", params![id]);
         let _ = conn.execute("DELETE FROM conversations WHERE id = ?1", params![id]);
     }
@@ -282,7 +304,9 @@ impl BrainDb {
     // ---- Training results ----
 
     pub fn log_training_result(&self, domain: &str, accuracy: f64, total: usize, correct: usize) {
-        let conn = self.conn.lock().unwrap();
+        // SAFETY: poisoned mutex means another thread panicked while holding the lock.
+        // We recover or return defaults rather than propagating the panic.
+        let conn = self.conn.lock().unwrap_or_else(|e| e.into_inner());
         if let Err(e) = conn.execute(
             "INSERT INTO training_results (domain, accuracy, total, correct) VALUES (?1, ?2, ?3, ?4)",
             params![domain, accuracy, total as i64, correct as i64],
@@ -292,7 +316,9 @@ impl BrainDb {
     }
 
     pub fn get_training_history(&self, limit: usize) -> Vec<(String, f64, i64, i64, String)> {
-        let conn = self.conn.lock().unwrap();
+        // SAFETY: poisoned mutex means another thread panicked while holding the lock.
+        // We recover or return defaults rather than propagating the panic.
+        let conn = self.conn.lock().unwrap_or_else(|e| e.into_inner());
         let mut stmt = conn.prepare(
             "SELECT domain, accuracy, total, correct, timestamp
              FROM training_results ORDER BY id DESC LIMIT ?1"
@@ -311,7 +337,9 @@ impl BrainDb {
     // ---- Settings (key/value) ----
 
     pub fn set_setting(&self, key: &str, value: &str) {
-        let conn = self.conn.lock().unwrap();
+        // SAFETY: poisoned mutex means another thread panicked while holding the lock.
+        // We recover or return defaults rather than propagating the panic.
+        let conn = self.conn.lock().unwrap_or_else(|e| e.into_inner());
         let _ = conn.execute(
             "INSERT INTO settings (key, value) VALUES (?1, ?2)
              ON CONFLICT(key) DO UPDATE SET value=?2",
@@ -320,7 +348,9 @@ impl BrainDb {
     }
 
     pub fn get_setting(&self, key: &str) -> Option<String> {
-        let conn = self.conn.lock().unwrap();
+        // SAFETY: poisoned mutex means another thread panicked while holding the lock.
+        // We recover or return defaults rather than propagating the panic.
+        let conn = self.conn.lock().unwrap_or_else(|e| e.into_inner());
         conn.query_row(
             "SELECT value FROM settings WHERE key = ?1",
             params![key],
@@ -333,7 +363,9 @@ impl BrainDb {
     /// relationships. These are loaded fully on startup (not capped like facts)
     /// so the AI always knows who it's talking to.
     pub fn save_profile(&self, key: &str, value: &str, category: &str) {
-        let conn = self.conn.lock().unwrap();
+        // SAFETY: poisoned mutex means another thread panicked while holding the lock.
+        // We recover or return defaults rather than propagating the panic.
+        let conn = self.conn.lock().unwrap_or_else(|e| e.into_inner());
         let _ = conn.execute(
             "INSERT OR REPLACE INTO user_profile (key, value, category, learned_at) \
              VALUES (?1, ?2, ?3, datetime('now'))",
@@ -344,7 +376,9 @@ impl BrainDb {
     /// Load all user profile facts. Called on startup to hydrate the agent's
     /// understanding of the user. Returns (key, value, category) tuples.
     pub fn load_profile(&self) -> Vec<(String, String, String)> {
-        let conn = self.conn.lock().unwrap();
+        // SAFETY: poisoned mutex means another thread panicked while holding the lock.
+        // We recover or return defaults rather than propagating the panic.
+        let conn = self.conn.lock().unwrap_or_else(|e| e.into_inner());
         let mut stmt = conn.prepare(
             "SELECT key, value, category FROM user_profile ORDER BY learned_at DESC"
         ).unwrap();
@@ -359,7 +393,9 @@ impl BrainDb {
 
     /// Get a specific profile value.
     pub fn get_profile(&self, key: &str) -> Option<String> {
-        let conn = self.conn.lock().unwrap();
+        // SAFETY: poisoned mutex means another thread panicked while holding the lock.
+        // We recover or return defaults rather than propagating the panic.
+        let conn = self.conn.lock().unwrap_or_else(|e| e.into_inner());
         conn.query_row(
             "SELECT value FROM user_profile WHERE key = ?1",
             params![key],
