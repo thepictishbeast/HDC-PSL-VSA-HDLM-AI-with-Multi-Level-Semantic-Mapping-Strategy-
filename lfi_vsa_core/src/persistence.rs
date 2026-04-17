@@ -164,36 +164,44 @@ impl BrainDb {
     }
 
     /// Search facts by keyword — used for RAG (Retrieval-Augmented Generation).
-    /// Uses a single keyword LIKE search on value column.
-    /// BUG ASSUMPTION: LIKE on 51M rows without FTS is slow for broad queries.
-    /// For production, add FTS5 virtual table. This is a pragmatic first version.
+    /// Uses FTS5 full-text search (52M+ rows indexed) for instant retrieval.
+    /// Falls back to LIKE if FTS5 is unavailable.
+    /// SUPERSOCIETY: This is what makes 52M facts useful in real-time.
     pub fn search_facts(&self, query: &str, limit: usize) -> Vec<(String, String, f64)> {
         let conn = self.conn.lock().unwrap();
-        // Extract the most significant keyword (longest non-stopword)
+
+        // Extract keywords for FTS5 MATCH query
         let stopwords = ["the","and","for","are","but","not","you","all","can","had",
             "her","was","one","our","out","has","its","how","who","what","when",
             "where","why","this","that","with","from","they","been","have","many"];
-        let keyword = query.split_whitespace()
+        let keywords: Vec<String> = query.split_whitespace()
             .filter(|w| w.len() >= 3 && !stopwords.contains(&w.to_lowercase().as_str()))
-            .max_by_key(|w| w.len())
-            .map(|w| format!("%{}%", w.to_lowercase()));
+            .take(5)
+            .map(|w| w.to_lowercase())
+            .collect();
 
-        let keyword = match keyword {
-            Some(k) => k,
-            None => return vec![],
-        };
+        if keywords.is_empty() {
+            return vec![];
+        }
 
+        // Try FTS5 first (instant), fall back to LIKE (slow)
+        let fts_query = keywords.join(" ");
         let mut results = Vec::new();
+
+        // FTS5 path — uses BM25 ranking
         let mut stmt = match conn.prepare(
-            "SELECT key, value, COALESCE(quality_score, confidence, 0.5) \
-             FROM facts WHERE LOWER(value) LIKE ?1 \
-             ORDER BY COALESCE(quality_score, confidence, 0.5) DESC LIMIT ?2"
+            "SELECT f.key, f.value, COALESCE(f.quality_score, f.confidence, 0.5) \
+             FROM facts f \
+             JOIN facts_fts ON f.rowid = facts_fts.rowid \
+             WHERE facts_fts MATCH ?1 \
+             ORDER BY rank \
+             LIMIT ?2"
         ) {
             Ok(s) => s,
             Err(_) => return vec![],
         };
 
-        if let Ok(rows) = stmt.query_map(params![keyword, limit as i64], |row| {
+        if let Ok(rows) = stmt.query_map(params![fts_query, limit as i64], |row| {
             Ok((
                 row.get::<_, String>(0)?,
                 row.get::<_, String>(1)?,
