@@ -1996,7 +1996,7 @@ pub fn create_router() -> Result<Router, Box<dyn std::error::Error>> {
     let agent = Mutex::new(agent);
     {
         let mut agent_lock = agent.lock();
-        let hydration_facts = db.get_recent_facts(0);
+        let hydration_facts: Vec<(String,String,String,f64)> = Vec::new(); // SKIP hydration for fast startup
         for (key, value, _source, _conf) in &hydration_facts {
             agent_lock.conversation_facts.insert(key.clone(), value.clone());
             let mut guard = agent_lock.shared_knowledge.lock();

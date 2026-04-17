@@ -1,7 +1,7 @@
 import React, { useRef, useState, useMemo, useEffect } from 'react';
 import { useModalFocus } from './useModalFocus';
 import { T } from './tokens';
-import { compactNum } from './util';
+import { compactNum, formatRelative } from './util';
 
 // Full-screen admin modal per c0-017. Six tabs: Dashboard / Domains /
 // Training / Quality / System / Logs. Replaces the prior sidebar-slide admin
@@ -124,6 +124,10 @@ export const AdminModal: React.FC<AdminModalProps> = ({
     dashboard: null, inventory: null, domains: null, training: null, quality: null, system: null, fleet: null, logs: null,
   });
   const [loading, setLoading] = useState<AdminTab | null>(null);
+  // c2-272: per-tab last-successful-load timestamp. Mirrors the Classroom
+  // "Updated Xs ago" affordance so users know how stale the numbers are,
+  // especially important on tabs with long auto-refresh intervals.
+  const [lastLoadedAt, setLastLoadedAt] = useState<Partial<Record<AdminTab, number>>>({});
 
   const fetchJson = async <T,>(path: string, signal: AbortSignal): Promise<T> => {
     const res = await fetch(`http://${host}:3000${path}`, { signal });
@@ -172,6 +176,10 @@ export const AdminModal: React.FC<AdminModalProps> = ({
           setLogs([]);
         }
       }
+      // c2-272: only stamp when the outer try cleared without throwing.
+      // Nested catches above (dashboard + logs fallbacks) shallow-swallow
+      // per-endpoint failures, so reaching here means the tab is usable.
+      setLastLoadedAt(prev => ({ ...prev, [t]: Date.now() }));
     } catch (e: any) {
       const m = String(e?.message || e || 'fetch failed');
       // Distinguish AbortError from real HTTP errors so the user knows
@@ -265,6 +273,14 @@ export const AdminModal: React.FC<AdminModalProps> = ({
             }}>Admin Console</h2>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: T.spacing.sm }}>
+            {/* c2-272: staleness indicator per active tab. Hidden until first
+                successful fetch so it does not flash 0s before data lands. */}
+            {lastLoadedAt[tab] != null && (
+              <span aria-live='polite' style={{
+                fontSize: T.typography.sizeXs, color: C.textDim,
+                fontFamily: 'ui-monospace, monospace',
+              }}>Updated {formatRelative(lastLoadedAt[tab]!)}</span>
+            )}
             {/* c2-258 / #120: manual refresh for the active tab. Spins the
                 icon while a load is in-flight so the user sees progress.
                 Covers every tab via the shared loadTab dispatcher. */}

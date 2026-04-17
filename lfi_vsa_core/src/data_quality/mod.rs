@@ -16,5 +16,6 @@ pub mod classifier;
 pub mod pipeline;
 pub mod domain;
 pub mod source;
+pub mod fact_builder;
 #[cfg(test)]
 mod proptest_checks;
