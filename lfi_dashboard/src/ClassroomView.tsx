@@ -133,6 +133,29 @@ export const ClassroomView: React.FC<ClassroomViewProps> = ({ C, host, isDesktop
   // page looks identical on first render.
   const [curricFilter, setCurricFilter] = useState('');
   const [curricSort, setCurricSort] = useState<{ col: 'file' | 'pairs' | 'size'; dir: 'asc' | 'desc' }>({ col: 'pairs', dir: 'desc' });
+  // c2-369 / task 129: rolling pass-rate series for the sparkline. 10-point
+  // cap so the chart stays readable; sessionStorage-backed so a full page
+  // reload starts fresh (reflecting the intent that this is a live session
+  // indicator, not a long-term trend).
+  const [passRateSeries, setPassRateSeries] = useState<number[]>(() => {
+    try {
+      const raw = sessionStorage.getItem('scc_pass_rate_series');
+      return raw ? (JSON.parse(raw) as number[]).slice(-10) : [];
+    } catch { return []; }
+  });
+  // c2-369: push each fresh pass_rate observation into the sparkline series,
+  // dedup adjacent identical values so the chart isn't flat-lined by a
+  // paused backend, cap at 10 samples.
+  useEffect(() => {
+    const p = pctNorm(data?.training?.pass_rate);
+    if (p == null) return;
+    setPassRateSeries(prev => {
+      if (prev.length > 0 && Math.abs(prev[prev.length - 1] - p) < 0.01) return prev;
+      const next = [...prev, p].slice(-10);
+      try { sessionStorage.setItem('scc_pass_rate_series', JSON.stringify(next)); } catch {}
+      return next;
+    });
+  }, [data?.training?.pass_rate]);
   // c2-231 / #75: rolling history of per-domain counts, surfaced as
   // sparklines next to the coverage bars.
   const [history, setHistory] = useState<GradebookSnapshot[]>(() => loadGradebookHistory());
@@ -557,7 +580,48 @@ export const ClassroomView: React.FC<ClassroomViewProps> = ({ C, host, isDesktop
               display: loading && !data ? 'none' : 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
               gap: T.spacing.md, marginBottom: T.spacing.xl,
             }}>
-              <Stat C={C} label='Pass rate' value={(() => { const p = pctNorm(data?.training?.pass_rate); return p != null ? `${p.toFixed(1)}%` : '—'; })()} color={C.green} />
+              {/* c2-369 / task 129: Pass rate Stat now renders with a
+                  below-value sparkline. When the series has 2+ samples we
+                  draw an SVG polyline inside the card body. */}
+              {(() => {
+                const p = pctNorm(data?.training?.pass_rate);
+                const valueText = p != null ? `${p.toFixed(1)}%` : '—';
+                const color = p == null ? C.textMuted : p >= 95 ? C.green : p >= 80 ? C.yellow : C.red;
+                const series = passRateSeries;
+                const sparkW = 160, sparkH = 32;
+                const minV = Math.min(...series, 0);
+                const maxV = Math.max(...series, 100);
+                const span = Math.max(1, maxV - minV);
+                const toPt = (v: number, i: number) => {
+                  const x = series.length === 1 ? sparkW / 2 : (i / (series.length - 1)) * sparkW;
+                  const y = sparkH - ((v - minV) / span) * sparkH;
+                  return `${x},${y}`;
+                };
+                return (
+                  <div style={{
+                    padding: `${T.spacing.md} ${T.spacing.lg}`, borderRadius: T.radii.md,
+                    background: C.bgCard, border: `1px solid ${C.borderSubtle}`,
+                  }}>
+                    <Label color={C.textMuted}>Pass rate</Label>
+                    <div style={{
+                      fontSize: '24px', fontWeight: T.typography.weightBlack,
+                      color, marginTop: T.spacing.xs, fontFamily: T.typography.fontMono,
+                    }}>{valueText}</div>
+                    {series.length >= 2 && (
+                      <svg width={sparkW} height={sparkH} style={{ marginTop: '4px', display: 'block' }}
+                        aria-label={`Pass rate trend, ${series.length} samples`}>
+                        <polyline points={series.map((v, i) => toPt(v, i)).join(' ')}
+                          fill='none' stroke={color} strokeWidth={2}
+                          strokeLinecap='round' strokeLinejoin='round' />
+                        {series.map((v, i) => {
+                          const [x, y] = toPt(v, i).split(',').map(Number);
+                          return <circle key={i} cx={x} cy={y} r={2} fill={color} />;
+                        })}
+                      </svg>
+                    )}
+                  </div>
+                );
+              })()}
               <Stat C={C} label='Tested' value={data?.training?.total_tested != null ? compactNum(data.training.total_tested) : '—'} color={C.accent} />
               <Stat C={C} label='Correct' value={data?.training?.total_correct != null ? compactNum(data.training.total_correct) : '—'} color={C.green} />
               <Stat C={C} label='Avg quality' value={typeof data?.quality?.average === 'number' ? data.quality.average.toFixed(2) : '—'} color={C.yellow} />
@@ -998,7 +1062,7 @@ const TestCenterTab: React.FC<{ C: any; host: string; data: DashboardShape | nul
                     <pre style={{
                       margin: 0, padding: '10px 12px', background: C.bgInput,
                       borderTop: `1px solid ${C.borderSubtle}`,
-                      fontFamily: "'JetBrains Mono','Fira Code',monospace", fontSize: T.typography.sizeXs,
+                      fontFamily: T.typography.fontMono, fontSize: T.typography.sizeXs,
                       color: C.text, whiteSpace: 'pre-wrap', overflowX: 'auto', maxHeight: '240px',
                     }}>{JSON.stringify(h.raw, null, 2)}</pre>
                   )}
