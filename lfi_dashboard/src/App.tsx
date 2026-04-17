@@ -446,7 +446,7 @@ const SovereignCommandConsole: React.FC = () => {
     { cmd: '/settings', label: 'Open settings', desc: 'All preferences',
       run: () => setShowSettings(true) },
     { cmd: '/logs', label: 'Activity logs', desc: 'Chat log + UI events',
-      run: () => { setShowActivity(true); fetch(`http://${getHost()}:3000/api/chat-log?limit=50`).then(r=>r.json()).then(d=>setServerChatLog(d.entries||[])).catch(()=>{}); } },
+      run: () => { setShowActivity(true); fetchChatLog(50); } },
     { cmd: '/pulse', label: 'Model: Pulse', desc: 'Fast tier',
       run: () => handleTierSwitch('Pulse') },
     { cmd: '/bridge', label: 'Model: Bridge', desc: 'Balanced tier',
@@ -997,6 +997,29 @@ ${cmdList}
       setFactsError(String(e?.message || e));
       setFactsFetchedAt(Date.now());
     } finally { setAdminLoading(''); }
+  };
+
+  // Centralised chat-log fetch: tracks auth/error/empty so the Activity modal can
+  // show a meaningful message instead of the generic "no logged turns" line (which
+  // was misleading when the fetch was actually rejected for auth).
+  const [chatLogError, setChatLogError] = useState<string | null>(null);
+  const [chatLogFetchedAt, setChatLogFetchedAt] = useState<number | null>(null);
+  const fetchChatLog = async (limit = 50) => {
+    setChatLogError(null);
+    try {
+      const ctrl = new AbortController();
+      const to = setTimeout(() => ctrl.abort(), 10000);
+      const res = await fetch(`http://${getHost()}:3000/api/chat-log?limit=${limit}`, { signal: ctrl.signal });
+      clearTimeout(to);
+      const d = await res.json();
+      if (d?.error) throw new Error(String(d.error));
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      setServerChatLog(d.entries || []);
+      setChatLogFetchedAt(Date.now());
+    } catch (e: any) {
+      setChatLogError(String(e?.message || e));
+      setChatLogFetchedAt(Date.now());
+    }
   };
 
   const fetchQos = async () => {
@@ -2411,7 +2434,7 @@ ${cmdList}
           { id: 'open-knowledge', label: 'Knowledge browser', hint: 'Facts, concepts, reviews', group: 'Navigate',
             onRun: () => { setShowKnowledge(true); fetchKnowledge(); } },
           { id: 'open-logs', label: 'Open activity logs', hint: 'Chat log + UI events', group: 'Navigate',
-            onRun: () => { setShowActivity(true); fetch(`http://${getHost()}:3000/api/chat-log?limit=50`).then(r => r.json()).then(d => setServerChatLog(d.entries || [])).catch(() => {}); } },
+            onRun: () => { setShowActivity(true); fetchChatLog(50); } },
           { id: 'toggle-dev', label: `${settings.developerMode ? 'Disable' : 'Enable'} developer mode`, hint: 'Telemetry + plan panel', group: 'Navigate',
             onRun: () => { setSettings(s => ({ ...s, developerMode: !s.developerMode })); } },
           ...conversations.slice(0, 20).map(c => ({
@@ -2581,9 +2604,26 @@ ${cmdList}
               {activityTab === 'chat' && (
                 <>
                   {serverChatLog.length === 0 && (
-                    <div style={{ color: C.textMuted, fontSize: '13px', padding: '20px', textAlign: 'center' }}>
-                      No logged turns yet. Send a message to populate.
-                    </div>
+                    chatLogError ? (
+                      <div style={{ fontSize: '13px', padding: '16px', background: C.redBg, border: `1px solid ${C.redBorder}`, borderRadius: '8px', color: C.red, lineHeight: 1.5 }}>
+                        <div style={{ fontWeight: 700, marginBottom: '4px' }}>Could not load chat log</div>
+                        <div style={{ fontSize: '12px', opacity: 0.9 }}>{chatLogError}</div>
+                        <div style={{ fontSize: '11px', marginTop: '8px', color: C.textMuted }}>
+                          {chatLogError.toLowerCase().includes('auth') ? 'Server is gating this endpoint; the passwordless-mode flag may be off-sync after a restart.' : null}
+                        </div>
+                      </div>
+                    ) : chatLogFetchedAt ? (
+                      <div style={{ color: C.textMuted, fontSize: '13px', padding: '20px', textAlign: 'center' }}>
+                        No logged turns yet. Send a message to populate.
+                        <div style={{ fontSize: '11px', color: C.textDim, marginTop: '6px' }}>
+                          Last checked {new Date(chatLogFetchedAt).toLocaleTimeString()}
+                        </div>
+                      </div>
+                    ) : (
+                      <div style={{ color: C.textMuted, fontSize: '13px', padding: '20px', textAlign: 'center' }}>
+                        Loading chat log…
+                      </div>
+                    )
                   )}
                   {serverChatLog.slice().reverse().map((e, i) => (
                     <div key={i} style={{
@@ -3287,7 +3327,7 @@ ${cmdList}
                     Settings
                   </button>
                   <button onClick={() => { setShowAccountMenu(false); setShowActivity(true);
-                      fetch(`http://${getHost()}:3000/api/chat-log?limit=50`).then(r => r.json()).then(d => setServerChatLog(d.entries || [])).catch(() => {});
+                      fetchChatLog(50);
                     }}
                     style={{ display: 'flex', alignItems: 'center', gap: '10px',
                       padding: '10px 12px', background: 'transparent', border: 'none', cursor: 'pointer',
