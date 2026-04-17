@@ -102,7 +102,9 @@ Beyond-c0-078 work:
 - Phase 2 #3: service worker at public/sw.js (prod-only register).
 - Phase 2 #4: WebSocket exponential backoff + jitter.
 - Phase 2 #1 partial: react-virtuoso installed; wiring pending a ChatView extraction.
-- react-virtuoso@4.18 added to package.json.
+- react-virtuoso@4.18 added to package.json; wired via ChatView.tsx (render-prop API).
+- ShortcutsModal.tsx (`?` key): platform-aware cheatsheet, 13 shortcuts grouped, lazy-loaded.
+- formatRelative util used by conversation-list row subtitles and the training "most recent cycle" banner.
 - A11y pass (ongoing): role=dialog + aria-modal + aria-label on 4 modals; role=tablist/tab/tabpanel + aria-selected on Settings + Activity tabs; aria-label on chat textarea, 5 AssistantMessage action-bar buttons (Copy/Regenerate/Good/Bad/Edit), send button, sidebar toggle (+aria-pressed), account menu (+aria-haspopup/expanded), plan-sidebar toggle (+aria-expanded), 5 conversation-row actions (star/pin/rename/export/delete — scoped to conversation title), Start/Stop training buttons, Tools, Attach, Voice, Model, Clear-skill; role=status + aria-live=polite on thinking indicator; provenance badge upgraded to keyboard-accessible button with Enter/Space handler.
 - Focus management: useModalFocus hook wired into all 4 modals (initial focus + Tab/Shift-Tab cycle trap + restore on close).
 - React.memo on SystemMessage + WebMessage leaf components.
