@@ -23,3 +23,4 @@ pub use compute::{ComputeBackend, LocalBackend};
 pub use adaptive::{UiAttributes, UiElement};
 pub use error::HdcError;
 pub use liquid::{LiquidSensorium, LiquidNeuron};
+pub mod constant_time;
