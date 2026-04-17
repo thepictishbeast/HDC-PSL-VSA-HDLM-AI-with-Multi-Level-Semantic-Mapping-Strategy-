@@ -2790,6 +2790,12 @@ ${cmdList}
               </span>
               <span>PlausiDen AI can make mistakes. Verify important info.</span>
               <span style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+                <span
+                  title='Open the command palette'
+                  style={{ cursor: 'pointer', color: C.textMuted }}
+                  onClick={() => { setShowCmdPalette(true); setCmdQuery(''); setCmdIndex(0); }}>
+                  {navigator.platform.toLowerCase().includes('mac') ? '\u2318K' : 'Ctrl+K'}
+                </span>
                 <span style={{ cursor: 'pointer', color: C.textMuted }} onClick={() => { setInput('/'); setShowSlashMenu(true); setSlashFilter(''); inputRef.current?.focus(); }}>
                   / commands
                 </span>
