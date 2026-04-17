@@ -1063,35 +1063,53 @@ export const AdminModal: React.FC<AdminModalProps> = ({
                       })}
                     </div>
                   )}
-                  {fleet.timeline && fleet.timeline.length > 0 && (
-                    <div>
-                      <Label color={C.textMuted} mb={T.spacing.md}>
-                        Recent activity ({fleet.timeline.length})
-                      </Label>
-                      <div style={{ border: `1px solid ${C.borderSubtle}`, borderRadius: T.radii.md, overflow: 'hidden', maxHeight: '320px', overflowY: 'auto' }}>
-                        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: T.typography.sizeSm }}>
-                          <thead>
-                            <tr>
-                              <th style={{ textAlign: 'left', padding: '8px 12px', fontWeight: T.typography.weightBold, color: C.textSecondary, background: C.bgCard, borderBottom: `1px solid ${C.borderSubtle}`, position: 'sticky', top: 0 }}>When</th>
-                              <th style={{ textAlign: 'left', padding: '8px 12px', fontWeight: T.typography.weightBold, color: C.textSecondary, background: C.bgCard, borderBottom: `1px solid ${C.borderSubtle}`, position: 'sticky', top: 0 }}>Who</th>
-                              <th style={{ textAlign: 'left', padding: '8px 12px', fontWeight: T.typography.weightBold, color: C.textSecondary, background: C.bgCard, borderBottom: `1px solid ${C.borderSubtle}`, position: 'sticky', top: 0 }}>Event</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {fleet.timeline.slice(0, 100).map((row, i) => (
-                              <tr key={i}>
-                                <td style={{ padding: '6px 12px', color: C.textMuted, fontFamily: T.typography.fontMono, whiteSpace: 'nowrap' }}>
-                                  {typeof row.t === 'number' ? new Date(row.t * (row.t < 1e12 ? 1000 : 1)).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : row.t}
-                                </td>
-                                <td style={{ padding: '6px 12px', color: C.accent, fontFamily: T.typography.fontMono }}>{row.instance}</td>
-                                <td style={{ padding: '6px 12px', color: C.text, fontFamily: T.typography.fontMono }}>{row.event}</td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
+                  {fleet.timeline && fleet.timeline.length > 0 && (() => {
+                    // c2-376 / BIG #180: AdminModal Fleet tab timeline now
+                    // uses DataTable. Same shape as FleetView's timeline
+                    // migration (c2-373), different row cap (100 here vs 200
+                    // there) because this is the embedded preview rather
+                    // than the standalone page.
+                    type TRow = { t: number | string; instance: string; event: string };
+                    const toTs = (r: TRow): number => typeof r.t === 'number'
+                      ? r.t * (r.t < 1e12 ? 1000 : 1)
+                      : new Date(r.t).getTime();
+                    const cols: ReadonlyArray<Column<TRow>> = [
+                      {
+                        id: 'when', header: 'When', width: '110px',
+                        sortKey: toTs,
+                        accessor: (r) => (
+                          <span style={{ color: C.textMuted, fontFamily: T.typography.fontMono, whiteSpace: 'nowrap' }}>
+                            {new Date(toTs(r)).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                          </span>
+                        ),
+                      },
+                      {
+                        id: 'who', header: 'Who', width: '30%',
+                        sortKey: (r) => r.instance,
+                        accessor: (r) => <span style={{ color: C.accent, fontFamily: T.typography.fontMono }}>{r.instance}</span>,
+                      },
+                      {
+                        id: 'event', header: 'Event',
+                        sortKey: (r) => r.event,
+                        accessor: (r) => <span style={{ color: C.text, fontFamily: T.typography.fontMono }}>{r.event}</span>,
+                      },
+                    ];
+                    const rows = fleet.timeline.slice(0, 100) as TRow[];
+                    return (
+                      <div>
+                        <Label color={C.textMuted} mb={T.spacing.md}>
+                          Recent activity ({fleet.timeline.length})
+                        </Label>
+                        <div style={{ maxHeight: '320px', overflowY: 'auto' }}>
+                          <DataTable<TRow> C={C}
+                            rows={rows}
+                            columns={cols}
+                            rowKey={(r) => `${toTs(r)}-${r.instance}-${r.event}`}
+                            sort={{ col: 'when', dir: 'desc' }} />
+                        </div>
                       </div>
-                    </div>
-                  )}
+                    );
+                  })()}
                 </>
               )}
             </div>
