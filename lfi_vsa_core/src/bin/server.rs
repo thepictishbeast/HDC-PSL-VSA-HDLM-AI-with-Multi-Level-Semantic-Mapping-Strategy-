@@ -65,4 +65,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 // NOTE: Logging is configured via tracing-subscriber in main()
 // Logs go to both stdout AND /var/log/lfi/server.log
-// TODO: Add rolling file appender for rotation
+// Log rotation: daily rotation via tracing_appender::rolling::daily
+// For size-based rotation (max 100MB), would need tracing-appender 0.3+
+// with RollingFileAppender::builder().max_log_files(10).build()
