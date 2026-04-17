@@ -322,11 +322,17 @@ async fn handle_chat_socket(mut socket: WebSocket, state: Arc<AppState>) {
                     match agent.chat_traced(input) {
                         Ok((response, conclusion_id)) => {
                             let thought = &response.thought;
+                            // CALIBRATION: Apply Platt scaling to make confidence trustworthy
+                            let domain_str = thought.intent.as_ref().map(|i| format!("{:?}", i));
+                            let (calibrated_conf, conf_reliable) = state.calibration.lock()
+                                .calibrate(thought.confidence, domain_str.as_deref());
                             let mut payload = json!({
                                 "type": "chat_response",
                                 "content": response.text,
                                 "mode": format!("{:?}", thought.mode),
-                                "confidence": thought.confidence,
+                                "confidence": calibrated_conf,
+                                "confidence_raw": thought.confidence,
+                                "confidence_calibrated": conf_reliable,
                                 "tier": format!("{:?}", agent.current_tier),
                                 "intent": thought.intent.as_ref().map(|i| format!("{:?}", i)),
                                 "reasoning": thought.reasoning_scratchpad,
