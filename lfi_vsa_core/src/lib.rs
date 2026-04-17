@@ -74,3 +74,4 @@ pub use reasoning_provenance::{
     TraceArena, TraceEntry, TraceId, ConclusionId, InferenceSource,
 };
 pub mod crypto_commitment;
+pub mod mesh;

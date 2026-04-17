@@ -13,6 +13,7 @@ axum = { version = "0.7", features = ["ws", "macros"] }
 tokio = { version = "1", features = ["full"] }
 tower-http = { version = "0.5", features = ["cors"] }
 governor = "0.6"
+libp2p = { version = "0.54", features = ["tcp", "quic", "dns", "noise", "yamux", "gossipsub", "kad", "identify", "mdns", "tokio"] }
 sha2 = "0.10"
 argon2 = "0.5"
 regex = "1.10"
