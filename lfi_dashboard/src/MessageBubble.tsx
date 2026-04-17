@@ -198,14 +198,17 @@ export const UserMessage: React.FC<UserMessageProps> = ({
     ) : (
       <div style={{
         maxWidth, padding: `${T.spacing.md} ${T.spacing.lg}`,
-        background: C.accent,
-        borderRadius: `${T.radii.xxl} ${T.radii.xxl} ${T.radii.xs} ${T.radii.xxl}`, fontSize: T.typography.sizeBody, lineHeight: T.typography.lineLoose,
-        color: '#fff',
+        // c0-019/020: user bubble uses muted accent-bg (not saturated accent),
+        // with body-color text for readability. Professional feel over
+        // "branded message balloon."
+        background: C.accentBg, color: C.text,
+        borderRadius: `${T.radii.lg} ${T.radii.lg} ${T.radii.xs} ${T.radii.lg}`,
+        fontSize: T.typography.sizeBody, lineHeight: T.typography.lineLoose,
         wordBreak: 'break-word',
-        boxShadow: `0 1px 4px rgba(0,0,0,0.10)`,
+        border: `1px solid ${C.accentBorder}`,
       }}>
         {msg.content}
-        <div style={{ fontSize: '10px', color: 'rgba(255,255,255,0.55)', marginTop: '6px', textAlign: 'right' }}>
+        <div style={{ fontSize: '10px', color: C.textMuted, marginTop: '6px', textAlign: 'right' }}>
           {formatTime(msg.timestamp)}
         </div>
       </div>
@@ -276,7 +279,7 @@ export const AssistantMessage: React.FC<AssistantMessageProps> = ({
           padding: '14px 18px',
           background: C.bgCard,
           border: `1px solid ${C.border}`,
-          borderRadius: '4px 16px 16px 16px',
+          borderRadius: `${T.radii.xs} ${T.radii.lg} ${T.radii.lg} ${T.radii.lg}`,
           fontSize: '14px', lineHeight: '1.7',
           color: C.text,
           whiteSpace: 'pre-wrap', wordBreak: 'break-word',

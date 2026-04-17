@@ -1120,7 +1120,12 @@ async fn training_status_handler(
 ) -> impl IntoResponse {
     let db = &state.db;
     let history = db.get_training_history(50);
-    let facts_count = db.get_all_facts().len();
+    // REGRESSION-GUARD: Was db.get_all_facts().len() which loaded ALL 57M facts into
+    // memory just to count them. Use SQL COUNT instead.
+    let facts_count = {
+        let conn = db.conn.lock().unwrap_or_else(|e| e.into_inner());
+        conn.query_row("SELECT count(*) FROM facts", [], |r| r.get::<_, i64>(0)).unwrap_or(0)
+    };
 
     // Read training state file if it exists
     let state_json = std::fs::read_to_string("/var/log/lfi/training_state.json")
