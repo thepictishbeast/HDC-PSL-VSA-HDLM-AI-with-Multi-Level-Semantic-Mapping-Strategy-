@@ -2240,6 +2240,7 @@ ${cmdList}
                         }}>
                         <button onClick={(e) => { e.stopPropagation(); toggleStarred(c.id); }}
                           title={c.starred ? 'Unstar' : 'Star'}
+                          aria-label={c.starred ? `Unstar ${c.title}` : `Star ${c.title}`}
                           style={{
                             background: 'transparent', border: 'none',
                             color: c.starred ? C.yellow : C.textDim,
@@ -2247,6 +2248,7 @@ ${cmdList}
                           }}>{c.starred ? '\u2605' : '\u2606'}</button>
                         <button onClick={(e) => { e.stopPropagation(); togglePinned(c.id); }}
                           title={c.pinned ? 'Unpin' : 'Pin'}
+                          aria-label={c.pinned ? `Unpin ${c.title}` : `Pin ${c.title}`}
                           style={{
                             background: 'transparent', border: 'none',
                             color: c.pinned ? C.yellow : C.textDim,
@@ -2256,7 +2258,7 @@ ${cmdList}
                           e.stopPropagation();
                           const next = prompt('Rename conversation', c.title);
                           if (next !== null) renameConversation(c.id, next);
-                        }} title='Rename'
+                        }} title='Rename' aria-label={`Rename ${c.title}`}
                           style={{
                             background: 'transparent', border: 'none', color: C.textDim,
                             cursor: 'pointer', fontSize: '10px', padding: '2px 3px',
@@ -2265,7 +2267,7 @@ ${cmdList}
                           e.stopPropagation();
                           exportConversationMd(c);
                           logEvent('conversation_exported_md', { id: c.id });
-                        }} title='Export as Markdown'
+                        }} title='Export as Markdown' aria-label={`Export ${c.title} as Markdown`}
                           style={{
                             background: 'transparent', border: 'none', color: C.textDim,
                             cursor: 'pointer', fontSize: '10px', padding: '2px 3px',
@@ -2273,7 +2275,7 @@ ${cmdList}
                         <button onClick={(e) => {
                           e.stopPropagation();
                           if (confirm(`Delete "${c.title}"?`)) deleteConversation(c.id);
-                        }} title='Delete'
+                        }} title='Delete' aria-label={`Delete ${c.title}`}
                           style={{
                             background: 'transparent', border: 'none', color: C.textDim,
                             cursor: 'pointer', fontSize: '11px', padding: '2px 3px',
