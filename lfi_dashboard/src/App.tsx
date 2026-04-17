@@ -202,7 +202,9 @@ const SovereignCommandConsole: React.FC = () => {
   // different, more actionable message when the dev server is down.
   const [backendOffline, setBackendOffline] = useState(false);
   // Ephemeral toast (copy feedback, etc). Single-slot — newer toasts replace.
-  const [toast, setToast] = useState<{ id: number; msg: string } | null>(null);
+  // `exiting` decouples the display-done moment from the DOM unmount so we
+  // can run an exit animation before removing the node.
+  const [toast, setToast] = useState<{ id: number; msg: string; exiting?: boolean } | null>(null);
   // Brief visual pulse on the input container when a message is sent (c0-020
   // "visual feedback on send"). Tracked as a bumping id so consecutive sends
   // retrigger the animation cleanly.
@@ -673,12 +675,14 @@ ${cmdList}
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isConnected]);
 
-  // Toast auto-dismiss after 1.5s. Re-keys on toast.id so a new toast resets
-  // the timer cleanly even if the previous one is mid-fade.
+  // Toast auto-dismiss with a two-phase animation: display for 1.5s, then
+  // flip to `exiting` for a 0.18s fade-out before unmounting. Re-keys on
+  // toast.id so a new toast resets both timers cleanly.
   useEffect(() => {
-    if (!toast) return;
-    const t = setTimeout(() => setToast(null), 1500);
-    return () => clearTimeout(t);
+    if (!toast || toast.exiting) return;
+    const t1 = setTimeout(() => setToast(prev => prev ? { ...prev, exiting: true } : prev), 1500);
+    const t2 = setTimeout(() => setToast(null), 1500 + 180);
+    return () => { clearTimeout(t1); clearTimeout(t2); };
   }, [toast?.id]);
 
   // ---- Eruda FAB repositioning ----
@@ -1918,10 +1922,13 @@ ${cmdList}
             border: `1px solid ${C.accentBorder}`, borderRadius: T.radii.md,
             fontSize: T.typography.sizeMd, fontWeight: T.typography.weightSemibold,
             boxShadow: T.shadows.card,
-            animation: 'scc-toast-in 0.18s ease-out',
+            animation: toast.exiting ? 'scc-toast-out 0.18s ease-in forwards' : 'scc-toast-in 0.18s ease-out',
           }}>
           {toast.msg}
-          <style>{`@keyframes scc-toast-in { from { opacity: 0; transform: translateY(-6px) } to { opacity: 1; transform: translateY(0) } }`}</style>
+          <style>{`
+            @keyframes scc-toast-in { from { opacity: 0; transform: translateY(-6px) } to { opacity: 1; transform: translateY(0) } }
+            @keyframes scc-toast-out { from { opacity: 1; transform: translateY(0) } to { opacity: 0; transform: translateY(-6px) } }
+          `}</style>
         </div>
       )}
       {/* ========== GLOBAL DISCONNECT BANNER ========== */}
