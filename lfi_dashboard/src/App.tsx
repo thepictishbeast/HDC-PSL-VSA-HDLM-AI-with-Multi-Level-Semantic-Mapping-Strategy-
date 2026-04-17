@@ -2446,7 +2446,7 @@ ${cmdList}
                 + stop. Richer than the old 3-dot pulse so the user can see
                 progress and cancel. */}
             {isThinking && (
-              <div style={{
+              <div role="status" aria-live="polite" style={{
                 display: 'flex', alignItems: 'center', gap: '12px',
                 padding: '12px 16px', margin: '8px 0',
                 background: C.bgCard, border: `1px solid ${C.borderSubtle}`,
