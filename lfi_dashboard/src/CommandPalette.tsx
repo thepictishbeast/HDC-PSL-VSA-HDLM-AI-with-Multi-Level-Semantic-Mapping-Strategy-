@@ -69,6 +69,11 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
           overflow: 'hidden', display: 'flex', flexDirection: 'column',
         }}>
         <input autoFocus
+          role='combobox'
+          aria-expanded='true'
+          aria-controls='lfi-cmd-listbox'
+          aria-activedescendant={filtered[index] ? `lfi-cmd-opt-${filtered[index].id}` : undefined}
+          aria-label='Type a command'
           value={query}
           onChange={(e) => { setQuery(e.target.value); setIndex(0); }}
           onKeyDown={(e) => {
@@ -83,7 +88,7 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
             outline: 'none', color: C.text, fontFamily: 'inherit',
             fontSize: '15px', boxSizing: 'border-box',
           }} />
-        <div role='listbox' aria-label='Command palette results' style={{ maxHeight: '60vh', overflowY: 'auto', padding: '6px' }}>
+        <div id='lfi-cmd-listbox' role='listbox' aria-label='Command palette results' style={{ maxHeight: '60vh', overflowY: 'auto', padding: '6px' }}>
           {filtered.length === 0 && (
             <div style={{ padding: '20px', color: C.textMuted, fontSize: '13px', textAlign: 'center' }}>
               No matches for "{query}"
@@ -101,6 +106,7 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
                   }}>{it.group}</div>
                 )}
                 <button
+                  id={`lfi-cmd-opt-${it.id}`}
                   role='option' aria-selected={picked}
                   onClick={() => { setIndex(i); runSelected(); }}
                   onMouseEnter={() => setIndex(i)}
