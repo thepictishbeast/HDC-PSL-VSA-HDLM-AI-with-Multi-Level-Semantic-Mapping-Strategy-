@@ -62,7 +62,8 @@ export const ActivityModal: React.FC<ActivityModalProps> = ({
       display: 'flex', alignItems: 'center', justifyContent: 'center',
       padding: '16px',
     }}>
-    <div onClick={(e) => e.stopPropagation()}
+    <div role='dialog' aria-modal='true' aria-label='Activity and logs'
+      onClick={(e) => e.stopPropagation()}
       style={{
         width: '100%', maxWidth: '900px', height: '82vh',
         background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: '14px',

@@ -55,7 +55,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       display: 'flex', alignItems: 'center', justifyContent: 'center',
       padding: '16px',
     }}>
-    <div onClick={(e) => e.stopPropagation()}
+    <div role='dialog' aria-modal='true' aria-label='Settings'
+      onClick={(e) => e.stopPropagation()}
       style={{
         width: '100%', maxWidth: '520px',
         background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: '14px',

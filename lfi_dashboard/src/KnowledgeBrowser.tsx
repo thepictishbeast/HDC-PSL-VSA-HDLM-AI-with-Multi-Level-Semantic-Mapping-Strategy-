@@ -23,7 +23,8 @@ export const KnowledgeBrowser: React.FC<KnowledgeBrowserProps> = ({ C, facts, co
       display: 'flex', alignItems: 'center', justifyContent: 'center',
       padding: '16px',
     }}>
-    <div onClick={(e) => e.stopPropagation()}
+    <div role='dialog' aria-modal='true' aria-label='Knowledge browser'
+      onClick={(e) => e.stopPropagation()}
       style={{
         width: '100%', maxWidth: '700px', height: '80vh',
         background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: '14px',
