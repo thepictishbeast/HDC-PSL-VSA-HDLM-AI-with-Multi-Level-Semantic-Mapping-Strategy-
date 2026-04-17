@@ -41,6 +41,7 @@ import { TrainingDashboardContent } from './TrainingDashboard';
 import { AppErrorBoundary } from './AppErrorBoundary';
 import { LoginScreen } from './LoginScreen';
 import { SKILLS, AVATAR_PRESETS, type Skill as CatalogSkill } from './catalogs';
+import { SystemMessage, WebMessage } from './MessageBubble';
 
 hljs.registerLanguage('rust', rust);
 hljs.registerLanguage('javascript', javascript);
@@ -3767,31 +3768,10 @@ ${cmdList}
             {messages.map((msg) => (
               <div key={msg.id} style={{ marginBottom: isDesktop ? '20px' : '14px' }}>
                 {/* System messages */}
-                {msg.role === 'system' && (
-                  <div style={{
-                    textAlign: 'center', padding: '8px 16px', fontSize: '12px',
-                    color: C.textMuted, fontStyle: 'italic',
-                  }}>
-                    {msg.content}
-                  </div>
-                )}
+                {msg.role === 'system' && <SystemMessage content={msg.content} C={C} />}
 
                 {/* Web results */}
-                {msg.role === 'web' && (
-                  <div style={{
-                    padding: '14px 16px', borderRadius: '12px',
-                    background: C.greenBg, border: `1px solid ${C.greenBorder}`,
-                    maxWidth: isDesktop ? '75%' : '100%',
-                  }}>
-                    <div style={{ fontSize: '11px', fontWeight: 800, color: C.green, textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: '8px' }}>
-                      Web Intelligence
-                    </div>
-                    <pre style={{
-                      whiteSpace: 'pre-wrap', wordBreak: 'break-word',
-                      fontSize: '13px', lineHeight: '1.6', color: C.text, margin: 0,
-                    }}>{msg.content}</pre>
-                  </div>
-                )}
+                {msg.role === 'web' && <WebMessage content={msg.content} C={C} isDesktop={isDesktop} />}
 
                 {/* Tool calls — Claude Code style expandable blocks showing
                     what tool the AI invoked, its status, and the output. */}

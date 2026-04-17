@@ -29,3 +29,7 @@ pub use knowledge_compiler::{KnowledgeCompiler, AccelerationMetrics, CompiledEnt
 pub use spaced_repetition::{SpacedRepetitionScheduler, ReviewCard};
 pub mod grokking_monitor;
 pub mod fsrs_scheduler;
+// Stitch wake-sleep library learning integration point
+// Stitch cloned at /home/user/Development/PlausiDen/stitch/
+// Integration: feed provenance traces → Stitch anti-unification → extract abstractions
+// Promote abstractions into knowledge compiler as compiled entries
