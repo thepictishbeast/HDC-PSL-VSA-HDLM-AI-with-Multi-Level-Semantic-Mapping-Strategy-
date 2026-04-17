@@ -87,6 +87,11 @@ export interface ThemeTokens {
   userBubbleText: string;
   aiBubbleBg: string;
   aiBubbleText: string;
+  // c2-342 / c0-auto-2 tasks 53+54: keyboard focus ring and modal overlay
+  // backdrop pulled into the cross-platform design-system so desktop and
+  // Android builds get the same accessibility affordance and dim strength.
+  focusRing: string;
+  overlayBg: string;
 }
 
 export const darkTheme: ThemeTokens = {
@@ -116,6 +121,8 @@ export const darkTheme: ThemeTokens = {
   userBubbleText: palette.blue[200],
   aiBubbleBg:     palette.slate[850],
   aiBubbleText:   '#ecedF0',
+  focusRing: `0 0 0 2px ${palette.blue[500]}`,
+  overlayBg: 'rgba(0,0,0,0.65)',
 };
 
 export const lightTheme: ThemeTokens = {
@@ -145,6 +152,8 @@ export const lightTheme: ThemeTokens = {
   userBubbleText: palette.blue[800],
   aiBubbleBg:     '#ffffff',
   aiBubbleText:   '#111827',
+  focusRing: `0 0 0 2px ${palette.blue[600]}`,
+  overlayBg: 'rgba(0,0,0,0.4)',
 };
 
 // ============================================================

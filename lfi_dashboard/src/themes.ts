@@ -40,6 +40,10 @@ const fromTokens = (t: typeof ds_dark) => ({
   yellow: t.warning,
   yellowBg: hexToRgba(t.warning, 0.10),
   font: ds_type.fontFamily,
+  // c2-342 / tasks 53+54: cross-platform focus ring + modal overlay dim
+  // sourced from the design-system tokens so desktop/Android match web.
+  focusRing: t.focusRing,
+  overlayBg: t.overlayBg,
 });
 
 function hexToRgba(hex: string, alpha: number): string {
@@ -70,6 +74,8 @@ export const MIDNIGHT: typeof DARK = {
   purple: '#c79dff', purpleBg: 'rgba(199,157,255,0.10)', purpleBorder: 'rgba(199,157,255,0.24)',
   yellow: '#ffd36b', yellowBg: 'rgba(255,211,107,0.10)',
   font: ds_type.fontFamily,
+  focusRing: '0 0 0 2px rgba(120,165,255,0.9)',
+  overlayBg: 'rgba(0,0,0,0.65)',
 };
 
 export const FOREST: typeof DARK = {
@@ -88,6 +94,8 @@ export const FOREST: typeof DARK = {
   purple: '#d58bff', purpleBg: 'rgba(213,139,255,0.10)', purpleBorder: 'rgba(213,139,255,0.24)',
   yellow: '#ffd96b', yellowBg: 'rgba(255,217,107,0.10)',
   font: ds_type.fontFamily,
+  focusRing: '0 0 0 2px rgba(124,212,156,0.9)',
+  overlayBg: 'rgba(0,0,0,0.65)',
 };
 
 export const SUNSET: typeof DARK = {
@@ -106,6 +114,8 @@ export const SUNSET: typeof DARK = {
   purple: '#e18bff', purpleBg: 'rgba(225,139,255,0.10)', purpleBorder: 'rgba(225,139,255,0.24)',
   yellow: '#ffcf5e', yellowBg: 'rgba(255,207,94,0.10)',
   font: ds_type.fontFamily,
+  focusRing: '0 0 0 2px rgba(255,150,120,0.9)',
+  overlayBg: 'rgba(0,0,0,0.65)',
 };
 
 export const ROSE: typeof DARK = {
@@ -124,6 +134,8 @@ export const ROSE: typeof DARK = {
   purple: '#7a3abf', purpleBg: 'rgba(122,58,191,0.08)', purpleBorder: 'rgba(122,58,191,0.28)',
   yellow: '#966612', yellowBg: 'rgba(150,102,18,0.10)',
   font: ds_type.fontFamily,
+  focusRing: '0 0 0 2px rgba(205,70,100,0.9)',
+  overlayBg: 'rgba(0,0,0,0.4)',
 };
 
 export const CONTRAST: typeof DARK = {
@@ -142,6 +154,8 @@ export const CONTRAST: typeof DARK = {
   purple: '#ff77ff', purpleBg: 'rgba(255,119,255,0.15)', purpleBorder: '#ff77ff',
   yellow: '#ffff00', yellowBg: 'rgba(255,255,0,0.15)',
   font: ds_type.fontFamily,
+  focusRing: '0 0 0 3px #ffff00',
+  overlayBg: 'rgba(0,0,0,0.85)',
 };
 
 export const THEMES: Record<string, typeof DARK> = {

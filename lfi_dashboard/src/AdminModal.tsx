@@ -256,7 +256,7 @@ export const AdminModal: React.FC<AdminModalProps> = ({
       role='presentation'
       style={{
         position: 'fixed', inset: 0, zIndex: T.z.modal + 40,
-        background: 'rgba(0,0,0,0.65)',
+        background: C.overlayBg,
         display: 'flex', alignItems: 'stretch', justifyContent: 'center',
         padding: T.spacing.lg,
       }}>
