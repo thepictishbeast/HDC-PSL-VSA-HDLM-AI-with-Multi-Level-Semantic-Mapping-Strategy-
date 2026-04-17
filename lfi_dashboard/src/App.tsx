@@ -1120,6 +1120,15 @@ ${cmdList}
     try { localStorage.setItem(LS_CURRENT_KEY, currentConversationId); } catch {}
   }, [currentConversationId]);
 
+  // Keep the browser tab title in sync with the active conversation — makes
+  // tab-switching to the dashboard scannable among many browser tabs.
+  useEffect(() => {
+    const c = conversations.find(x => x.id === currentConversationId);
+    const title = c?.title && c.title !== 'New chat' ? c.title.slice(0, 60) : null;
+    document.title = title ? `${title} · PlausiDen AI` : 'PlausiDen AI';
+    return () => { document.title = 'PlausiDen AI'; };
+  }, [currentConversationId, conversations]);
+
   // Hydrate the active `messages` state from the current conversation, and
   // sync changes back. This keeps the rest of the component working against
   // the simple `messages` array while the list remains the source of truth.
