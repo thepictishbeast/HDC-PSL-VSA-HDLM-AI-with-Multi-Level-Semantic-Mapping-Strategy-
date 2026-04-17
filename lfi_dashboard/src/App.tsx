@@ -3107,6 +3107,7 @@ ${cmdList}
           }}>
             <div style={{ padding: '10px 14px', borderBottom: `1px solid ${C.borderSubtle}` }}>
               <button onClick={() => createNewConversation()}
+                title={`New chat (${navigator.platform.toLowerCase().includes('mac') ? '\u2318' : 'Ctrl'}+N)`}
                 style={{
                   width: '100%', padding: '8px 12px', marginBottom: '8px',
                   background: C.accentBg, border: `1px solid ${C.accentBorder}`,
@@ -3116,6 +3117,15 @@ ${cmdList}
                   alignItems: 'center', justifyContent: 'center', gap: '6px',
                 }}>
                 <span style={{ fontSize: '14px' }}>{'\u002B'}</span> New chat
+                {/* c2-264: shortcut hint on the primary sidebar CTA. kbd
+                    chip uses the same muted-border styling as the Command
+                    Palette item shortcuts so the language is consistent. */}
+                <kbd aria-hidden='true' style={{
+                  marginLeft: 'auto', fontFamily: 'ui-monospace, SFMono-Regular, monospace',
+                  fontSize: '10px', color: C.accent, opacity: 0.7,
+                  border: `1px solid ${C.accentBorder}`, borderRadius: T.radii.sm,
+                  padding: '1px 5px', letterSpacing: '0.02em',
+                }}>{navigator.platform.toLowerCase().includes('mac') ? '\u2318' : 'Ctrl'}N</kbd>
               </button>
               <input
                 type='search'
