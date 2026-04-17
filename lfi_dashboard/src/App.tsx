@@ -3402,19 +3402,21 @@ ${cmdList}
           rendered above (c0-017). The `showAdmin` state now drives that modal
           on all viewports. */}
 
-      {/* ========== TOP-NAV — c0-037 #6 / c2-330 ==========
-          Visible section switcher. 5 destinations: Agora (chat) / Classroom /
-          Fleet / Library / Admin. Hotkeys ⌘1..5 already cover every
-          target; this just surfaces the map. aria-current on the active
-          item so screen readers announce it. Hidden on mobile because the
-          chat-first layout needs the vertical space (mobile users still
-          have the palette + slash + hotkeys). */}
-      {isDesktop && (
+      {/* ========== TOP-NAV — c0-037 #6 / c2-330, widened c2-333 ==========
+          Visible section switcher. 6 destinations: Agora / Classroom / Admin
+          / Fleet / Library / Auditorium. Hotkeys ⌘1..6 cover every target;
+          this just surfaces the map.
+          c2-333: render on tablet too (was desktop-only). On tablet the
+          kbd chips hide to save room; on mobile the whole nav hides because
+          the chat-first layout needs the vertical space. Horizontal scroll
+          fallback so narrow widths don't clip the last tile. */}
+      {!isMobile && (
         <nav role='navigation' aria-label='Top level sections'
           style={{
             display: 'flex', alignItems: 'stretch', gap: 0,
             background: C.bgCard, borderBottom: `1px solid ${C.borderSubtle}`,
             padding: `0 ${T.spacing.lg}`, flexShrink: 0,
+            overflowX: 'auto',
           }}>
           {([
             { id: 'chat', label: 'Agora', mod: '1', act: () => { setActiveView('chat'); setShowAdmin(false); } },
@@ -3431,22 +3433,25 @@ ${cmdList}
                 title={`${item.label} (${mod()}${item.mod})`}
                 style={{
                   background: 'transparent', border: 'none', cursor: 'pointer',
-                  padding: `${T.spacing.sm} ${T.spacing.lg}`,
+                  padding: `${T.spacing.sm} ${isDesktop ? T.spacing.lg : T.spacing.md}`,
                   fontFamily: 'inherit', fontSize: T.typography.sizeMd,
                   fontWeight: T.typography.weightSemibold,
                   color: isActive ? C.accent : C.textMuted,
                   borderBottom: `2px solid ${isActive ? C.accent : 'transparent'}`,
                   marginBottom: '-1px', display: 'flex', alignItems: 'center', gap: '6px',
                   transition: `color ${T.motion.fast}, border-color ${T.motion.fast}`,
+                  whiteSpace: 'nowrap', flexShrink: 0,
                 }}
                 onMouseEnter={(e) => { if (!isActive) e.currentTarget.style.color = C.text; }}
                 onMouseLeave={(e) => { if (!isActive) e.currentTarget.style.color = C.textMuted; }}>
                 {item.label}
-                <kbd aria-hidden='true' style={{
-                  fontFamily: 'ui-monospace, SFMono-Regular, monospace',
-                  fontSize: '10px', color: isActive ? C.accent : C.textDim,
-                  opacity: 0.7,
-                }}>{mod()}{item.mod}</kbd>
+                {isDesktop && (
+                  <kbd aria-hidden='true' style={{
+                    fontFamily: 'ui-monospace, SFMono-Regular, monospace',
+                    fontSize: '10px', color: isActive ? C.accent : C.textDim,
+                    opacity: 0.7,
+                  }}>{mod()}{item.mod}</kbd>
+                )}
               </button>
             );
           })}
