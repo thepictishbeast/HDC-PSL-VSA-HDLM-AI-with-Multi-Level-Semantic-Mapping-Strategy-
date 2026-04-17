@@ -176,7 +176,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                       width: '100%', aspectRatio: '1 / 1',
                       borderRadius: '50%', background: g,
                       border: `2px solid ${isPicked ? C.accent : 'transparent'}`,
-                      boxShadow: isPicked ? `0 0 0 3px ${C.accentGlow}` : 'none',
+                      // c0-019 disabled glow. Use a solid accentBg ring for
+                      // the selected-avatar halo so selection is still clear.
+                      boxShadow: isPicked ? `0 0 0 3px ${C.accentBg}` : 'none',
                       cursor: 'pointer', padding: 0,
                       transition: 'transform 0.1s',
                     }} />
@@ -210,7 +212,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     border: `2px solid ${picked ? C.accent : C.border}`,
                     borderRadius: '12px', cursor: 'pointer', fontFamily: 'inherit',
                     textAlign: 'left',
-                    boxShadow: picked ? `0 0 0 3px ${C.accentGlow}` : 'none',
+                    // Solid ring replaces the former glow so selection stays
+                    // obvious on the flat-no-neon palette.
+                    boxShadow: picked ? `0 0 0 3px ${C.accentBg}` : 'none',
                   }}>
                   <div style={{ fontSize: '13px', fontWeight: 700, color: preview.text }}>{t.name}</div>
                   <div style={{ display: 'flex', gap: '4px', marginTop: '8px' }}>

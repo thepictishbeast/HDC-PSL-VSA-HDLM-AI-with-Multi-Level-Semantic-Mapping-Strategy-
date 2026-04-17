@@ -2291,13 +2291,15 @@ pub fn create_router() -> Result<Router, Box<dyn std::error::Error>> {
         let pass_rate = if total_tested > 0 { total_correct as f64 / total_tested as f64 * 100.0 } else { 0.0 };
 
         // Accuracy score (composite grade)
-        let accuracy_score = if total_facts > 50_000_000 {
-            // Grade based on: quality avg, adversarial ratio, training coverage
-            let quality_component = avg_quality * 40.0; // 0-40 points
-            let adversarial_component = (adversarial as f64 / total_facts as f64 * 100.0).min(10.0) * 2.0; // 0-20 points
-            let coverage_component = (total_sources as f64 / 200.0 * 20.0).min(20.0); // 0-20 points
-            let training_component = (learning_signals as f64 / 1000.0 * 20.0).min(20.0); // 0-20 points
-            quality_component + adversarial_component + coverage_component + training_component
+        // Weights: quality 30, pass_rate 25, coverage 20, training 15, adversarial 10
+        let accuracy_score = if total_facts > 1_000_000 {
+            let quality_component = avg_quality * 30.0; // 0-30 pts (0.74 → 22.2)
+            let pass_rate_component = (pass_rate / 100.0 * 25.0).min(25.0); // 0-25 pts
+            let coverage_component = (total_sources as f64 / 200.0 * 20.0).min(20.0); // 0-20 pts
+            let training_component = ((training_sessions as f64 / 20.0 * 10.0).min(10.0)
+                + (learning_signals as f64 / 50.0 * 5.0).min(5.0)); // 0-15 pts
+            let adversarial_component = (adversarial as f64 / 100_000.0 * 10.0).min(10.0); // 0-10 pts
+            quality_component + pass_rate_component + coverage_component + training_component + adversarial_component
         } else { 0.0 };
 
         let grade = match accuracy_score as u32 {

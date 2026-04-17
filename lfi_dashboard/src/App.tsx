@@ -203,6 +203,10 @@ const SovereignCommandConsole: React.FC = () => {
   const [backendOffline, setBackendOffline] = useState(false);
   // Ephemeral toast (copy feedback, etc). Single-slot — newer toasts replace.
   const [toast, setToast] = useState<{ id: number; msg: string } | null>(null);
+  // Brief visual pulse on the input container when a message is sent (c0-020
+  // "visual feedback on send"). Tracked as a bumping id so consecutive sends
+  // retrigger the animation cleanly.
+  const [sendPulseId, setSendPulseId] = useState(0);
   // Negative-feedback modal target. Per c0-008 bug #4: thumbs-down opens a
   // category picker + free-text field instead of a browser prompt().
   const [negFeedbackFor, setNegFeedbackFor] = useState<{ msgId: number; conclusionId?: number } | null>(null);
@@ -1351,6 +1355,8 @@ ${cmdList}
       id: msgId(), role: 'user', content: trimmed, timestamp: Date.now()
     }]);
     setInput('');
+    // Trigger send-pulse feedback animation.
+    setSendPulseId(id => id + 1);
     // Clear the persisted draft on the active conversation so a switch + come-back
     // doesn't re-hydrate the text we just sent.
     if (currentConversationId) {
@@ -3207,7 +3213,10 @@ ${cmdList}
                 );
               })()}
 
-              <div style={{
+              <div
+                key={`input-${sendPulseId}`}
+                className={sendPulseId > 0 ? 'lfi-send-pulse' : undefined}
+                style={{
                 background: C.bgCard,
                 // c0-019/020: professional rounded-card, 8px radius, no glow.
                 // Ring halo only on focus via box-shadow in a muted accent.
@@ -3649,6 +3658,15 @@ ${cmdList}
           0%,80%,100% { transform: scale(0.6); opacity: 0.45; }
           40% { transform: scale(1); opacity: 1; }
         }
+        /* c0-020 send-feedback: the input container briefly flashes an
+           accent-tinted ring right after a message is sent so the user
+           registers the action even if the message list scrolls off. */
+        @keyframes lfi-send-pulse {
+          0%   { box-shadow: 0 0 0 0 ${C.accent}; }
+          60%  { box-shadow: 0 0 0 6px ${C.accentBg}; }
+          100% { box-shadow: 0 0 0 0 transparent; }
+        }
+        .lfi-send-pulse { animation: lfi-send-pulse 0.4s ease-out; }
         @keyframes lfi-fadein {
           0% { opacity: 0; transform: translateY(8px); }
           100% { opacity: 1; transform: translateY(0); }
