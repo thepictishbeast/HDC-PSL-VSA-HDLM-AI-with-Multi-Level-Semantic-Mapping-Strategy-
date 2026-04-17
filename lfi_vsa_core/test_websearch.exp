@@ -1,0 +1,59 @@
+#!/usr/bin/expect -f
+set timeout 30
+log_user 1
+
+spawn cargo run --bin chat 2>/dev/null
+expect "Enter Password>"
+send -- "$env(LFI_SOVEREIGN_KEY)"
+expect "User>"
+
+# --- System status ---
+send "/status\r"
+expect "User>"
+
+# --- Question the AI previously couldn't answer ---
+send "who was the first person on the moon?\r"
+expect "User>"
+
+# --- Science question ---
+send "what is gravity?\r"
+expect "User>"
+
+# --- Geography question ---
+send "what is the capital of France?\r"
+expect "User>"
+
+# --- Definition question ---
+send "what is photosynthesis?\r"
+expect "User>"
+
+# --- Population question ---
+send "how many people live in lowell massachusetts?\r"
+expect "User>"
+
+# --- Save knowledge ---
+send "/save\r"
+expect "User>"
+
+# --- Start background learning ---
+send "/learn on\r"
+expect "User>"
+
+# --- Wait a moment, check status ---
+send "/status\r"
+expect "User>"
+
+# --- Stop background learning ---
+send "/learn off\r"
+expect "User>"
+
+# --- Name learning still works ---
+send "my name is Paul\r"
+expect "User>"
+
+send "what is my name?\r"
+expect "User>"
+
+# --- Exit ---
+send "exit\r"
+expect eof

@@ -1,0 +1,17 @@
+#!/usr/bin/expect -f
+set timeout 30
+log_user 1
+
+spawn cargo run --bin chat
+expect "Enter Password>"
+send -- "$env(LFI_SOVEREIGN_KEY)"
+expect "User>"
+
+send "who was the first person on the moon?\r"
+expect "User>"
+
+send "what is the capital of France?\r"
+expect "User>"
+
+send "exit\r"
+expect eof

@@ -1,0 +1,15 @@
+[Unit]
+Description=PlausiDen AI — Sovereign Intelligence Server
+After=network.target
+Documentation=https://plausiden.com
+
+[Service]
+Type=simple
+User=root
+ExecStart=/usr/bin/plausiden-server
+Restart=on-failure
+RestartSec=5
+Environment=LFI_SOVEREIGN_KEY=CHANGE_ME_SET_LFI_SOVEREIGN_KEY
+
+[Install]
+WantedBy=multi-user.target

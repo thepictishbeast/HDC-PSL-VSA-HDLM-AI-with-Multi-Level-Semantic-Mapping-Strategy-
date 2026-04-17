@@ -1,1 +1,10 @@
-facts.json
+**/target/
+node_modules/
+*.log
+*.bin
+.env
+.env.*
+dist/
+.forge_manifest.json
+.vsa_core_memory.bin
+.vsa_logic_memory.bin

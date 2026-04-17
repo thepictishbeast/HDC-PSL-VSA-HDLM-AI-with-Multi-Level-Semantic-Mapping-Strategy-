@@ -1,0 +1,49 @@
+#!/usr/bin/expect -f
+set timeout 30
+log_user 1
+
+spawn cargo run --bin chat 2>/dev/null
+expect "Enter Password>"
+send -- "$env(LFI_SOVEREIGN_KEY)"
+expect "User>"
+
+# --- 1. Trivia (web search) ---
+send "who was the first person on the moon?\r"
+expect "User>"
+
+send "what is a neural network?\r"
+expect "User>"
+
+send "how many people live in Tokyo?\r"
+expect "User>"
+
+# --- 2. Math ---
+send "what is 999 * 999?\r"
+expect "User>"
+
+# --- 3. Self knowledge ---
+send "who are you?\r"
+expect "User>"
+
+# --- 4. Name learning ---
+send "my name is Paul\r"
+expect "User>"
+send "what is my name?\r"
+expect "User>"
+
+# --- 5. Teaching ---
+send "remember that a race condition is when two threads access shared data simultaneously causing unpredictable behavior\r"
+expect "User>"
+send "what is a race condition?\r"
+expect "User>"
+
+# --- 6. Status ---
+send "/status\r"
+expect "User>"
+
+# --- 7. Save ---
+send "/save\r"
+expect "User>"
+
+send "exit\r"
+expect eof

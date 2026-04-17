@@ -1,0 +1,52 @@
+#!/usr/bin/expect -f
+set timeout 15
+log_user 1
+
+spawn cargo run --bin chat 2>/dev/null
+expect "Enter Password>"
+send -- "$env(LFI_SOVEREIGN_KEY)"
+expect "User>"
+
+# --- Auto-Learning: Name ---
+send "my name is Paul\r"
+expect "User>"
+
+# --- Auto-Learning: Definition ---
+send "gravity is the force that attracts objects with mass toward each other\r"
+expect "User>"
+
+# --- Use learned name ---
+send "what is my name?\r"
+expect "User>"
+
+# --- Use learned definition ---
+send "explain gravity\r"
+expect "User>"
+
+# --- Teaching with remember ---
+send "remember that photosynthesis means the process by which plants convert sunlight into energy\r"
+expect "User>"
+
+# --- Test teaching recall ---
+send "explain photosynthesis\r"
+expect "User>"
+
+# --- Math ---
+send "what is 144 / 12?\r"
+expect "User>"
+send "calculate 3.14 * 2\r"
+expect "User>"
+
+# --- Code generation ---
+send "write a function in rust to find the maximum element in a vector\r"
+expect "User>"
+
+# --- Conversational ---
+send "who are you?\r"
+expect "User>"
+send "what do you know about rust?\r"
+expect "User>"
+
+# --- Exit ---
+send "exit\r"
+expect eof

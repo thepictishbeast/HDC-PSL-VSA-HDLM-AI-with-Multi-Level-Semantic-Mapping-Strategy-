@@ -1,0 +1,1 @@
+Saved from conversation — see the user's LFI Training Strategy & Data Architecture v1.0.0 in the chat. This pointer file exists so the canonical location is discoverable. Key metrics: 12 facts → 50,000 target. Data hierarchy: structured graphs > curated facts > reasoning chains > adversarial > bulk corpora.
