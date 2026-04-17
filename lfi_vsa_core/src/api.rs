@@ -2478,6 +2478,52 @@ pub fn create_router() -> Result<Router, Box<dyn std::error::Error>> {
         }))
     }
 
+    /// POST /api/library/vet — mark a source as vetted or unvetted
+    async fn library_vet_handler(
+        State(state): State<Arc<AppState>>,
+        Json(body): Json<serde_json::Value>,
+    ) -> impl IntoResponse {
+        let source = body.get("source").and_then(|v| v.as_str()).unwrap_or("");
+        let vetted = body.get("vetted").and_then(|v| v.as_bool()).unwrap_or(false);
+        let vetted_by = body.get("vetted_by").and_then(|v| v.as_str()).unwrap_or("user");
+
+        if source.is_empty() {
+            return axum::Json(json!({"error": "source required"}));
+        }
+
+        let conn = match state.db.conn.lock() {
+            Ok(c) => c,
+            Err(_) => return axum::Json(json!({"error": "db lock"})),
+        };
+
+        let updated = conn.execute(
+            "UPDATE facts SET vetted=?1, vetted_by=?2, vetted_at=datetime('now') WHERE source=?3",
+            rusqlite::params![if vetted { 1 } else { 0 }, vetted_by, source],
+        ).unwrap_or(0);
+
+        info!("// LIBRARY: {} source '{}' ({} facts) by {}", if vetted {"Vetted"} else {"Unvetted"}, source, updated, vetted_by);
+        axum::Json(json!({"status": "ok", "source": source, "vetted": vetted, "facts_updated": updated}))
+    }
+
+    /// GET /api/library/trust — trust summary (vetted vs unvetted counts)
+    async fn library_trust_handler(
+        State(state): State<Arc<AppState>>,
+    ) -> impl IntoResponse {
+        let conn = match state.db.conn.lock() {
+            Ok(c) => c,
+            Err(_) => return axum::Json(json!({"error": "db lock"})),
+        };
+        let vetted: i64 = conn.query_row("SELECT COUNT(*) FROM facts WHERE vetted=1", [], |r| r.get(0)).unwrap_or(0);
+        let unvetted: i64 = conn.query_row("SELECT COUNT(*) FROM facts WHERE vetted=0 OR vetted IS NULL", [], |r| r.get(0)).unwrap_or(0);
+        let total = vetted + unvetted;
+        axum::Json(json!({
+            "vetted": vetted,
+            "unvetted": unvetted,
+            "total": total,
+            "vetted_pct": if total > 0 { (vetted as f64 / total as f64 * 100.0).round() } else { 0.0 },
+        }))
+    }
+
     /// GET /api/classroom/overview — student profile, grade, strengths/weaknesses
     async fn classroom_overview_handler(
         State(state): State<Arc<AppState>>,
@@ -2706,6 +2752,8 @@ pub fn create_router() -> Result<Router, Box<dyn std::error::Error>> {
         .route("/api/admin/training/accuracy", get(admin_training_accuracy_handler))
         .route("/api/admin/dashboard", get(admin_dashboard_handler))
         .route("/api/library/sources", get(library_sources_handler))
+        .route("/api/library/vet", post(library_vet_handler))
+        .route("/api/library/trust", get(library_trust_handler))
         .route("/api/classroom/overview", get(classroom_overview_handler))
         .route("/api/classroom/curriculum", get(classroom_curriculum_handler))
         .route("/api/admin/training/:action", post(admin_training_control_handler))
