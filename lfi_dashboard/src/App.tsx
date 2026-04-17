@@ -1802,7 +1802,7 @@ ${cmdList}
       )}
 
       {/* ========== HEADER ========== */}
-      <header style={{
+      <header role='banner' aria-label='Dashboard header' style={{
         display: 'flex', alignItems: 'center', justifyContent: 'space-between',
         padding: isDesktop ? '10px 24px' : '8px 14px',
         background: C.bgCard,
