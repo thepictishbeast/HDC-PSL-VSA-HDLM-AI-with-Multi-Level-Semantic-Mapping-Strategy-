@@ -155,10 +155,6 @@ interface QosReport {
 // Light: Claude.ai's cream/bone aesthetic — warm off-white, ink text, the
 // same peach accent so the identity carries across themes.
 
-// Default alias used before a component picks a theme; inside the component
-// we shadow this with a theme-bound copy via settings.theme.
-const C = DARK;
-
 // ---- Main Component ----
 const SovereignCommandConsole: React.FC = () => {
   const bp = useBreakpoint();
