@@ -2197,6 +2197,59 @@ ${cmdList}
       )}
 
       {/* ========== SETTINGS MODAL ========== */}
+      {showSettings && (
+        <SettingsModal
+          C={C} isMobile={isMobile}
+          settings={settings as any}
+          setSettings={setSettings as any}
+          tab={settingsTab}
+          onTabChange={(t) => setSettingsTab(t)}
+          onClose={() => setShowSettings(false)}
+          currentTier={currentTier}
+          onTierSelect={(tier) => { setCurrentTier(tier); handleTierSwitch(tier); }}
+          onExportEvents={() => { exportEvents(); logEvent('export_events', {}); }}
+          onExportConversations={() => {
+            try {
+              const blob = new Blob([JSON.stringify(conversations, null, 2)], { type: 'application/json' });
+              const url = URL.createObjectURL(blob);
+              const a = document.createElement('a');
+              a.href = url;
+              a.download = `plausiden-conversations-${new Date().toISOString().slice(0,19).replace(/:/g,'-')}.json`;
+              document.body.appendChild(a); a.click(); a.remove();
+              setTimeout(() => URL.revokeObjectURL(url), 1000);
+              logEvent('export_conversations', { count: conversations.length });
+            } catch (e) { console.warn(e); }
+          }}
+          onClearHistory={() => {
+            if (confirm('Clear all saved conversations from this device?')) {
+              localStorage.removeItem(LS_MESSAGES_KEY);
+              localStorage.removeItem(LS_CONVERSATIONS_KEY);
+              setConversations([]); setMessages([]);
+            }
+          }}
+          onResetSettings={() => {
+            if (confirm('Reset all settings to defaults?')) setSettings(defaultSettings);
+          }}
+          onDeleteAccount={() => {
+            if (!confirm('Delete account?\n\nErases every conversation, every setting, every logged event from this browser. Cannot be undone.')) return;
+            if (!confirm('Really delete everything? Last chance.')) return;
+            try {
+              localStorage.removeItem(LS_MESSAGES_KEY);
+              localStorage.removeItem(LS_CONVERSATIONS_KEY);
+              localStorage.removeItem(LS_CURRENT_KEY);
+              localStorage.removeItem(LS_EVENTS_KEY);
+              localStorage.removeItem('lfi_settings');
+              localStorage.removeItem('lfi_auth');
+            } catch {}
+            setMessages([]); setConversations([]); setSettings(defaultSettings);
+            logEvent('account_deleted', {});
+            alert('Account data erased. Reload to start fresh.');
+            setShowSettings(false);
+          }}
+          conversationCount={conversations.length}
+          messageCount={conversations.reduce((n, c) => n + c.messages.length, 0)}
+        />
+      )}
 
       {/* ========== HEADER ========== */}
       <header style={{
