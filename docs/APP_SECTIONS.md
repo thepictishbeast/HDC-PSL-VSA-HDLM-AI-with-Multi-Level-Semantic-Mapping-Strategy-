@@ -12,7 +12,7 @@
 | Facts | **Library** | Knowledge graph, fact browser, search |
 | Admin | **Admin** | System config, server stats, user management |
 | Research | **Research Lab** | Causal reasoning, provenance, hypothesis testing |
-| Security | **Security Center** | Pineapple captures, adversary detection, MITRE |
+| Security | **Colosseum** | Adversarial combat, pentesting, Pineapple captures, red/blue team |
 | Automation | **Workflows** | Task scheduling, recurring operations |
 | Network | **Mesh** | P2P nodes, EigenTrust, knowledge exchange |
 | User | **Profile** | Identity, preferences, connected devices |
@@ -42,7 +42,7 @@ This is DIFFERENT from:
 - Vault (PlausiDen-Vault integration)
 
 ### v3 (future)
-- Security Center
+- Colosseum
 - Workflows
 - Mesh
 - Profile
