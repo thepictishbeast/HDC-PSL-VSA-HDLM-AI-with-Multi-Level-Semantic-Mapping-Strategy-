@@ -2825,14 +2825,24 @@ ${cmdList}
             }
           }}
           onClearHistory={() => {
-            if (confirm('Clear all saved conversations from this device?')) {
+            // c2-288: include counts in the confirm so users see the stakes.
+            const convoCount = conversations.length;
+            const msgCount = conversations.reduce((sum, c) => sum + c.messages.length, 0);
+            const label = convoCount === 1
+              ? `1 conversation (${msgCount} message${msgCount === 1 ? '' : 's'})`
+              : `${convoCount} conversations (${msgCount} messages)`;
+            if (confirm(`Clear ${label} from this device?\n\nExport a Full backup first if you want to restore later.`)) {
               localStorage.removeItem(LS_MESSAGES_KEY);
               localStorage.removeItem(LS_CONVERSATIONS_KEY);
               setConversations([]); setMessages([]);
+              logEvent('clear_history', { convoCount, msgCount });
             }
           }}
           onResetSettings={() => {
-            if (confirm('Reset all settings to defaults?')) setSettings(defaultSettings);
+            if (confirm('Reset all settings to defaults?')) {
+              setSettings(defaultSettings);
+              logEvent('reset_settings', {});
+            }
           }}
           onDeleteAccount={() => {
             if (!confirm('Delete account?\n\nErases every conversation, every setting, every logged event from this browser. Cannot be undone.')) return;
