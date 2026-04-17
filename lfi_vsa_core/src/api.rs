@@ -2312,6 +2312,93 @@ pub fn create_router() -> Result<Router, Box<dyn std::error::Error>> {
         }))
     }
 
+    /// GET /api/training/dashboard — comprehensive training metrics
+    async fn training_dashboard_handler(
+        State(state): State<Arc<AppState>>,
+    ) -> impl IntoResponse {
+        let conn = match state.db.conn.lock() {
+            Ok(c) => c,
+            Err(_) => return axum::Json(json!({"error": "db lock"})),
+        };
+
+        // Total facts and sources
+        let total_facts: i64 = conn.query_row("SELECT COUNT(*) FROM facts", [], |r| r.get(0)).unwrap_or(0);
+        let total_sources: i64 = conn.query_row("SELECT COUNT(DISTINCT source) FROM facts", [], |r| r.get(0)).unwrap_or(0);
+        let total_domains: i64 = conn.query_row("SELECT COUNT(DISTINCT domain) FROM facts WHERE domain IS NOT NULL", [], |r| r.get(0)).unwrap_or(0);
+
+        // Quality distribution
+        let high_q: i64 = conn.query_row("SELECT COUNT(*) FROM facts WHERE quality_score >= 0.8", [], |r| r.get(0)).unwrap_or(0);
+        let med_q: i64 = conn.query_row("SELECT COUNT(*) FROM facts WHERE quality_score >= 0.5 AND quality_score < 0.8", [], |r| r.get(0)).unwrap_or(0);
+        let low_q: i64 = conn.query_row("SELECT COUNT(*) FROM facts WHERE quality_score < 0.5 OR quality_score IS NULL", [], |r| r.get(0)).unwrap_or(0);
+
+        // Training history
+        let training_runs: i64 = conn.query_row("SELECT COUNT(*) FROM training_results", [], |r| r.get(0)).unwrap_or(0);
+        let avg_accuracy: f64 = conn.query_row("SELECT AVG(accuracy) FROM training_results", [], |r| r.get(0)).unwrap_or(0.0);
+
+        // Recent training + infrastructure stats — all in one block to avoid borrow issues
+        let (recent, version_count, edge_count, audit_count) = {
+            let recent: Vec<serde_json::Value> = conn.prepare(
+                "SELECT domain, accuracy, total, correct, timestamp FROM training_results ORDER BY id DESC LIMIT 10"
+            ).ok().map(|mut s| {
+                s.query_map([], |row| Ok(json!({
+                    "domain": row.get::<_,String>(0).unwrap_or_default(),
+                    "accuracy": row.get::<_,f64>(1).unwrap_or(0.0),
+                    "total": row.get::<_,i64>(2).unwrap_or(0),
+                    "correct": row.get::<_,i64>(3).unwrap_or(0),
+                    "timestamp": row.get::<_,String>(4).unwrap_or_default(),
+                }))).map(|i| i.filter_map(|r| r.ok()).collect()).unwrap_or_default()
+            }).unwrap_or_default();
+
+            let vc: i64 = conn.query_row("SELECT COUNT(*) FROM fact_versions", [], |r| r.get(0)).unwrap_or(0);
+            let ec: i64 = conn.query_row("SELECT COUNT(*) FROM fact_edges", [], |r| r.get(0)).unwrap_or(0);
+            let ac: i64 = conn.query_row("SELECT COUNT(*) FROM audit_log", [], |r| r.get(0)).unwrap_or(0);
+            (recent, vc, ec, ac)
+        };
+
+        // Magpie pairs on disk
+        let magpie_dir = std::path::Path::new("/home/user/LFI-data/magpie_pairs");
+        let magpie_files = std::fs::read_dir(magpie_dir)
+            .map(|entries| entries.filter_map(|e| e.ok()).count())
+            .unwrap_or(0);
+
+        // Training log
+        let training_log = std::fs::read_to_string("/home/user/LFI-data/training_log.jsonl")
+            .unwrap_or_default();
+        let pipeline_runs = training_log.lines().count();
+
+        drop(conn);
+
+        // Calibration stats
+        let cal = state.calibration.lock();
+        let cal_samples = cal.sample_count();
+        drop(cal);
+
+        axum::Json(json!({
+            "overview": {
+                "total_facts": total_facts,
+                "total_sources": total_sources,
+                "total_domains": total_domains,
+                "training_runs": training_runs,
+                "avg_accuracy": (avg_accuracy * 100.0).round() / 100.0,
+                "pipeline_runs": pipeline_runs,
+            },
+            "quality": {
+                "high": high_q,
+                "medium": med_q,
+                "low": low_q,
+                "high_pct": (high_q as f64 / total_facts.max(1) as f64 * 100.0).round(),
+            },
+            "infrastructure": {
+                "graph_edges": edge_count,
+                "fact_versions": version_count,
+                "audit_passes": audit_count,
+                "magpie_files": magpie_files,
+                "calibration_samples": cal_samples,
+            },
+            "recent_training": recent,
+        }))
+    }
+
     // Training admin: per-domain metrics
     async fn admin_training_domains_handler(
         State(state): State<Arc<AppState>>,
@@ -3245,6 +3332,7 @@ pub fn create_router() -> Result<Router, Box<dyn std::error::Error>> {
         .route("/api/auditorium/log", post(auditorium_log_handler))
         .route("/api/classroom/overview", get(classroom_overview_handler))
         .route("/api/classroom/curriculum", get(classroom_curriculum_handler))
+        .route("/api/training/dashboard", get(training_dashboard_handler))
         .route("/api/admin/training/:action", post(admin_training_control_handler))
         .route("/api/admin/logs", get(admin_logs_handler))
         .route("/api/presence", get(presence_handler))
