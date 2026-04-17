@@ -394,6 +394,8 @@ export const AssistantMessage: React.FC<AssistantMessageProps> = ({
           <div style={{ marginTop: '8px' }}>
             <button
               onClick={onToggleReasoning}
+              aria-expanded={reasoningExpanded}
+              aria-controls={`lfi-reasoning-${msg.id}`}
               style={{
                 display: 'flex', alignItems: 'center', gap: '6px',
                 padding: '5px 10px', fontSize: '11px', fontWeight: 600,
@@ -404,12 +406,13 @@ export const AssistantMessage: React.FC<AssistantMessageProps> = ({
               Show reasoning ({msg.reasoning.length}) {reasoningExpanded ? '\u25B2' : '\u25BC'}
             </button>
             {reasoningExpanded && (
-              <div style={{
-                marginTop: '8px', padding: '12px 14px',
-                background: C.bgInput,
-                borderLeft: `3px solid ${C.accent}`,
-                borderRadius: '0 8px 8px 0',
-              }}>
+              <div id={`lfi-reasoning-${msg.id}`} role='region' aria-label='Reasoning trace'
+                style={{
+                  marginTop: '8px', padding: '12px 14px',
+                  background: C.bgInput,
+                  borderLeft: `3px solid ${C.accent}`,
+                  borderRadius: '0 8px 8px 0',
+                }}>
                 {msg.reasoning.map((step, j) => (
                   <p key={j} style={{ fontSize: '12px', color: C.textSecondary, lineHeight: '1.6', margin: '4px 0' }}>
                     <span style={{ color: C.accent, fontWeight: 700 }}>[{j}]</span> {step}
