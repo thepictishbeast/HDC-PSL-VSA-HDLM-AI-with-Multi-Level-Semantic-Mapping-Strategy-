@@ -10,6 +10,7 @@
 // here in alphabetical order.
 
 export { BarChart } from './BarChart';
+export { CopyButton } from './CopyButton';
 export { ErrorAlert } from './ErrorAlert';
 export { Label } from './Label';
 export { SkeletonLoader } from './SkeletonLoader';

@@ -31,7 +31,10 @@ pub mod grokking_monitor;
 pub mod fsrs_scheduler;
 pub mod knowledge_graph;
 
+pub mod emotion_detector;
+
 pub use knowledge_graph::{KnowledgeGraph, EdgeType, FactEdge, Subgraph, GraphStats};
+pub use emotion_detector::{detect_emotion, Emotion, EmotionAnalysis};
 // Stitch wake-sleep library learning integration point
 // Stitch cloned at /home/user/Development/PlausiDen/stitch/
 // Integration: feed provenance traces → Stitch anti-unification → extract abstractions

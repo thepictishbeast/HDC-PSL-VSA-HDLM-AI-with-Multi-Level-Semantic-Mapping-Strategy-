@@ -1149,6 +1149,15 @@ impl CognitiveCore {
             _ => "winter",
         };
 
+        // EMOTION DETECTION: Adapt tone based on user's emotional state
+        let emotion = crate::cognition::emotion_detector::detect_emotion(prompt);
+        let tone_directive = if emotion.primary != crate::cognition::emotion_detector::Emotion::Neutral {
+            format!("\n\nTone guidance (user seems {}): {}\n",
+                emotion.primary.as_str(), emotion.primary.tone_guidance())
+        } else {
+            String::new()
+        };
+
         // SECURITY: Use serde_json to build the request body instead of string formatting.
         // This eliminates JSON injection via malformed facts or user input.
         // AVP-PASS-3: Fixed brittle string escaping that broke on backslashes/quotes in facts.
@@ -1167,8 +1176,8 @@ impl CognitiveCore {
              - If you know the user's name, use it occasionally.\n\
              - Reference the time/day naturally when relevant (don't force it).\n\
              - Don't repeat the same jokes or phrases across conversations.\n\
-             - When uncertain, offer to look deeper or suggest related topics.\n\n{}",
-            memory_block, time_context, day_name, season, now.format("%B %d"), context_block
+             - When uncertain, offer to look deeper or suggest related topics.\n{}\n{}",
+            memory_block, time_context, day_name, season, now.format("%B %d"), tone_directive, context_block
         );
 
         let full_prompt = format!("{}\nQuestion: {}", system_prompt, prompt);
