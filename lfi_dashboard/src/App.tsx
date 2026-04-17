@@ -1941,7 +1941,12 @@ ${cmdList}
     setInput(val);
     const el = e.target;
     el.style.height = 'auto';
-    el.style.height = Math.min(el.scrollHeight, 160) + 'px';
+    // c2-274: grow cap unified with the CSS max-height (280px). Prior cap of
+    // 160px was stricter than the inline style, so multi-paragraph drafts
+    // hit an artificial ceiling while CSS allowed more room — users had to
+    // scroll inside a too-small box. Now the JS-driven grow tracks the
+    // declared max.
+    el.style.height = Math.min(el.scrollHeight, 280) + 'px';
     // Slash command detection: show menu when "/" is at position 0.
     if (val.startsWith('/') && !val.includes(' ')) {
       setShowSlashMenu(true);
