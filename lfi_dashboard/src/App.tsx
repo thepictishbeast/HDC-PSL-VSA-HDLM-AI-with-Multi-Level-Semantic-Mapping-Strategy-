@@ -2393,7 +2393,7 @@ ${cmdList}
         position: 'absolute', left: '8px', top: '-40px',
         background: C.accent, color: '#fff',
         padding: '8px 12px', borderRadius: '0 0 8px 8px',
-        fontSize: '13px', fontWeight: 700, textDecoration: 'none',
+        fontSize: T.typography.sizeMd, fontWeight: 700, textDecoration: 'none',
         zIndex: 9999,
       }}>
       Skip to chat
@@ -2542,7 +2542,7 @@ ${cmdList}
                   style={{
                     background: 'transparent', border: `1px solid ${C.accentBorder}`,
                     color: C.accent, padding: '4px 10px', borderRadius: T.radii.sm,
-                    fontSize: '11px', fontWeight: T.typography.weightBold,
+                    fontSize: T.typography.sizeXs, fontWeight: T.typography.weightBold,
                     cursor: 'pointer', fontFamily: 'inherit', textTransform: 'uppercase',
                   }}>Undo</button>
               )}
@@ -2619,13 +2619,13 @@ ${cmdList}
                 onClick={() => { setPendingConfirm(null); setIsThinking(false); }}
                 style={{
                   padding: '10px 18px', background: 'transparent', border: `1px solid ${C.border}`,
-                  color: C.textMuted, borderRadius: '8px', cursor: 'pointer', fontFamily: 'inherit', fontSize: '13px',
+                  color: C.textMuted, borderRadius: T.radii.lg, cursor: 'pointer', fontFamily: 'inherit', fontSize: T.typography.sizeMd,
                 }}>Cancel</button>
               <button onClick={pendingConfirm.onApprove}
                 style={{
                   padding: '10px 18px', background: C.accent, border: 'none',
-                  color: '#fff', borderRadius: '8px', cursor: 'pointer', fontFamily: 'inherit',
-                  fontSize: '13px', fontWeight: 600,
+                  color: '#fff', borderRadius: T.radii.lg, cursor: 'pointer', fontFamily: 'inherit',
+                  fontSize: T.typography.sizeMd, fontWeight: 600,
                 }}>Allow</button>
             </div>
           </div>
@@ -2666,7 +2666,7 @@ ${cmdList}
               <p><strong>5. Security.</strong> While we follow defense-in-depth practices (encrypted storage, PSL governance, provenance tracking), no system is perfectly secure. You are responsible for the security of your deployment environment.</p>
               <p><strong>6. Open Source.</strong> PlausiDen AI's core is open source. You may audit, modify, and redistribute the code under its license terms.</p>
               <p><strong>7. No Warranty.</strong> PlausiDen AI is provided as-is. PlausiDen Technologies LLC is not liable for any damages arising from its use.</p>
-              <p style={{ marginTop: '12px', fontSize: '11px', color: C.textDim }}>
+              <p style={{ marginTop: '12px', fontSize: T.typography.sizeXs, color: C.textDim }}>
                 PlausiDen Technologies LLC &middot; <a href="https://plausiden.com" target="_blank" rel="noopener noreferrer" style={{ color: C.accent }}>plausiden.com</a>
               </p>
             </div>
@@ -2718,7 +2718,7 @@ ${cmdList}
             <h1 id='scc-welcome-title' style={{ margin: '0 0 6px', fontSize: '22px', fontWeight: 700, color: C.text }}>
               Welcome to PlausiDen <span style={{ color: C.accent }}>AI</span>
             </h1>
-            <p style={{ margin: '0 0 24px', fontSize: '14px', color: C.textMuted, lineHeight: 1.6 }}>
+            <p style={{ margin: '0 0 24px', fontSize: T.typography.sizeBody, color: C.textMuted, lineHeight: 1.6 }}>
               Sovereign AI that runs on your hardware. Private by default. Gets smarter over time.
             </p>
 
@@ -2734,13 +2734,13 @@ ${cmdList}
               ].map((item, i) => (
                 <div key={i} style={{
                   padding: '10px 12px', background: C.bgInput,
-                  border: `1px solid ${C.borderSubtle}`, borderRadius: '8px',
+                  border: `1px solid ${C.borderSubtle}`, borderRadius: T.radii.lg,
                   display: 'flex', gap: '10px', alignItems: 'flex-start',
                 }}>
                   <span style={{ fontSize: '18px', flexShrink: 0 }}>{item.icon}</span>
                   <div>
-                    <div style={{ fontSize: '13px', fontWeight: 600, color: C.text }}>{item.title}</div>
-                    <div style={{ fontSize: '11px', color: C.textDim }}>{item.desc}</div>
+                    <div style={{ fontSize: T.typography.sizeMd, fontWeight: 600, color: C.text }}>{item.title}</div>
+                    <div style={{ fontSize: T.typography.sizeXs, color: C.textDim }}>{item.desc}</div>
                   </div>
                 </div>
               ))}
@@ -2756,7 +2756,7 @@ ${cmdList}
               }}>
               Get started
             </button>
-            <p style={{ margin: '12px 0 0', fontSize: '11px', color: C.textDim }}>
+            <p style={{ margin: '12px 0 0', fontSize: T.typography.sizeXs, color: C.textDim }}>
               Type /help anytime for a full reference. <a href="https://plausiden.com" target="_blank" rel="noopener noreferrer" style={{ color: C.accent }}>plausiden.com</a>
             </p>
           </div>
@@ -2769,7 +2769,7 @@ ${cmdList}
           style={{
             position: 'fixed', inset: 0, zIndex: 230,
             background: 'rgba(0,0,0,0.55)',
-            display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '16px',
+            display: 'flex', alignItems: 'center', justifyContent: 'center', padding: T.spacing.lg,
           }}>
           <div onClick={(e) => e.stopPropagation()}
             role='dialog' aria-modal='true' aria-labelledby='scc-training-title'
@@ -3095,7 +3095,7 @@ ${cmdList}
               display: 'flex', alignItems: 'center', justifyContent: 'center',
               background: showConvoSidebar ? C.accentBg : 'transparent',
               border: `1px solid ${showConvoSidebar ? C.accentBorder : C.border}`,
-              borderRadius: '8px',
+              borderRadius: T.radii.lg,
               color: showConvoSidebar ? C.accent : C.textMuted,
               cursor: 'pointer', fontFamily: 'inherit',
             }}>
@@ -3104,7 +3104,7 @@ ${cmdList}
               <line x1="9" y1="4" x2="9" y2="20"/>
             </svg>
           </button>
-          <div style={{ fontSize: '13px', fontWeight: 800, letterSpacing: '0.02em', color: C.text, display: 'flex', alignItems: 'center', gap: '6px' }}>
+          <div style={{ fontSize: T.typography.sizeMd, fontWeight: 800, letterSpacing: '0.02em', color: C.text, display: 'flex', alignItems: 'center', gap: '6px' }}>
             PlausiDen <span style={{ color: C.accent }}>AI</span>
             {/* Per Bible §4.5: subtle shield icon when PlausiDen/incognito mode
                 is active. No text label — just the icon. */}
@@ -3116,7 +3116,7 @@ ${cmdList}
           </div>
           {/* Inline stats — developer-only per design review. */}
           {isDesktop && settings.developerMode && (
-            <div style={{ display: 'flex', gap: '16px', marginLeft: '8px', fontSize: '12px', color: C.textDim }}>
+            <div style={{ display: 'flex', gap: T.spacing.lg, marginLeft: '8px', fontSize: T.typography.sizeSm, color: C.textDim }}>
               <span title={`Used ${ramUsedFmt.value} ${ramUsedFmt.unit} of ${ramTotalFmt.value} ${ramTotalFmt.unit} total`}>
                 {ramTotal > 0 ? `${ramUsedFmt.value}/${ramTotalFmt.value} ${ramTotalFmt.unit}` : `${ramFmt.value} ${ramFmt.unit}`}
               </span>
@@ -3140,11 +3140,11 @@ ${cmdList}
                 role='tab' aria-selected={isActive}
                 style={{
                   padding: isMobile ? '6px 10px' : '7px 14px',
-                  fontSize: '12px', fontWeight: 600,
+                  fontSize: T.typography.sizeSm, fontWeight: 600,
                   background: isActive ? C.accentBg : 'transparent',
                   border: `1px solid ${isActive ? C.accentBorder : 'transparent'}`,
                   color: isActive ? C.accent : C.textMuted,
-                  borderRadius: '6px', cursor: 'pointer', fontFamily: 'inherit',
+                  borderRadius: T.radii.md, cursor: 'pointer', fontFamily: 'inherit',
                   whiteSpace: 'nowrap',
                 }}>{v.label}</button>
             );
@@ -3171,14 +3171,14 @@ ${cmdList}
               width: '30px', height: '30px', borderRadius: '50%',
               background: settings.avatarDataUrl ? `url(${settings.avatarDataUrl}) center/cover` : (settings.avatarGradient || `linear-gradient(135deg, ${C.accent}, ${C.purple})`),
               display: 'flex', alignItems: 'center', justifyContent: 'center',
-              flexShrink: 0, fontSize: '13px', fontWeight: 800, color: '#fff',
+              flexShrink: 0, fontSize: T.typography.sizeMd, fontWeight: 800, color: '#fff',
               boxShadow: `0 0 0 1px ${C.border}`,
             }}>
               {!settings.avatarDataUrl && (settings.displayName.trim().charAt(0).toUpperCase() || 'U')}
             </div>
             {!isMobile && (
               <div style={{ textAlign: 'left', lineHeight: 1.15 }}>
-                <div style={{ fontSize: '13px', fontWeight: 700, color: C.text, maxWidth: '140px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                <div style={{ fontSize: T.typography.sizeMd, fontWeight: 700, color: C.text, maxWidth: '140px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                   {settings.displayName || 'Account'}
                 </div>
                 <div style={{
@@ -3205,7 +3205,7 @@ ${cmdList}
                 position: 'absolute', top: '100%', right: 0, marginTop: '6px',
                 width: '300px', zIndex: 190,
                 background: C.bgCard, border: `1px solid ${C.border}`,
-                borderRadius: '12px', padding: '10px',
+                borderRadius: T.radii.xxl, padding: '10px',
                 boxShadow: '0 16px 40px rgba(0,0,0,0.35)',
                 animation: 'lfi-fadein 0.15s ease-out',
               }}>
@@ -3229,10 +3229,10 @@ ${cmdList}
                       maxLength={40}
                       style={{
                         width: '100%', background: 'transparent', border: 'none', outline: 'none',
-                        fontSize: '14px', fontWeight: 700, color: C.text, fontFamily: 'inherit',
+                        fontSize: T.typography.sizeBody, fontWeight: 700, color: C.text, fontFamily: 'inherit',
                         padding: 0,
                       }} />
-                    <div style={{ fontSize: '11px', color: C.textMuted, marginTop: '2px' }}>
+                    <div style={{ fontSize: T.typography.sizeXs, color: C.textMuted, marginTop: '2px' }}>
                       Local account &middot; {conversations.length} chat{conversations.length === 1 ? '' : 's'}
                     </div>
                   </div>
@@ -3245,7 +3245,7 @@ ${cmdList}
                   <button onClick={() => setSettings(s => ({ ...s, theme: s.theme === 'dark' ? 'light' : 'dark' }))}
                     style={{ display: 'flex', alignItems: 'center', gap: '10px',
                       padding: '10px 12px', background: 'transparent', border: 'none', cursor: 'pointer',
-                      color: C.text, fontSize: '13px', fontFamily: 'inherit', textAlign: 'left', borderRadius: '8px' }}
+                      color: C.text, fontSize: T.typography.sizeMd, fontFamily: 'inherit', textAlign: 'left', borderRadius: T.radii.lg }}
                     onMouseEnter={(e) => e.currentTarget.style.background = C.bgHover}
                     onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}>
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -3259,7 +3259,7 @@ ${cmdList}
                   <button onClick={() => { createNewConversation(false); setShowAccountMenu(false); }}
                     style={{ display: 'flex', alignItems: 'center', gap: '10px',
                       padding: '10px 12px', background: 'transparent', border: 'none', cursor: 'pointer',
-                      color: C.text, fontSize: '13px', fontFamily: 'inherit', textAlign: 'left', borderRadius: '8px' }}
+                      color: C.text, fontSize: T.typography.sizeMd, fontFamily: 'inherit', textAlign: 'left', borderRadius: T.radii.lg }}
                     onMouseEnter={(e) => e.currentTarget.style.background = C.bgHover}
                     onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}>
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -3271,7 +3271,7 @@ ${cmdList}
                   <button onClick={() => { clearChat(); setShowAccountMenu(false); }}
                     style={{ display: 'flex', alignItems: 'center', gap: '10px',
                       padding: '10px 12px', background: 'transparent', border: 'none', cursor: 'pointer',
-                      color: C.text, fontSize: '13px', fontFamily: 'inherit', textAlign: 'left', borderRadius: '8px' }}
+                      color: C.text, fontSize: T.typography.sizeMd, fontFamily: 'inherit', textAlign: 'left', borderRadius: T.radii.lg }}
                     onMouseEnter={(e) => e.currentTarget.style.background = C.bgHover}
                     onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}>
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -3284,7 +3284,7 @@ ${cmdList}
                   <button onClick={() => { setShowAccountMenu(false); setShowSettings(true); }}
                     style={{ display: 'flex', alignItems: 'center', gap: '10px',
                       padding: '10px 12px', background: 'transparent', border: 'none', cursor: 'pointer',
-                      color: C.text, fontSize: '13px', fontFamily: 'inherit', textAlign: 'left', borderRadius: '8px' }}
+                      color: C.text, fontSize: T.typography.sizeMd, fontFamily: 'inherit', textAlign: 'left', borderRadius: T.radii.lg }}
                     onMouseEnter={(e) => e.currentTarget.style.background = C.bgHover}
                     onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}>
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -3298,7 +3298,7 @@ ${cmdList}
                     }}
                     style={{ display: 'flex', alignItems: 'center', gap: '10px',
                       padding: '10px 12px', background: 'transparent', border: 'none', cursor: 'pointer',
-                      color: C.text, fontSize: '13px', fontFamily: 'inherit', textAlign: 'left', borderRadius: '8px' }}
+                      color: C.text, fontSize: T.typography.sizeMd, fontFamily: 'inherit', textAlign: 'left', borderRadius: T.radii.lg }}
                     onMouseEnter={(e) => e.currentTarget.style.background = C.bgHover}
                     onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}>
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -3314,7 +3314,7 @@ ${cmdList}
                     }}
                     style={{ display: 'flex', alignItems: 'center', gap: '10px',
                       padding: '10px 12px', background: 'transparent', border: 'none', cursor: 'pointer',
-                      color: C.text, fontSize: '13px', fontFamily: 'inherit', textAlign: 'left', borderRadius: '8px' }}
+                      color: C.text, fontSize: T.typography.sizeMd, fontFamily: 'inherit', textAlign: 'left', borderRadius: T.radii.lg }}
                     onMouseEnter={(e) => e.currentTarget.style.background = C.bgHover}
                     onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}>
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -3352,7 +3352,7 @@ ${cmdList}
             display: 'flex', alignItems: 'center', gap: '14px',
             padding: '6px 14px', background: C.bgCard,
             borderBottom: `1px solid ${C.borderSubtle}`,
-            fontSize: '11px', fontFamily: T.typography.fontMono,
+            fontSize: T.typography.sizeXs, fontFamily: T.typography.fontMono,
             color: C.textMuted, flexShrink: 0, overflowX: 'auto', whiteSpace: 'nowrap',
           }}>
           <span title='CPU temperature'>
@@ -3396,15 +3396,15 @@ ${cmdList}
       {!isDesktop && showTelemetry && (
         <div style={{
           display: 'grid', gridTemplateColumns: isTablet ? 'repeat(4, 1fr)' : 'repeat(2, 1fr)',
-          gap: '8px', padding: '12px 14px', background: C.bgCard,
+          gap: T.spacing.sm, padding: '12px 14px', background: C.bgCard,
           borderBottom: `1px solid ${C.border}`, flexShrink: 0,
         }}>
           {telemetryCards.map(s => renderTelemetryCard(s))}
           {stats.is_throttled && (
             <div style={{
               gridColumn: '1 / -1', padding: '10px', background: C.redBg,
-              border: `1px solid ${C.redBorder}`, borderRadius: '8px',
-              textAlign: 'center', fontSize: '12px', fontWeight: 800, color: C.red, textTransform: 'uppercase',
+              border: `1px solid ${C.redBorder}`, borderRadius: T.radii.lg,
+              textAlign: 'center', fontSize: T.typography.sizeSm, fontWeight: 800, color: C.red, textTransform: 'uppercase',
             }}>Thermal Throttle Active</div>
           )}
         </div>
@@ -3509,14 +3509,14 @@ ${cmdList}
               <button onClick={() => createNewConversation()}
                 title={`New chat (${mod()}+N)`}
                 style={{
-                  width: '100%', padding: '8px 12px', marginBottom: '8px',
+                  width: '100%', padding: '8px 12px', marginBottom: T.spacing.sm,
                   background: C.accentBg, border: `1px solid ${C.accentBorder}`,
-                  color: C.accent, borderRadius: '8px',
-                  fontSize: '13px', fontWeight: 700, cursor: 'pointer',
+                  color: C.accent, borderRadius: T.radii.lg,
+                  fontSize: T.typography.sizeMd, fontWeight: 700, cursor: 'pointer',
                   fontFamily: 'inherit', display: 'flex',
                   alignItems: 'center', justifyContent: 'center', gap: '6px',
                 }}>
-                <span style={{ fontSize: '14px' }}>{'\u002B'}</span> New chat
+                <span style={{ fontSize: T.typography.sizeBody }}>{'\u002B'}</span> New chat
                 {/* c2-264: shortcut hint on the primary sidebar CTA. kbd
                     chip uses the same muted-border styling as the Command
                     Palette item shortcuts so the language is consistent. */}
@@ -3540,8 +3540,8 @@ ${cmdList}
                 style={{
                   width: '100%', padding: '8px 10px',
                   background: C.bgInput, border: `1px solid ${C.borderSubtle}`,
-                  borderRadius: '8px', outline: 'none',
-                  color: C.text, fontFamily: 'inherit', fontSize: '12px',
+                  borderRadius: T.radii.lg, outline: 'none',
+                  color: C.text, fontFamily: 'inherit', fontSize: T.typography.sizeSm,
                   boxSizing: 'border-box',
                 }}
                 onFocus={(e) => e.currentTarget.style.borderColor = C.accent}
@@ -3550,7 +3550,7 @@ ${cmdList}
             </div>
             <div data-convo-scroller='true' style={{ flex: 1, overflowY: 'auto', padding: '8px' }}>
               {conversations.length === 0 && (
-                <div style={{ padding: '16px', textAlign: 'center', color: C.textMuted, fontSize: '12px' }}>
+                <div style={{ padding: T.spacing.lg, textAlign: 'center', color: C.textMuted, fontSize: T.typography.sizeSm }}>
                   No conversations yet.
                 </div>
               )}
@@ -3670,7 +3670,7 @@ ${cmdList}
                       }}
                       onDragEnd={() => { setDraggedConvoId(null); setDragOverConvoId(null); }}
                       style={{
-                        padding: '10px 12px', borderRadius: '6px',
+                        padding: '10px 12px', borderRadius: T.radii.md,
                         cursor: c.pinned ? (draggedConvoId === c.id ? 'grabbing' : 'grab') : 'pointer',
                         background: isActive ? C.accentBg : 'transparent',
                         border: `1px solid ${isActive ? C.accentBorder : 'transparent'}`,
@@ -3697,13 +3697,13 @@ ${cmdList}
                     >
                       <div style={{ overflow: 'hidden', flex: 1 }}>
                         <div style={{
-                          fontSize: '13px', fontWeight: 600,
+                          fontSize: T.typography.sizeMd, fontWeight: 600,
                           color: isActive ? C.accent : C.text,
                           whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
                           display: 'flex', alignItems: 'center', gap: '6px',
                         }}>
-                          {c.pinned && <span style={{ color: C.yellow, fontSize: '11px' }}>{'\u{1F4CC}'}</span>}
-                          {c.starred && <span style={{ color: C.yellow, fontSize: '11px' }}>{'\u2605'}</span>}
+                          {c.pinned && <span style={{ color: C.yellow, fontSize: T.typography.sizeXs }}>{'\u{1F4CC}'}</span>}
+                          {c.starred && <span style={{ color: C.yellow, fontSize: T.typography.sizeXs }}>{'\u2605'}</span>}
                           {/* c2-245 / #106: unsent draft indicator. Hidden on
                               the active row since the textarea is the source
                               of truth there (c.draft may be stale). */}
@@ -3734,8 +3734,8 @@ ${cmdList}
                               style={{
                                 flex: 1, minWidth: 0,
                                 background: C.bgInput, border: `1px solid ${C.accentBorder}`,
-                                borderRadius: '4px', color: C.text, padding: '2px 6px',
-                                fontSize: '13px', fontFamily: 'inherit', outline: 'none',
+                                borderRadius: T.radii.sm, color: C.text, padding: '2px 6px',
+                                fontSize: T.typography.sizeMd, fontFamily: 'inherit', outline: 'none',
                               }} />
                           ) : (
                             <span dir='auto'
@@ -3767,7 +3767,7 @@ ${cmdList}
                           style={{
                             background: 'transparent', border: 'none',
                             color: c.starred ? C.yellow : C.textDim,
-                            cursor: 'pointer', fontSize: '12px', padding: '2px 3px',
+                            cursor: 'pointer', fontSize: T.typography.sizeSm, padding: '2px 3px',
                           }}>{c.starred ? '\u2605' : '\u2606'}</button>
                         <button onClick={(e) => { e.stopPropagation(); togglePinned(c.id); }}
                           title={c.pinned ? 'Unpin' : 'Pin'}
@@ -3775,7 +3775,7 @@ ${cmdList}
                           style={{
                             background: 'transparent', border: 'none',
                             color: c.pinned ? C.yellow : C.textDim,
-                            cursor: 'pointer', fontSize: '11px', padding: '2px 3px',
+                            cursor: 'pointer', fontSize: T.typography.sizeXs, padding: '2px 3px',
                           }}>{'\u{1F4CC}'}</button>
                         <button onClick={(e) => {
                           e.stopPropagation();
@@ -3809,7 +3809,7 @@ ${cmdList}
                           style={{
                             background: 'transparent', border: 'none',
                             color: c.archived ? C.accent : C.textDim,
-                            cursor: 'pointer', fontSize: '11px', padding: '2px 3px',
+                            cursor: 'pointer', fontSize: T.typography.sizeXs, padding: '2px 3px',
                           }}>{'\u{1F5C3}'}</button>
                         <button onClick={(e) => {
                           e.stopPropagation();
@@ -3818,7 +3818,7 @@ ${cmdList}
                         }} title='Delete' aria-label={`Delete ${c.title}`}
                           style={{
                             background: 'transparent', border: 'none', color: C.textDim,
-                            cursor: 'pointer', fontSize: '11px', padding: '2px 3px',
+                            cursor: 'pointer', fontSize: T.typography.sizeXs, padding: '2px 3px',
                           }}>{'\u2715'}</button>
                       </div>
                     </div>
@@ -3836,7 +3836,7 @@ ${cmdList}
                     style={{
                       width: '100%', textAlign: 'left', padding: '6px 8px',
                       background: 'transparent', border: 'none', cursor: 'pointer',
-                      color: C.textMuted, fontSize: '11px', fontWeight: 700,
+                      color: C.textMuted, fontSize: T.typography.sizeXs, fontWeight: 700,
                       fontFamily: 'inherit', textTransform: 'uppercase', letterSpacing: '0.08em',
                       display: 'flex', alignItems: 'center', gap: '6px',
                     }}>
@@ -3908,14 +3908,14 @@ ${cmdList}
                           aria-current={isActive ? 'true' : undefined}
                           onKeyDown={(e) => navigateConvoRow(e, c.id)}
                           style={{
-                            padding: '8px 12px', borderRadius: '8px', cursor: 'pointer',
+                            padding: '8px 12px', borderRadius: T.radii.lg, cursor: 'pointer',
                             background: isActive ? C.accentBg : 'transparent',
                             marginBottom: '2px', display: 'flex',
                             alignItems: 'center', justifyContent: 'space-between', gap: '4px',
                             opacity: 0.7,
                           }}>
                           <div style={{ overflow: 'hidden', flex: 1 }}>
-                            <div style={{ fontSize: '12px', color: C.textSecondary, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                            <div style={{ fontSize: T.typography.sizeSm, color: C.textSecondary, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                               {c.title}
                             </div>
                           </div>
@@ -3923,7 +3923,7 @@ ${cmdList}
                             title='Unarchive' aria-label={`Unarchive ${c.title}`}
                             style={{
                               background: 'transparent', border: 'none', color: C.accent,
-                              cursor: 'pointer', fontSize: '11px', padding: '2px 3px',
+                              cursor: 'pointer', fontSize: T.typography.sizeXs, padding: '2px 3px',
                             }}>{'\u21A9'}</button>
                         </div>
                       );
@@ -3936,14 +3936,14 @@ ${cmdList}
                 only surface when Developer Mode is on, per 2026-04-15 design
                 review (avoid "internal tool" vibes for general users). */}
             <div style={{
-              padding: '12px', borderTop: `1px solid ${C.borderSubtle}`, fontSize: '11px',
+              padding: '12px', borderTop: `1px solid ${C.borderSubtle}`, fontSize: T.typography.sizeXs,
             }}>
               {settings.developerMode && (
                 <>
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: T.spacing.sm }}>
                     {telemetryCards.map(card => (
                       <div key={card.label} style={{
-                        padding: '8px 10px', borderRadius: '8px',
+                        padding: '8px 10px', borderRadius: T.radii.lg,
                         background: card.bg, border: `1px solid ${card.border}`,
                       }}>
                         <div style={{ fontSize: '9px', color: C.textMuted, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em' }}>{card.label}</div>
@@ -3983,10 +3983,10 @@ ${cmdList}
                 title='Settings' aria-label='Open settings'
                 style={{
                   width: '100%', marginTop: '10px', padding: '8px 10px',
-                  display: 'flex', alignItems: 'center', gap: '8px',
+                  display: 'flex', alignItems: 'center', gap: T.spacing.sm,
                   background: 'transparent', border: `1px solid ${C.border}`,
-                  color: C.textSecondary, borderRadius: '6px',
-                  cursor: 'pointer', fontFamily: 'inherit', fontSize: '12px',
+                  color: C.textSecondary, borderRadius: T.radii.md,
+                  cursor: 'pointer', fontFamily: 'inherit', fontSize: T.typography.sizeSm,
                 }}
                 onMouseEnter={(e) => { e.currentTarget.style.background = C.bgHover; e.currentTarget.style.color = C.text; }}
                 onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = C.textSecondary; }}>
@@ -4139,14 +4139,14 @@ ${cmdList}
                     style={{
                       background: 'transparent', border: `1px solid ${C.borderSubtle}`,
                       color: C.textMuted, borderRadius: T.radii.sm, cursor: 'pointer',
-                      padding: '2px 6px', fontSize: '12px', lineHeight: 1,
+                      padding: '2px 6px', fontSize: T.typography.sizeSm, lineHeight: 1,
                       fontFamily: 'inherit',
                     }}>{'\u2191'}</button>
                   <button onClick={() => jumpMatch(1)} aria-label='Next match' title='Next match (Enter)'
                     style={{
                       background: 'transparent', border: `1px solid ${C.borderSubtle}`,
                       color: C.textMuted, borderRadius: T.radii.sm, cursor: 'pointer',
-                      padding: '2px 6px', fontSize: '12px', lineHeight: 1,
+                      padding: '2px 6px', fontSize: T.typography.sizeSm, lineHeight: 1,
                       fontFamily: 'inherit',
                     }}>{'\u2193'}</button>
                 </>
@@ -4159,7 +4159,7 @@ ${cmdList}
                   ? 'Filter mode — only matching messages. Click to show all + highlight.'
                   : 'Highlight mode — all messages visible. Click to filter to matches only.'}
                 style={{
-                  padding: '4px 10px', fontSize: '11px', fontWeight: T.typography.weightBold,
+                  padding: '4px 10px', fontSize: T.typography.sizeXs, fontWeight: T.typography.weightBold,
                   background: chatSearchMode === 'filter' ? C.accentBg : 'transparent',
                   border: `1px solid ${C.borderSubtle}`,
                   color: chatSearchMode === 'filter' ? C.accent : C.textMuted,
@@ -4223,7 +4223,7 @@ ${cmdList}
                   padding: '4px 12px', borderRadius: '999px',
                   background: C.bgCard, border: `1px solid ${C.borderSubtle}`,
                   boxShadow: T.shadows.cardLight,
-                  fontSize: '11px', fontWeight: T.typography.weightBold,
+                  fontSize: T.typography.sizeXs, fontWeight: T.typography.weightBold,
                   color: C.textSecondary, textTransform: 'uppercase',
                   letterSpacing: T.typography.trackingLoose,
                   fontFamily: 'inherit',
@@ -4273,10 +4273,10 @@ ${cmdList}
                   const borderColor = stuck ? C.redBorder : slow ? C.accentBorder : C.borderSubtle;
                   return (
                   <div role="status" aria-live="polite" style={{
-                    display: 'flex', alignItems: 'center', gap: '12px',
+                    display: 'flex', alignItems: 'center', gap: T.spacing.md,
                     padding: '12px 16px', margin: '8px 0',
                     background: C.bgCard, border: `1px solid ${borderColor}`,
-                    borderRadius: '10px', fontSize: '13px',
+                    borderRadius: '10px', fontSize: T.typography.sizeMd,
                     transition: 'border-color 0.4s', flexWrap: 'wrap',
                   }}>
                     <div style={{ display: 'flex', gap: '5px', alignItems: 'center' }}>
@@ -4290,11 +4290,11 @@ ${cmdList}
                       ))}
                     </div>
                     <span style={{ color: C.text, fontWeight: 500 }}>{thinkingStep || 'Thinking'}</span>
-                    <span style={{ color: stuck ? C.red : C.textDim, fontSize: '11px', fontFamily: T.typography.fontMono }}>
+                    <span style={{ color: stuck ? C.red : C.textDim, fontSize: T.typography.sizeXs, fontFamily: T.typography.fontMono }}>
                       {Math.floor(thinkingElapsed / 60) > 0 ? `${Math.floor(thinkingElapsed / 60)}m ` : ''}{thinkingElapsed % 60}s
                     </span>
                     {stuck && (
-                      <span style={{ color: C.red, fontSize: '11px', fontStyle: 'italic' }}>
+                      <span style={{ color: C.red, fontSize: T.typography.sizeXs, fontStyle: 'italic' }}>
                         unusually slow
                       </span>
                     )}
@@ -4307,9 +4307,9 @@ ${cmdList}
                     }}
                       title='Stop (Esc)' aria-label='Stop in-flight request'
                       style={{
-                      marginLeft: 'auto', padding: '4px 12px', fontSize: '12px',
+                      marginLeft: 'auto', padding: '4px 12px', fontSize: T.typography.sizeSm,
                       background: 'transparent', border: `1px solid ${C.border}`,
-                      color: C.textMuted, borderRadius: '6px', cursor: 'pointer',
+                      color: C.textMuted, borderRadius: T.radii.md, cursor: 'pointer',
                       fontFamily: 'inherit',
                     }}>Stop</button>
                   </div>
@@ -4332,10 +4332,10 @@ ${cmdList}
                     <div role='separator' aria-label={formatDayBucket(msg.timestamp)}
                       style={{
                         textAlign: 'center', margin: '12px 0 18px',
-                        fontSize: '11px', fontWeight: 700,
+                        fontSize: T.typography.sizeXs, fontWeight: 700,
                         color: C.textMuted, textTransform: 'uppercase',
                         letterSpacing: '0.10em',
-                        display: 'flex', alignItems: 'center', gap: '12px',
+                        display: 'flex', alignItems: 'center', gap: T.spacing.md,
                       }}>
                       <span style={{ flex: 1, height: '1px', background: C.borderSubtle }} />
                       <span>{formatDayBucket(msg.timestamp)}</span>
@@ -4450,7 +4450,7 @@ ${cmdList}
                     position: 'absolute', bottom: '100%', left: 0, right: 0,
                     marginBottom: '6px', maxHeight: '280px', overflowY: 'auto',
                     background: C.bgCard, border: `1px solid ${C.border}`,
-                    borderRadius: '12px', padding: '6px',
+                    borderRadius: T.radii.xxl, padding: '6px',
                     boxShadow: '0 -12px 40px rgba(0,0,0,0.35)',
                     animation: 'lfi-fadein 0.12s ease-out', zIndex: 50,
                   }}>
@@ -4464,12 +4464,12 @@ ${cmdList}
                         style={{
                           width: '100%', textAlign: 'left', cursor: 'pointer',
                           padding: '8px 12px', background: i === clamped ? C.accentBg : 'transparent',
-                          border: 'none', borderRadius: '8px', fontFamily: 'inherit',
-                          color: C.text, display: 'flex', alignItems: 'center', gap: '12px',
+                          border: 'none', borderRadius: T.radii.lg, fontFamily: 'inherit',
+                          color: C.text, display: 'flex', alignItems: 'center', gap: T.spacing.md,
                         }}>
-                        <span style={{ fontSize: '13px', fontWeight: 700, color: i === clamped ? C.accent : C.textSecondary, minWidth: '90px',
+                        <span style={{ fontSize: T.typography.sizeMd, fontWeight: 700, color: i === clamped ? C.accent : C.textSecondary, minWidth: '90px',
                           fontFamily: "'JetBrains Mono','Fira Code',monospace" }}>{c.cmd}</span>
-                        <span style={{ fontSize: '13px', color: C.textMuted }}>{c.desc}</span>
+                        <span style={{ fontSize: T.typography.sizeMd, color: C.textMuted }}>{c.desc}</span>
                       </button>
                     ))}
                   </div>
@@ -4484,7 +4484,7 @@ ${cmdList}
                 // c0-019/020: professional rounded-card, 8px radius, no glow.
                 // Ring halo only on focus via box-shadow in a muted accent.
                 border: `1px solid ${input ? C.accent : C.border}`,
-                borderRadius: '8px',
+                borderRadius: T.radii.lg,
                 transition: 'border-color 0.15s, box-shadow 0.15s',
                 boxShadow: input ? `0 0 0 3px ${C.accentBg}` : '0 1px 2px rgba(15,17,23,0.24)',
                 display: 'flex', flexDirection: 'column', position: 'relative',
@@ -4507,7 +4507,7 @@ ${cmdList}
                         fontSize: '10px', fontWeight: 700,
                         color, fontFamily: 'ui-monospace, SFMono-Regular, monospace',
                         background: pct > 0.95 ? C.redBg : C.accentBg,
-                        padding: '2px 6px', borderRadius: '4px',
+                        padding: '2px 6px', borderRadius: T.radii.sm,
                         pointerEvents: 'none',
                       }}>
                       {input.length.toLocaleString()} / 100,000 · ~{tokens.toLocaleString()}tok
@@ -4547,13 +4547,13 @@ ${cmdList}
                           width: '18px', height: '18px', borderRadius: '50%',
                           background: C.bg, color: C.text,
                           border: `1px solid ${C.border}`,
-                          fontSize: '11px', lineHeight: '16px', padding: 0, cursor: 'pointer',
+                          fontSize: T.typography.sizeXs, lineHeight: '16px', padding: 0, cursor: 'pointer',
                           display: 'flex', alignItems: 'center', justifyContent: 'center',
                         }}>{'\u2715'}</button>
                     </div>
                     );
                   })}
-                  <span style={{ fontSize: '11px', color: C.textDim, marginLeft: '4px' }}>
+                  <span style={{ fontSize: T.typography.sizeXs, color: C.textDim, marginLeft: '4px' }}>
                     {pastedImages.length === 1 ? '1 image' : `${pastedImages.length} images`} ready {'\u2014'} backend upload not yet wired
                   </span>
                 </div>
@@ -4661,7 +4661,7 @@ ${cmdList}
                       background: activeSkill !== 'chat' ? C.accentBg : (showSkillMenu ? C.bgHover : 'transparent'),
                       border: `1px solid ${activeSkill !== 'chat' ? C.accentBorder : 'transparent'}`,
                       color: activeSkill !== 'chat' ? C.accent : C.textMuted,
-                      borderRadius: '8px',
+                      borderRadius: T.radii.lg,
                     }}>
                     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
                       <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
@@ -4687,7 +4687,7 @@ ${cmdList}
                         position: 'absolute', bottom: 'calc(100% + 8px)', left: 0,
                         width: '260px', zIndex: 180,
                         background: C.bgCard, border: `1px solid ${C.border}`,
-                        borderRadius: '12px', padding: '6px',
+                        borderRadius: T.radii.xxl, padding: '6px',
                         boxShadow: '0 16px 40px rgba(0,0,0,0.35)',
                         animation: 'lfi-fadein 0.15s ease-out',
                       }}>
@@ -4708,17 +4708,17 @@ ${cmdList}
                                 background: picked ? C.accentBg : 'transparent',
                                 border: 'none', cursor: s.available ? 'pointer' : 'not-allowed',
                                 color: picked ? C.accent : (s.available ? C.text : C.textDim),
-                                borderRadius: '8px', fontFamily: 'inherit', textAlign: 'left',
+                                borderRadius: T.radii.lg, fontFamily: 'inherit', textAlign: 'left',
                                 opacity: s.available ? 1 : 0.55,
                               }}
                               onMouseEnter={(e) => { if (s.available && !picked) e.currentTarget.style.background = C.bgHover; }}
                               onMouseLeave={(e) => { if (!picked) e.currentTarget.style.background = 'transparent'; }}>
                               {s.icon}
                               <div style={{ flex: 1, minWidth: 0 }}>
-                                <div style={{ fontSize: '13px', fontWeight: 600 }}>
+                                <div style={{ fontSize: T.typography.sizeMd, fontWeight: 600 }}>
                                   {s.label}{!s.available && <span style={{ fontSize: '10px', marginLeft: '6px', color: C.textDim }}>soon</span>}
                                 </div>
-                                <div style={{ fontSize: '11px', color: C.textDim, marginTop: '2px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                <div style={{ fontSize: T.typography.sizeXs, color: C.textDim, marginTop: '2px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                                   {s.hint}
                                 </div>
                               </div>
@@ -4736,7 +4736,7 @@ ${cmdList}
                     width: '36px', height: '36px', cursor: 'pointer',
                     display: 'flex', alignItems: 'center', justifyContent: 'center',
                     background: 'transparent', color: C.textMuted,
-                    borderRadius: '8px', flexShrink: 0,
+                    borderRadius: T.radii.lg, flexShrink: 0,
                   }}>
                   <input type='file' multiple style={{ display: 'none' }}
                     onChange={(e) => {
@@ -4813,7 +4813,7 @@ ${cmdList}
                     width: '36px', height: '36px', cursor: 'pointer',
                     display: 'flex', alignItems: 'center', justifyContent: 'center',
                     background: 'transparent', color: C.textMuted, border: 'none',
-                    borderRadius: '8px', flexShrink: 0,
+                    borderRadius: T.radii.lg, flexShrink: 0,
                   }}>
                   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                     <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/>
@@ -4829,9 +4829,9 @@ ${cmdList}
                   title='Model'
                   aria-label='Model tier'
                   style={{
-                    padding: '7px 28px 7px 12px', fontSize: '13px', fontWeight: 600,
+                    padding: '7px 28px 7px 12px', fontSize: T.typography.sizeMd, fontWeight: 600,
                     background: C.bgInput, color: C.text,
-                    border: `1px solid ${C.border}`, borderRadius: '8px',
+                    border: `1px solid ${C.border}`, borderRadius: T.radii.lg,
                     cursor: tierSwitching ? 'wait' : 'pointer', fontFamily: 'inherit',
                     appearance: 'none', WebkitAppearance: 'none',
                     backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='8' height='8' viewBox='0 0 8 8'%3E%3Cpath fill='%237f8296' d='M0 2l4 4 4-4z'/%3E%3C/svg%3E")`,
@@ -4860,7 +4860,7 @@ ${cmdList}
                     <span style={{ opacity: 0.7, fontSize: '10px', marginLeft: '2px' }}>{'\u2715'}</span>
                   </button>
                 )}
-                <span style={{ fontSize: '11px', color: C.textDim, paddingRight: '4px' }}>
+                <span style={{ fontSize: T.typography.sizeXs, color: C.textDim, paddingRight: '4px' }}>
                   {input.length > 0 ? `${input.length} chars` : ''}
                 </span>
                 {/* Send */}
@@ -4879,7 +4879,7 @@ ${cmdList}
                     display: 'flex', alignItems: 'center', justifyContent: 'center',
                     background: input.trim() && isConnected ? C.accent : C.bgInput,
                     border: `1px solid ${input.trim() && isConnected ? C.accent : C.border}`,
-                    borderRadius: '8px',
+                    borderRadius: T.radii.lg,
                     color: input.trim() && isConnected ? (settings.theme === 'light' ? '#fff' : '#000') : C.textDim,
                     cursor: input.trim() && isConnected ? 'pointer' : 'default',
                     flexShrink: 0, transition: 'all 0.15s',
@@ -4904,7 +4904,7 @@ ${cmdList}
                     fontSize: '9.5px', fontWeight: 600,
                     color: latencyMs < 100 ? C.green : latencyMs < 500 ? C.yellow : C.red,
                     background: latencyMs < 100 ? C.greenBg : latencyMs < 500 ? C.accentBg : C.redBg,
-                    padding: '1px 6px', borderRadius: '4px',
+                    padding: '1px 6px', borderRadius: T.radii.sm,
                     fontFamily: 'ui-monospace, SFMono-Regular, monospace',
                   }} title='Avg round-trip of last 5 /api/status polls'>
                     {Math.round(latencyMs)}ms
@@ -4973,7 +4973,7 @@ ${cmdList}
                 borderBottom: showPlanSidebar ? `1px solid ${C.borderSubtle}` : 'none',
               }}>
                 {showPlanSidebar && (
-                  <div style={{ fontSize: '11px', fontWeight: 800, color: C.textMuted, textTransform: 'uppercase', letterSpacing: '0.12em' }}>
+                  <div style={{ fontSize: T.typography.sizeXs, fontWeight: 800, color: C.textMuted, textTransform: 'uppercase', letterSpacing: '0.12em' }}>
                     Plan
                   </div>
                 )}
@@ -4985,7 +4985,7 @@ ${cmdList}
                     width: '28px', height: '28px',
                     display: 'flex', alignItems: 'center', justifyContent: 'center',
                     background: 'transparent', border: `1px solid ${C.border}`,
-                    borderRadius: '6px', color: C.textMuted, cursor: 'pointer', fontFamily: 'inherit',
+                    borderRadius: T.radii.md, color: C.textMuted, cursor: 'pointer', fontFamily: 'inherit',
                     margin: showPlanSidebar ? 0 : '0 auto',
                   }}>
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
@@ -4996,10 +4996,10 @@ ${cmdList}
 
               {showPlanSidebar && (
                 <div style={{ flex: 1, overflowY: 'auto', padding: '14px' }}>
-                  <div style={{ fontSize: '12px', color: C.text, fontWeight: 600, marginBottom: '4px' }}>
+                  <div style={{ fontSize: T.typography.sizeSm, color: C.text, fontWeight: 600, marginBottom: '4px' }}>
                     {plan.goal?.slice(0, 80) || 'Current plan'}
                   </div>
-                  <div style={{ fontSize: '11px', color: C.textDim, marginBottom: '14px' }}>
+                  <div style={{ fontSize: T.typography.sizeXs, color: C.textDim, marginBottom: '14px' }}>
                     {plan.steps} step{plan.steps === 1 ? '' : 's'}
                     {typeof plan.complexity === 'number' && ` \u00B7 complexity ${plan.complexity.toFixed(2)}`}
                   </div>
@@ -5009,9 +5009,9 @@ ${cmdList}
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
                       {latestWithPlan.reasoning.map((step, i) => (
                         <div key={i} style={{
-                          display: 'flex', gap: '8px', padding: '8px 10px',
+                          display: 'flex', gap: T.spacing.sm, padding: '8px 10px',
                           background: C.bgInput, border: `1px solid ${C.borderSubtle}`,
-                          borderRadius: '8px', fontSize: '12.5px', color: C.textSecondary, lineHeight: 1.5,
+                          borderRadius: T.radii.lg, fontSize: '12.5px', color: C.textSecondary, lineHeight: 1.5,
                         }}>
                           <span style={{
                             flexShrink: 0, width: '18px', height: '18px', borderRadius: '50%',
@@ -5023,7 +5023,7 @@ ${cmdList}
                       ))}
                     </div>
                   ) : (
-                    <div style={{ fontSize: '12px', color: C.textDim, fontStyle: 'italic' }}>
+                    <div style={{ fontSize: T.typography.sizeSm, color: C.textDim, fontStyle: 'italic' }}>
                       Steps not expanded — enable "Show reasoning" in Settings to see them.
                     </div>
                   )}
