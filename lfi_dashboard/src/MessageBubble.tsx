@@ -116,6 +116,96 @@ export const ToolMessage: React.FC<ToolMessageProps> = ({ msg, C, isDesktop, exp
   );
 };
 
+export interface UserMessageProps {
+  msg: { id: number; content: string; timestamp: number };
+  C: any;
+  isMobile: boolean;
+  maxWidth: string;
+  editing: boolean;
+  editText: string;
+  setEditText: (s: string) => void;
+  onBeginEdit: () => void;
+  onCancelEdit: () => void;
+  onCommitEdit: (trimmed: string) => void;
+  formatTime: (ts: number) => string;
+}
+
+// User message bubble with inline edit flow. Parent owns the editing state
+// so cross-message coordination (only one editor open at a time) stays simple.
+export const UserMessage: React.FC<UserMessageProps> = ({
+  msg, C, isMobile, maxWidth, editing, editText, setEditText,
+  onBeginEdit, onCancelEdit, onCommitEdit, formatTime,
+}) => (
+  <div
+    onMouseEnter={(e) => { const btn = e.currentTarget.querySelector('.user-edit-btn') as HTMLElement; if (btn) btn.style.opacity = '1'; }}
+    onMouseLeave={(e) => { const btn = e.currentTarget.querySelector('.user-edit-btn') as HTMLElement; if (btn) btn.style.opacity = '0'; }}
+    style={{ display: 'flex', justifyContent: 'flex-end', gap: '6px', alignItems: 'flex-end' }}>
+    {!editing && (
+      <button className='user-edit-btn'
+        onClick={onBeginEdit}
+        title='Edit and resend'
+        style={{
+          width: '28px', height: '28px', flexShrink: 0,
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          background: 'transparent', border: 'none',
+          color: C.textMuted, cursor: 'pointer', borderRadius: '6px',
+          opacity: isMobile ? 1 : 0, transition: 'opacity 0.12s',
+        }}
+        onMouseEnter={(e) => { e.currentTarget.style.background = C.bgHover; }}
+        onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}>
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
+        </svg>
+      </button>
+    )}
+    {editing ? (
+      <div style={{
+        maxWidth, width: '100%',
+        background: C.bgCard, border: `1px solid ${C.accent}`,
+        borderRadius: '12px', padding: '10px',
+      }}>
+        <textarea value={editText}
+          onChange={(e) => setEditText(e.target.value)}
+          style={{
+            width: '100%', background: 'transparent', border: 'none', outline: 'none',
+            color: C.text, fontFamily: 'inherit', fontSize: '14px', lineHeight: '1.6',
+            resize: 'vertical', minHeight: '60px',
+          }} />
+        <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end', marginTop: '8px' }}>
+          <button onClick={onCancelEdit}
+            style={{ padding: '6px 14px', fontSize: '12px', background: 'transparent',
+              border: `1px solid ${C.border}`, color: C.textMuted, borderRadius: '6px',
+              cursor: 'pointer', fontFamily: 'inherit' }}>Cancel</button>
+          <button onClick={() => {
+            const trimmed = editText.trim();
+            if (!trimmed) return;
+            onCommitEdit(trimmed);
+          }}
+            style={{ padding: '6px 14px', fontSize: '12px',
+              background: C.accent, border: 'none', color: '#fff',
+              borderRadius: '6px', cursor: 'pointer', fontFamily: 'inherit', fontWeight: 600 }}>
+            Send
+          </button>
+        </div>
+      </div>
+    ) : (
+      <div style={{
+        maxWidth, padding: '12px 16px',
+        background: C.accent,
+        borderRadius: '16px 16px 4px 16px', fontSize: '14px', lineHeight: '1.6',
+        color: '#fff',
+        wordBreak: 'break-word',
+        boxShadow: `0 1px 4px rgba(0,0,0,0.10)`,
+      }}>
+        {msg.content}
+        <div style={{ fontSize: '10px', color: 'rgba(255,255,255,0.55)', marginTop: '6px', textAlign: 'right' }}>
+          {formatTime(msg.timestamp)}
+        </div>
+      </div>
+    )}
+  </div>
+);
+
 export const WebMessage: React.FC<{ content: string; C: any; isDesktop: boolean }> = ({ content, C, isDesktop }) => (
   <div style={{
     padding: '14px 16px', borderRadius: '12px',
