@@ -485,6 +485,9 @@ ${cmdList}
   const dismissWelcome = () => {
     setShowWelcome(false);
     try { localStorage.setItem('lfi_welcomed', 'true'); } catch {}
+    // c2-312: audit trail parity with tos_accepted. Useful for first-run
+    // telemetry when we wire a local analytics view later.
+    logEvent('welcome_dismissed', {});
   };
   const [showKnowledge, setShowKnowledge] = useState(false);
   const [showTraining, setShowTraining] = useState(false);
@@ -1238,6 +1241,11 @@ ${cmdList}
   // Global keyboard shortcuts — per Bible §6.5
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      // c2-320: TOS dialog is a gate. No shortcut should fire underneath it
+      // — including Cmd+K (palette), ? (shortcuts), auto-focus-on-keystroke.
+      // Tab / Shift-Tab stay available for focus navigation within the
+      // dialog so keyboard users can still reach the Accept button.
+      if (!tosAccepted) return;
       const mod = e.metaKey || e.ctrlKey;
       const k = e.key.toLowerCase();
 
@@ -1286,7 +1294,18 @@ ${cmdList}
         else { setShowAdmin(true); }
       }
       else if (mod && e.shiftKey && k === 'k') { e.preventDefault(); setShowKnowledge(true); fetchKnowledge(); }
-      else if (mod && e.shiftKey && k === 'd') { e.preventDefault(); const themes: Array<typeof settings.theme> = ['dark','light','midnight','forest','sunset','rose','contrast']; const idx = themes.indexOf(settings.theme); const next = themes[(idx+1) % themes.length]; setSettings(s => ({...s, theme: next})); showToast(`Theme: ${next}`); }
+      else if (mod && e.shiftKey && k === 'd') {
+        e.preventDefault();
+        const themes: Array<typeof settings.theme> = ['dark','light','midnight','forest','sunset','rose','contrast'];
+        const idx = themes.indexOf(settings.theme);
+        const next = themes[(idx+1) % themes.length];
+        setSettings(s => ({...s, theme: next}));
+        showToast(`Theme: ${next}`);
+        // c2-316: log the hotkey cycle path so the event log shows which
+        // themes users actually flip through. Palette + Settings + /theme
+        // paths remain silent (they're deliberate, not exploratory).
+        logEvent('theme_cycled', { via: 'hotkey', theme: next });
+      }
       else if (mod && k === 'b') { e.preventDefault(); setShowConvoSidebar(v => !v); }
       else if (mod && e.shiftKey && k === 'r') {
         // Cmd/Ctrl+Shift+R = regenerate last assistant response. Browser's
@@ -1351,7 +1370,7 @@ ${cmdList}
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [showCmdPalette, showSettings, showKnowledge, showActivity, showGame, showTraining, negFeedbackFor, pendingConfirm]);
+  }, [showCmdPalette, showSettings, showKnowledge, showActivity, showGame, showTraining, negFeedbackFor, pendingConfirm, tosAccepted]);
 
   // Three polling hooks — see ./usePolls.ts for the fetch logic. Each manages
   // its own interval + abort handling; parent just reads the state they return.
@@ -1607,6 +1626,14 @@ ${cmdList}
       const row = document.querySelector('[data-convo-row="true"][aria-current="true"]') as HTMLElement | null;
       row?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
     }, 0);
+    // c2-319: on mobile, selecting a convo from the sidebar overlay should
+    // close the overlay so the user can actually read the chat. Only fires
+    // on real switches (outgoingId present) so the initial-mount hydrate
+    // doesn't force-close a sidebar the user just opened. Desktop layout
+    // is inline + persistent so sidebar stays visible.
+    if (!isDesktop && outgoingId && outgoingId !== currentConversationId) {
+      setShowConvoSidebar(false);
+    }
     lastActiveConvoRef.current = currentConversationId;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentConversationId]);
@@ -1673,6 +1700,12 @@ ${cmdList}
     // transition (WelcomeScreen mounts on the now-empty message list) before
     // the focus call lands.
     setTimeout(() => inputRef.current?.focus(), 0);
+    // c2-318: on mobile, close the sidebar overlay when the user starts a
+    // new conversation. Desktop sidebar is inline (already visible) so we
+    // leave it as-is. Covers every creation path (sidebar button, palette,
+    // slash command, account menu, Cmd+N) since they all funnel here.
+    if (!isDesktop) setShowConvoSidebar(false);
+    logEvent('new_conversation', { incognito });
   };
   const isCurrentIncognito = (() => {
     const c = conversations.find(c => c.id === currentConversationId);
@@ -1693,6 +1726,10 @@ ${cmdList}
       const rest = prevConvos.filter(c => c.id !== id);
       setCurrentConversationId(rest[0]?.id || '');
     }
+    // c2-313: audit-trail parity with other destructive ops (clear_chat,
+    // clear_history, bulk_delete_archived). Only message count leaks —
+    // no title or content — so no PII hits the event log.
+    logEvent('delete_conversation', { messages: victim.messages.length, wasActive });
     showToast(`Deleted "${victim.title}"`, () => {
       // Restore at the original index so pinned/sorted order is preserved.
       setConversations(cur => {
@@ -1702,11 +1739,15 @@ ${cmdList}
         return restored;
       });
       if (wasActive) setCurrentConversationId(id);
+      logEvent('delete_conversation_undo', { messages: victim.messages.length });
     });
   };
   const renameConversation = (id: string, title: string) => {
     const clean = title.trim().slice(0, 80) || 'Untitled';
     setConversations(prev => prev.map(c => c.id === id ? { ...c, title: clean } : c));
+    // c2-314: convo mutation audit parity — matches delete_conversation.
+    // Only length leaks so the event log stays PII-free.
+    logEvent('rename_conversation', { titleLength: clean.length });
     showToast('Renamed');
   };
   const togglePinned = (id: string) => {
@@ -1718,6 +1759,7 @@ ${cmdList}
       // re-pinning later doesn't snap back to an old slot.
       return nowPinned ? { ...c, pinned: true } : { ...c, pinned: false, pinOrder: undefined };
     }));
+    logEvent('toggle_pinned', { nowPinned });
     showToast(nowPinned ? 'Pinned' : 'Unpinned');
   };
   // c2-232 / #80: drag-to-reorder for the pinned group. Dragged row id +
@@ -1788,6 +1830,7 @@ ${cmdList}
   // authoritatively rather than inferred from relative indices.
   const reorderPinned = (draggedId: string, targetId: string) => {
     if (draggedId === targetId) return;
+    let reorderedCount = 0;
     setConversations(prev => {
       const pinKey = (c: Conversation) => (typeof c.pinOrder === 'number' ? c.pinOrder : Number.MAX_SAFE_INTEGER - c.updatedAt / 1000);
       const pinnedList = prev.filter(c => c.pinned).sort((a, b) => pinKey(a) - pinKey(b));
@@ -1799,8 +1842,13 @@ ${cmdList}
       const reordered = [...without.slice(0, tIdx), dragged, ...without.slice(tIdx)];
       const orderMap = new Map<string, number>();
       reordered.forEach((c, i) => orderMap.set(c.id, i));
+      reorderedCount = reordered.length;
       return prev.map(c => orderMap.has(c.id) ? { ...c, pinOrder: orderMap.get(c.id) } : c);
     });
+    // c2-315: closes the audit-event parity loop — every user-driven
+    // conversation mutation now appears in the event log. pinCount lets
+    // a future analytics view correlate reorder churn with pinned-group size.
+    if (reorderedCount > 0) logEvent('reorder_pinned', { pinCount: reorderedCount });
   };
   const toggleStarred = (id: string) => {
     let nowStarred = false;
@@ -1809,6 +1857,7 @@ ${cmdList}
       nowStarred = !c.starred;
       return { ...c, starred: nowStarred };
     }));
+    logEvent('toggle_starred', { nowStarred });
     showToast(nowStarred ? 'Starred' : 'Unstarred');
   };
   const toggleArchived = (id: string) => {
@@ -1818,6 +1867,7 @@ ${cmdList}
       nowArchived = !c.archived;
       return { ...c, archived: nowArchived };
     }));
+    logEvent('toggle_archived', { nowArchived });
     showToast(nowArchived ? 'Archived' : 'Unarchived');
   };
 
