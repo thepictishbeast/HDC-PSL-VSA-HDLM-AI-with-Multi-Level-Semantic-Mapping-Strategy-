@@ -2562,6 +2562,7 @@ ${cmdList}
                 <div style={{ position: 'relative', flexShrink: 0 }}>
                   <button onClick={() => setShowSkillMenu(v => !v)}
                     title='Tools &amp; skills'
+                    aria-label='Tools and skills'
                     style={{
                       width: '36px', height: '36px', cursor: 'pointer',
                       display: 'flex', alignItems: 'center', justifyContent: 'center',
@@ -2638,7 +2639,7 @@ ${cmdList}
                   )}
                 </div>
                 {/* Attach */}
-                <label title='Attach file'
+                <label title='Attach file' aria-label='Attach file'
                   style={{
                     width: '36px', height: '36px', cursor: 'pointer',
                     display: 'flex', alignItems: 'center', justifyContent: 'center',
@@ -2663,7 +2664,7 @@ ${cmdList}
                   </svg>
                 </label>
                 {/* Voice */}
-                <button title='Voice input'
+                <button title='Voice input' aria-label='Voice input'
                   onClick={() => {
                     const Rec: any = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
                     if (!Rec) {
@@ -2699,6 +2700,7 @@ ${cmdList}
                 <select value={currentTier} disabled={tierSwitching}
                   onChange={(e) => handleTierSwitch(e.target.value)}
                   title='Model'
+                  aria-label='Model tier'
                   style={{
                     padding: '7px 28px 7px 12px', fontSize: '13px', fontWeight: 600,
                     background: C.bgInput, color: C.text,
@@ -2718,6 +2720,7 @@ ${cmdList}
                 {activeSkill !== 'chat' && (
                   <button onClick={() => setActiveSkill('chat')}
                     title='Clear active skill'
+                    aria-label='Clear active skill'
                     style={{
                       display: 'flex', alignItems: 'center', gap: '6px',
                       padding: '5px 10px', fontSize: '11.5px', fontWeight: 600,
@@ -2827,6 +2830,8 @@ ${cmdList}
                 )}
                 <button onClick={() => setShowPlanSidebar(v => !v)}
                   title={showPlanSidebar ? 'Collapse' : 'Expand'}
+                  aria-label={showPlanSidebar ? 'Collapse plan sidebar' : 'Expand plan sidebar'}
+                  aria-expanded={showPlanSidebar}
                   style={{
                     width: '28px', height: '28px',
                     display: 'flex', alignItems: 'center', justifyContent: 'center',
