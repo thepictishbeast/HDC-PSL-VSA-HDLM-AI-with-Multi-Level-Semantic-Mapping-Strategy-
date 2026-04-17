@@ -129,10 +129,17 @@ export const AdminModal: React.FC<AdminModalProps> = ({
   // especially important on tabs with long auto-refresh intervals.
   const [lastLoadedAt, setLastLoadedAt] = useState<Partial<Record<AdminTab, number>>>({});
 
-  const fetchJson = async <T,>(path: string, signal: AbortSignal): Promise<T> => {
-    const res = await fetch(`http://${host}:3000${path}`, { signal });
+  const fetchJson = async <T,>(path: string, signal: AbortSignal, port: number = 3000): Promise<T> => {
+    const res = await fetch(`http://${host}:${port}${path}`, { signal });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     return res.json() as Promise<T>;
+  };
+  // c2-322 / c0-035 #2: orchestrator fleet data lives on :3001. Try there
+  // first; fall back to :3000 during rollout so older deployments without
+  // the split service still render the Fleet tab.
+  const fetchFleet = async (signal: AbortSignal): Promise<FleetShape> => {
+    try { return await fetchJson<FleetShape>('/api/orchestrator/dashboard', signal, 3001); }
+    catch { return await fetchJson<FleetShape>('/api/orchestrator/dashboard', signal, 3000); }
   };
   const loadTab = async (t: AdminTab) => {
     setLoading(t);
@@ -166,7 +173,7 @@ export const AdminModal: React.FC<AdminModalProps> = ({
         setSysInfo(await fetchJson('/api/system/info', ctrl.signal));
       }
       if (t === 'fleet') {
-        setFleet(await fetchJson<FleetShape>('/api/orchestrator/dashboard', ctrl.signal));
+        setFleet(await fetchFleet(ctrl.signal));
       }
       if (t === 'logs') {
         try {
