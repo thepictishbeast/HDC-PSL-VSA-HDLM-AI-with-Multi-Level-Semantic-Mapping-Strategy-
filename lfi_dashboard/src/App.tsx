@@ -1798,8 +1798,10 @@ ${cmdList}
   const telemetryCards = [
     { label: 'RAM', value: ramLabel, unit: ramUnit, color: C.accent, bg: C.accentBg, border: C.accentBorder },
     { label: 'CPU', value: `${stats.cpu_temp_c.toFixed(0)}`, unit: '\u00B0C', color: stats.cpu_temp_c > 65 ? C.red : C.green, bg: stats.cpu_temp_c > 65 ? C.redBg : C.greenBg, border: stats.cpu_temp_c > 65 ? C.redBorder : C.greenBorder },
-    { label: 'Facts', value: `${kg.facts}`, unit: '', color: C.purple, bg: C.purpleBg, border: C.purpleBorder },
-    { label: 'Concepts', value: `${kg.concepts}`, unit: '', color: C.green, bg: C.greenBg, border: C.greenBorder },
+    // Facts uses compactNum so "56.4M" reads cleanly; raw `${kg.facts}` was 8+ digits and ran off the card on narrow sidebars.
+    { label: 'Facts', value: kg.facts ? compactNum(kg.facts) : '—', unit: '', color: C.purple, bg: C.purpleBg, border: C.purpleBorder },
+    // Prefer Sources over Concepts — concepts_count always returns 0 (backend in-memory store is small); sources_count is a real metric that moves as the agent ingests.
+    { label: 'Sources', value: kg.sources ? String(kg.sources) : '—', unit: '', color: C.green, bg: C.greenBg, border: C.greenBorder },
   ];
 
   const renderTelemetryCard = (s: typeof telemetryCards[0], compact = false) => (
