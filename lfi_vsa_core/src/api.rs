@@ -2166,6 +2166,75 @@ pub fn create_router() -> Result<Router, Box<dyn std::error::Error>> {
         }
     }
 
+    // Admin logs endpoint — real-time log access for the UI
+    async fn admin_logs_handler(
+        State(state): State<Arc<AppState>>,
+        axum::extract::Query(q): axum::extract::Query<std::collections::HashMap<String, String>>,
+    ) -> impl IntoResponse {
+        if !state.agent.lock().authenticated {
+            return axum::Json(json!({"error": "Authentication required"}));
+        }
+        let limit: usize = q.get("limit").and_then(|s| s.parse().ok()).unwrap_or(50).min(200);
+        let module = q.get("module").cloned().unwrap_or_default();
+
+        let mut logs = Vec::new();
+
+        // Read server log
+        if module.is_empty() || module == "server" {
+            if let Ok(content) = std::fs::read_to_string("/tmp/lfi_server.log") {
+                for line in content.lines().rev().take(limit) {
+                    logs.push(json!({"source": "server", "line": line}));
+                }
+            }
+        }
+
+        // Read training log
+        if module.is_empty() || module == "training" {
+            if let Ok(content) = std::fs::read_to_string("/var/log/lfi/training.jsonl") {
+                for line in content.lines().rev().take(limit) {
+                    logs.push(json!({"source": "training", "line": line}));
+                }
+            }
+        }
+
+        // Read chat log
+        if module.is_empty() || module == "chat" {
+            if let Ok(content) = std::fs::read_to_string("/var/log/lfi/chat.jsonl") {
+                for line in content.lines().rev().take(limit) {
+                    logs.push(json!({"source": "chat", "line": line}));
+                }
+            }
+        }
+
+        // Experience learning stats
+        let exp_stats = {
+            let exp = state.experience.lock();
+            json!({
+                "corrections": exp.stats.corrections_captured,
+                "knowledge_gaps": exp.stats.knowledge_gaps_detected,
+                "positive_feedback": exp.stats.positive_feedback,
+                "pending_signals": exp.pending_count(),
+            })
+        };
+
+        // Calibration stats
+        let cal_stats = {
+            let cal = state.calibration.lock();
+            json!({
+                "samples": cal.sample_count(),
+                "reliable": cal.is_reliable(),
+                "ece": cal.expected_calibration_error(),
+            })
+        };
+
+        axum::Json(json!({
+            "logs": logs,
+            "experience_learning": exp_stats,
+            "calibration": cal_stats,
+            "log_sources": ["server", "training", "chat"],
+        }))
+    }
+
     Ok(Router::new()
         .route("/ws/telemetry", get(telemetry_handler))
         .route("/ws/chat", get(chat_handler))
@@ -2215,6 +2284,7 @@ pub fn create_router() -> Result<Router, Box<dyn std::error::Error>> {
         .route("/api/admin/training/domains", get(admin_training_domains_handler))
         .route("/api/admin/training/accuracy", get(admin_training_accuracy_handler))
         .route("/api/admin/training/:action", post(admin_training_control_handler))
+        .route("/api/admin/logs", get(admin_logs_handler))
         .layer(cors)
         .with_state(state))
 }
