@@ -435,12 +435,12 @@ async fn handle_chat_socket(mut socket: WebSocket, state: Arc<AppState>) {
                         "model": std::env::var("PLAUSIDEN_MODEL").unwrap_or_else(|_| "qwen2.5-coder:7b".into()),
                         "prompt": format!("You are PlausiDen AI. Answer thoroughly but concisely. Question: {}", input),
                         "stream": true,
-                        "options": { "temperature": 0.4, "num_predict": 500 }
+                        "options": { "temperature": 0.6, "num_predict": 800 }
                     });
                     let body_bytes = serde_json::to_vec(&ollama_body).unwrap_or_default();
                     // Pipe body via stdin to curl — no shell interpolation, no arg injection
                     let mut child = match tokio::process::Command::new("curl")
-                        .args(&["-sN", "--max-time", "60", "-X", "POST",
+                        .args(&["-sN", "--max-time", "45", "-X", "POST",
                             "http://localhost:11434/api/generate",
                             "-H", "Content-Type: application/json",
                             "-d", "@-"])
