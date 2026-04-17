@@ -72,3 +72,4 @@ pub use reasoning_provenance::{
     ProvenanceEngine, ProvenanceKind, ProvenancedExplanation,
     TraceArena, TraceEntry, TraceId, ConclusionId, InferenceSource,
 };
+pub mod crypto_commitment;
