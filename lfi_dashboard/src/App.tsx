@@ -3296,6 +3296,13 @@ ${cmdList}
           </div>
         </main>
 
+        {/* RIGHT: Telemetry + Admin sidebar (bug #39 from c0-008: user said
+            admin/training/data panels were missing). Function renderSidebar
+            was defined but never called — orphaned during an earlier refactor.
+            Gated on isDesktop so the chat column gets full width on mobile;
+            mobile users can reach admin via Cmd+K / Activity modal. */}
+        {isDesktop && renderSidebar()}
+
         {/* RIGHT: Plan / Tasks sidebar — only when the latest assistant turn
             produced a plan, and user hasn't collapsed it. Matches the left
             sidebar's animation pattern. */}

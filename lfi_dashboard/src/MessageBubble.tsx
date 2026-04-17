@@ -220,6 +220,7 @@ export interface AssistantMessageProps {
     timestamp: number;
     conclusion_id?: number;
     reasoning?: string[];
+    confidence?: number;
   };
   C: any;
   isMobile: boolean;
@@ -368,11 +369,40 @@ export const AssistantMessage: React.FC<AssistantMessageProps> = ({
               <path d="M10 15v4a3 3 0 0 0 3 3l4-9V2H5.72a2 2 0 0 0-2 1.7l-1.38 9a2 2 0 0 0 2 2.3zm7-13h2.67A2.31 2.31 0 0 1 22 4v7a2.31 2.31 0 0 1-2.33 2H17"/>
             </svg>
           </button>
+          {typeof msg.confidence === 'number' && (() => {
+            // Confidence badge next to the action bar. Green ≥0.75, yellow 0.5-0.75,
+            // amber-ish below. Gives users a cue when the AI is low-confidence so
+            // they calibrate trust (addresses c0-008 bug #5 — quality indicator).
+            const pct = Math.round(msg.confidence * 100);
+            const color = msg.confidence >= 0.75 ? C.green : msg.confidence >= 0.5 ? C.yellow : C.red;
+            const bg = msg.confidence >= 0.75 ? C.greenBg : msg.confidence >= 0.5 ? C.accentBg : C.redBg;
+            return (
+              <span
+                title={`Model confidence on this response: ${pct}%`}
+                style={{
+                  fontSize: '10px', fontWeight: 700, color, background: bg,
+                  padding: '2px 8px', borderRadius: '4px', alignSelf: 'center',
+                  fontFamily: "'JetBrains Mono', monospace",
+                }}>
+                {pct}% confident
+              </span>
+            );
+          })()}
           <span style={{
             fontSize: '10px', color: C.textDim, alignSelf: 'center',
             padding: '0 8px',
           }}>{formatTime(msg.timestamp)}</span>
         </div>
+        {/* Last-message helpfulness nudge — only on the latest assistant reply,
+            fades to invisibility once user votes (tracked via onFeedbackPositive/
+            onFeedbackNegative side effects at the parent). Addresses c0-008 #5. */}
+        {isLast && !isThinking && (
+          <div style={{
+            fontSize: '11px', color: C.textDim, textAlign: 'right',
+            marginTop: '4px', paddingRight: '4px',
+            fontStyle: 'italic',
+          }}>Was this helpful? Use 👍 / 👎 above.</div>
+        )}
 
         {/* Follow-up suggestion chips — only on last assistant message with enough content. */}
         {chips.length > 0 && (
