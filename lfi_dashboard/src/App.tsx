@@ -51,6 +51,7 @@ import { FactsPanel } from './FactsPanel';
 import { QosPanel } from './QosPanel';
 import { TelemetryCard } from './TelemetryCards';
 import { SidebarStatus } from './SidebarStatus';
+import { SubstrateTelemetry } from './SubstrateTelemetry';
 const TicTacToeModal = React.lazy(() => import('./TicTacToeModal').then(m => ({ default: m.TicTacToeModal })));
 const KnowledgeBrowser = React.lazy(() => import('./KnowledgeBrowser').then(m => ({ default: m.KnowledgeBrowser })));
 const ActivityModal = React.lazy(() => import('./ActivityModal').then(m => ({ default: m.ActivityModal })));
@@ -1701,61 +1702,14 @@ ${cmdList}
       display: 'flex', flexDirection: 'column', overflowY: 'auto',
     }}>
       {/* Telemetry */}
-      <div style={{ padding: '20px', borderBottom: `1px solid ${C.borderSubtle}` }}>
-        <div style={{ fontSize: '11px', fontWeight: 800, color: C.textMuted, textTransform: 'uppercase', letterSpacing: '0.12em', marginBottom: '14px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <span>Substrate Telemetry</span>
-          {(() => {
-            // Surface staleness: no successful /api/status in 20+ seconds → mark stale.
-            // Green dot = fresh (<=20s), amber = degraded (20-90s), red = offline (>90s or never).
-            if (!kgLastOk) {
-              return <span style={{ fontSize: '9px', color: C.red, textTransform: 'none', letterSpacing: 0, fontWeight: 600 }}>offline</span>;
-            }
-            const ageSec = (Date.now() - kgLastOk) / 1000;
-            const color = ageSec <= 20 ? C.green : ageSec <= 90 ? C.yellow : C.red;
-            const label = ageSec <= 20 ? 'live' : ageSec <= 90 ? `${Math.round(ageSec)}s stale` : 'offline';
-            return (
-              <span style={{ display: 'inline-flex', alignItems: 'center', gap: '5px', fontSize: '9px', color, textTransform: 'none', letterSpacing: 0, fontWeight: 600 }}>
-                <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: color, boxShadow: ageSec <= 20 ? `0 0 5px ${color}` : 'none' }} />
-                {label}
-              </span>
-            );
-          })()}
-        </div>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
-          {telemetryCards.map(s => renderTelemetryCard(s, true))}
-        </div>
-        {stats.is_throttled && (
-          <div style={{
-            marginTop: '10px', padding: '10px', background: C.redBg,
-            border: `1px solid ${C.redBorder}`, borderRadius: '8px',
-            textAlign: 'center', fontSize: '11px', fontWeight: 800, color: C.red, textTransform: 'uppercase',
-            letterSpacing: '0.08em',
-          }}>Thermal Throttle</div>
-        )}
-        {/* Disk pressure alert — surfaces even without the admin panel open, since
-            runaway disk usage is the most common cause of hangs on this box. */}
-        {(() => {
-          const dp = diskPressure(sysInfo.disk_free, sysInfo.disk_total);
-          if (!dp || dp.usedPct < 90) return null;
-          const critical = dp.usedPct >= 95;
-          return (
-            <div style={{
-              marginTop: '10px', padding: '10px',
-              background: critical ? C.redBg : C.yellowBg,
-              border: `1px solid ${critical ? C.redBorder : C.yellowBorder}`,
-              borderRadius: '8px', fontSize: '11px', lineHeight: 1.4,
-              color: critical ? C.red : C.yellow,
-            }}>
-              <div style={{ fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: '3px' }}>
-                Disk Pressure · {Math.round(dp.usedPct)}%
-              </div>
-              <div style={{ fontSize: '10px', opacity: 0.85 }}>
-                {dp.freeGb.toFixed(1)}G free on server root. Writes may start failing.
-              </div>
-            </div>
-          );
-        })()}
-      </div>
+      <SubstrateTelemetry
+        C={C}
+        cards={telemetryCards}
+        lastOkMs={kgLastOk}
+        thermalThrottled={stats.is_throttled}
+        diskFree={sysInfo.disk_free}
+        diskTotal={sysInfo.disk_total}
+      />
       {/* Status */}
       <SidebarStatus
         C={C}
