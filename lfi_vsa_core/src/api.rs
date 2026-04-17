@@ -2763,6 +2763,94 @@ pub fn create_router() -> Result<Router, Box<dyn std::error::Error>> {
         }))
     }
 
+    // ---- Auditorium Endpoints ----
+
+    /// GET /api/auditorium/overview — compliance scorecard with tier progress
+    async fn auditorium_overview_handler(
+        State(state): State<Arc<AppState>>,
+    ) -> impl IntoResponse {
+        let scorecard = state.db.get_compliance_scorecard();
+        let history = state.db.get_audit_history(10);
+
+        // AVP-2 tier definitions
+        let tier_names = [
+            (1, "Existence Proof", 6),
+            (2, "Failure Resilience", 6),
+            (3, "Adversarial Security", 12),
+            (4, "UX/UI Adversarial", 6),
+            (5, "Integration & Ecosystem", 3),
+            (6, "Meta-validation", 3),
+        ];
+
+        let tiers: Vec<serde_json::Value> = tier_names.iter().map(|(tier, name, required)| {
+            let card = scorecard.iter().find(|(t, _, _, _)| *t == *tier);
+            let (total, passed, avg) = card.map(|(_, t, p, a)| (*t, *p, *a)).unwrap_or((0, 0, 0.0));
+            json!({
+                "tier": tier,
+                "name": name,
+                "required_passes": required,
+                "completed_passes": passed,
+                "total_runs": total,
+                "avg_score": (avg * 100.0).round() / 100.0,
+                "status": if passed >= *required as i64 { "complete" } else if total > 0 { "in_progress" } else { "pending" },
+                "progress_pct": (passed as f64 / *required as f64 * 100.0).min(100.0).round(),
+            })
+        }).collect();
+
+        let total_required: i64 = tier_names.iter().map(|(_, _, r)| *r as i64).sum();
+        let total_completed: i64 = tiers.iter()
+            .filter_map(|t| t.get("completed_passes").and_then(|v| v.as_i64()))
+            .sum();
+
+        axum::Json(json!({
+            "tiers": tiers,
+            "total_required_passes": total_required,
+            "total_completed_passes": total_completed,
+            "overall_progress_pct": (total_completed as f64 / total_required as f64 * 100.0).round(),
+            "ship_ready": total_completed >= total_required,
+            "recent_audits": history.iter().take(5).map(|(id, atype, pass, tier, status, ft, ff, fo, score, at)| json!({
+                "id": id, "type": atype, "pass": pass, "tier": tier,
+                "status": status, "findings_total": ft, "findings_fixed": ff,
+                "findings_open": fo, "score": score, "completed_at": at
+            })).collect::<Vec<_>>(),
+        }))
+    }
+
+    /// GET /api/auditorium/history?limit=50 — full audit pass history
+    async fn auditorium_history_handler(
+        State(state): State<Arc<AppState>>,
+        Query(params): Query<HashMap<String, String>>,
+    ) -> impl IntoResponse {
+        let limit: usize = params.get("limit").and_then(|v| v.parse().ok()).unwrap_or(50);
+        let history = state.db.get_audit_history(limit.min(200));
+        axum::Json(json!({
+            "audits": history.iter().map(|(id, atype, pass, tier, status, ft, ff, fo, score, at)| json!({
+                "id": id, "type": atype, "pass": pass, "tier": tier,
+                "status": status, "findings_total": ft, "findings_fixed": ff,
+                "findings_open": fo, "score": score, "completed_at": at
+            })).collect::<Vec<_>>(),
+            "count": history.len(),
+        }))
+    }
+
+    /// POST /api/auditorium/log — record an audit pass
+    async fn auditorium_log_handler(
+        State(state): State<Arc<AppState>>,
+        axum::Json(body): axum::Json<serde_json::Value>,
+    ) -> impl IntoResponse {
+        let audit_type = body.get("type").and_then(|v| v.as_str()).unwrap_or("unknown");
+        let pass = body.get("pass").and_then(|v| v.as_i64()).unwrap_or(1) as i32;
+        let tier = body.get("tier").and_then(|v| v.as_i64()).unwrap_or(1) as i32;
+        let status = body.get("status").and_then(|v| v.as_str()).unwrap_or("completed");
+        let findings_total = body.get("findings_total").and_then(|v| v.as_i64()).unwrap_or(0) as i32;
+        let findings_fixed = body.get("findings_fixed").and_then(|v| v.as_i64()).unwrap_or(0) as i32;
+        let score = body.get("score").and_then(|v| v.as_f64());
+        let details = body.get("details").and_then(|v| v.as_str());
+
+        state.db.log_audit(audit_type, pass, tier, status, findings_total, findings_fixed, score, details);
+        axum::Json(json!({"ok": true}))
+    }
+
     /// GET /api/classroom/overview — student profile, grade, strengths/weaknesses
     async fn classroom_overview_handler(
         State(state): State<Arc<AppState>>,
@@ -3003,6 +3091,9 @@ pub fn create_router() -> Result<Router, Box<dyn std::error::Error>> {
         .route("/api/versions/stats", get(versions_stats_handler))
         .route("/api/versions/recent", get(versions_recent_handler))
         .route("/api/versions/:fact_key", get(versions_fact_handler))
+        .route("/api/auditorium/overview", get(auditorium_overview_handler))
+        .route("/api/auditorium/history", get(auditorium_history_handler))
+        .route("/api/auditorium/log", post(auditorium_log_handler))
         .route("/api/classroom/overview", get(classroom_overview_handler))
         .route("/api/classroom/curriculum", get(classroom_curriculum_handler))
         .route("/api/admin/training/:action", post(admin_training_control_handler))

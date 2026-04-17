@@ -148,6 +148,24 @@ impl BrainDb {
 
             CREATE INDEX IF NOT EXISTS idx_versions_key ON fact_versions(fact_key);
             CREATE INDEX IF NOT EXISTS idx_versions_time ON fact_versions(created_at);
+
+            CREATE TABLE IF NOT EXISTS audit_log (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                audit_type TEXT NOT NULL,
+                pass_number INTEGER NOT NULL,
+                tier INTEGER NOT NULL,
+                status TEXT NOT NULL,
+                findings_total INTEGER DEFAULT 0,
+                findings_fixed INTEGER DEFAULT 0,
+                findings_open INTEGER DEFAULT 0,
+                score REAL,
+                details TEXT,
+                started_at TEXT DEFAULT (datetime('now')),
+                completed_at TEXT
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_audit_type ON audit_log(audit_type);
+            CREATE INDEX IF NOT EXISTS idx_audit_tier ON audit_log(tier);
         ")?;
         info!("// PERSISTENCE: Schema migrated");
         Ok(())
@@ -652,6 +670,72 @@ impl BrainDb {
         };
         stmt.query_map([], |row| {
             Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
+        }).unwrap_or_else(|_| panic!("query_map failed")).filter_map(|r| r.ok()).collect()
+    }
+
+    // ---- Audit Log ----
+
+    /// Log an audit pass result.
+    pub fn log_audit(&self, audit_type: &str, pass_number: i32, tier: i32, status: &str,
+                     findings_total: i32, findings_fixed: i32, score: Option<f64>, details: Option<&str>) {
+        let conn = self.conn.lock().unwrap_or_else(|e| e.into_inner());
+        if let Err(e) = conn.execute(
+            "INSERT INTO audit_log (audit_type, pass_number, tier, status, findings_total, \
+             findings_fixed, findings_open, score, details, completed_at) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, datetime('now'))",
+            params![audit_type, pass_number, tier, status, findings_total, findings_fixed,
+                    findings_total - findings_fixed, score, details],
+        ) {
+            warn!("// PERSISTENCE: log_audit failed: {}", e);
+        }
+    }
+
+    /// Get audit history, most recent first.
+    pub fn get_audit_history(&self, limit: usize) -> Vec<(i64, String, i32, i32, String, i32, i32, i32, Option<f64>, String)> {
+        let conn = self.conn.lock().unwrap_or_else(|e| e.into_inner());
+        let mut stmt = match conn.prepare(
+            "SELECT id, audit_type, pass_number, tier, status, findings_total, \
+             findings_fixed, findings_open, score, COALESCE(completed_at, started_at) \
+             FROM audit_log ORDER BY id DESC LIMIT ?1"
+        ) {
+            Ok(s) => s,
+            Err(_) => return vec![],
+        };
+        stmt.query_map(params![limit as i64], |row| {
+            Ok((
+                row.get::<_, i64>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, i32>(2)?,
+                row.get::<_, i32>(3)?,
+                row.get::<_, String>(4)?,
+                row.get::<_, i32>(5)?,
+                row.get::<_, i32>(6)?,
+                row.get::<_, i32>(7)?,
+                row.get::<_, Option<f64>>(8)?,
+                row.get::<_, String>(9)?,
+            ))
+        }).unwrap_or_else(|_| panic!("query_map failed")).filter_map(|r| r.ok()).collect()
+    }
+
+    /// Get compliance scorecard: tier completion stats.
+    pub fn get_compliance_scorecard(&self) -> Vec<(i32, i64, i64, f64)> {
+        let conn = self.conn.lock().unwrap_or_else(|e| e.into_inner());
+        let mut stmt = match conn.prepare(
+            "SELECT tier, COUNT(*) as total_passes, \
+             SUM(CASE WHEN status='passed' THEN 1 ELSE 0 END) as passed, \
+             AVG(COALESCE(score, 0)) as avg_score \
+             FROM audit_log GROUP BY tier ORDER BY tier"
+        ) {
+            Ok(s) => s,
+            Err(_) => return vec![],
+        };
+        stmt.query_map([], |row| {
+            Ok((
+                row.get::<_, i32>(0)?,
+                row.get::<_, i64>(1)?,
+                row.get::<_, i64>(2)?,
+                row.get::<_, f64>(3)?,
+            ))
         }).unwrap_or_else(|_| panic!("query_map failed")).filter_map(|r| r.ok()).collect()
     }
 
