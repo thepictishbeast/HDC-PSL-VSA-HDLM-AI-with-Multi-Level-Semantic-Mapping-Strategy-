@@ -2,6 +2,9 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { T } from './tokens';
 // c2-347: shared stat/summary card (replaces the local Stat helper).
 import { StatCard } from './components/StatCard';
+// c2-374 / BIG #180: DataTable adoption for the sources inventory.
+import { DataTable } from './components';
+import type { Column } from './components';
 import { compactNum, formatRelative } from './util';
 
 // c0-037 #3 / c2-329: standalone Library page. Fetches /api/library/sources
@@ -213,55 +216,79 @@ export const LibraryView: React.FC<LibraryViewProps> = ({ C, host, isDesktop }) 
               <div style={{ padding: T.spacing.xl, textAlign: 'center', color: C.textMuted, fontSize: T.typography.sizeSm }}>
                 No sources match "{q}".
               </div>
-            ) : (
-              <div style={{
-                border: `1px solid ${C.borderSubtle}`, borderRadius: T.radii.md, overflow: 'hidden',
-              }}>
+            ) : (() => {
+              // c2-374 / BIG #180: DataTable adoption. Column descriptors
+              // replace the 40-line inline <tr>/<td> block. Sort state
+              // remains external (useState<{key, dir}>) so the toggle +
+              // sortArrow callers above keep working -- DataTable consumes
+              // it via the sort/onSortChange lift.
+              type Row = typeof filtered[number];
+              const cap = Math.min(filtered.length, 500);
+              const rows = filtered.slice(0, cap);
+              const cols: ReadonlyArray<Column<Row>> = [
+                {
+                  id: 'name', header: 'Source', align: 'left',
+                  sortKey: (s) => (s.name || s.url || '').toLowerCase(),
+                  accessor: (s) => {
+                    const label = s.name || s.url || '(source)';
+                    return (
+                      <span title={s.url || label} style={{
+                        color: C.text, fontFamily: T.typography.fontMono,
+                        whiteSpace: 'nowrap', overflow: 'hidden',
+                        textOverflow: 'ellipsis', display: 'inline-block',
+                        maxWidth: '320px',
+                      }}>{label}</span>
+                    );
+                  },
+                },
+                {
+                  id: 'domain', header: 'Domain', align: 'left',
+                  sortKey: (s) => (s.domain || '').toLowerCase(),
+                  accessor: (s) => <span style={{ color: C.textSecondary }}>{s.domain || '\u2014'}</span>,
+                },
+                {
+                  id: 'facts', header: 'Facts', align: 'right',
+                  sortKey: (s) => typeof s.facts === 'number' ? s.facts : -1,
+                  accessor: (s) => (
+                    <span style={{ color: C.text, fontFamily: T.typography.fontMono }}>
+                      {typeof s.facts === 'number' ? s.facts.toLocaleString() : '\u2014'}
+                    </span>
+                  ),
+                },
+                {
+                  id: 'avg_quality', header: 'Avg Q', align: 'right',
+                  sortKey: (s) => typeof s.avg_quality === 'number' ? s.avg_quality : -1,
+                  accessor: (s) => (
+                    <span style={{
+                      color: typeof s.avg_quality === 'number' ? qualityColor(s.avg_quality) : C.textMuted,
+                      fontFamily: T.typography.fontMono,
+                    }}>{typeof s.avg_quality === 'number' ? s.avg_quality.toFixed(2) : '\u2014'}</span>
+                  ),
+                },
+                {
+                  id: 'vetted', header: 'Vetted', align: 'center',
+                  sortKey: (s) => s.vetted == null ? 0 : s.vetted ? 2 : 1,
+                  accessor: (s) => (
+                    s.vetted == null ? <span style={{ color: C.textMuted }}>{'\u2014'}</span>
+                    : s.vetted ? <span style={{ color: C.green, fontSize: T.typography.sizeBody }} aria-label='vetted' title='vetted'>{'\u2714'}</span>
+                    : <span style={{ color: C.red, fontSize: T.typography.sizeBody }} aria-label='unvetted' title='unvetted'>{'\u2716'}</span>
+                  ),
+                },
+              ];
+              return (
                 <div style={{ maxHeight: '60vh', overflowY: 'auto' }}>
-                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: T.typography.sizeSm }}>
-                    <thead>
-                      <tr>
-                        <Th C={C} onClick={() => toggleSort('name')} aria-sort={sort.key === 'name' ? (sort.dir === 'asc' ? 'ascending' : 'descending') : 'none'}>Source{sortArrow('name')}</Th>
-                        <Th C={C} onClick={() => toggleSort('domain')} aria-sort={sort.key === 'domain' ? (sort.dir === 'asc' ? 'ascending' : 'descending') : 'none'} align='left'>Domain{sortArrow('domain')}</Th>
-                        <Th C={C} onClick={() => toggleSort('facts')} aria-sort={sort.key === 'facts' ? (sort.dir === 'asc' ? 'ascending' : 'descending') : 'none'} align='right'>Facts{sortArrow('facts')}</Th>
-                        <Th C={C} onClick={() => toggleSort('avg_quality')} aria-sort={sort.key === 'avg_quality' ? (sort.dir === 'asc' ? 'ascending' : 'descending') : 'none'} align='right'>Avg Q{sortArrow('avg_quality')}</Th>
-                        <Th C={C} onClick={() => toggleSort('vetted')} aria-sort={sort.key === 'vetted' ? (sort.dir === 'asc' ? 'ascending' : 'descending') : 'none'} align='center'>Vetted{sortArrow('vetted')}</Th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {filtered.slice(0, 500).map((s, i) => {
-                        const label = s.name || s.url || `(source ${i + 1})`;
-                        return (
-                          <tr key={`${label}-${i}`} style={{ background: i % 2 === 0 ? 'transparent' : C.bgHover }}>
-                            <td title={s.url || label}
-                              style={{ padding: '8px 12px', color: C.text, fontFamily: 'ui-monospace, monospace', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '320px' }}>
-                              {label}
-                            </td>
-                            <td style={{ padding: '8px 12px', color: C.textSecondary }}>{s.domain || '—'}</td>
-                            <td style={{ padding: '8px 12px', textAlign: 'right', color: C.text, fontFamily: 'ui-monospace, monospace' }}>
-                              {typeof s.facts === 'number' ? s.facts.toLocaleString() : '—'}
-                            </td>
-                            <td style={{ padding: '8px 12px', textAlign: 'right', color: typeof s.avg_quality === 'number' ? qualityColor(s.avg_quality) : C.textMuted, fontFamily: 'ui-monospace, monospace' }}>
-                              {typeof s.avg_quality === 'number' ? s.avg_quality.toFixed(2) : '—'}
-                            </td>
-                            <td style={{ padding: '8px 12px', textAlign: 'center' }}>
-                              {s.vetted == null ? <span style={{ color: C.textMuted }}>—</span>
-                                : s.vetted ? <span style={{ color: C.green, fontSize: '14px' }} aria-label='vetted' title='vetted'>{'\u2714'}</span>
-                                : <span style={{ color: C.red, fontSize: '14px' }} aria-label='unvetted' title='unvetted'>{'\u2716'}</span>}
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
+                  <DataTable<Row> C={C} rows={rows} columns={cols}
+                    rowKey={(s, /* i */) => `${s.name || s.url || ''}-${s.facts ?? 0}`}
+                    sort={{ col: sort.key, dir: sort.dir }}
+                    onSortChange={(next) => setSort({ key: next.col as SortKey, dir: next.dir })} />
+                  {filtered.length > 500 && (
+                    <div style={{ padding: '6px 12px', background: C.bgInput, borderTop: `1px solid ${C.borderSubtle}`, fontSize: T.typography.sizeXs, color: C.textDim, textAlign: 'center' }}>
+                      Showing 500 of {filtered.length} matches. Filter to narrow.
+                    </div>
+                  )}
                 </div>
-                {filtered.length > 500 && (
-                  <div style={{ padding: '6px 12px', background: C.bgInput, borderTop: `1px solid ${C.borderSubtle}`, fontSize: T.typography.sizeXs, color: C.textDim, textAlign: 'center' }}>
-                    Showing 500 of {filtered.length} matches. Filter to narrow.
-                  </div>
-                )}
-              </div>
-            )}
+              );
+            })()}
           </>
         )}
       </div>
