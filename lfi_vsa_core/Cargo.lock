@@ -3170,6 +3170,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2",
+ "subtle",
  "tokio",
  "toml",
  "tower",
@@ -3178,6 +3179,7 @@ dependencies = [
  "tracing-appender",
  "tracing-subscriber",
  "ureq",
+ "zeroize",
 ]
 
 [[package]]
