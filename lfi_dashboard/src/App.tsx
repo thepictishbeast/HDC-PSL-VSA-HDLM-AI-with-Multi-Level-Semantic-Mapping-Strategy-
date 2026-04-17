@@ -1515,6 +1515,13 @@ ${cmdList}
     // convo's long draft grew it to. Clear style.height; the next input
     // change re-runs the grower, and CSS minHeight applies immediately.
     if (inputRef.current) inputRef.current.style.height = '';
+    // c2-281: scroll the sidebar so the newly-active row is on screen — in
+    // long conversation lists the active row may have been scrolled out of
+    // view. block='nearest' is a no-op when already visible.
+    setTimeout(() => {
+      const row = document.querySelector('[data-convo-row="true"][aria-current="true"]') as HTMLElement | null;
+      row?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    }, 0);
     lastActiveConvoRef.current = currentConversationId;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentConversationId]);
