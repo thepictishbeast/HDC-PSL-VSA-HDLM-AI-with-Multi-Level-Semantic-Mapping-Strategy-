@@ -972,15 +972,31 @@ ${cmdList}
   };
 
   // ---- Admin actions ----
+  // Tracks the last-fetch outcome for /api/facts so the UI can tell the difference
+  // between "user hasn't clicked yet" (null), "server returned 0 results" (0),
+  // and "fetch errored" (-1). The existing facts.length-gated render was invisible
+  // when the server returned an empty array, which read to the user as "broken".
+  const [factsFetchedAt, setFactsFetchedAt] = useState<number | null>(null);
+  const [factsError, setFactsError] = useState<string | null>(null);
+
   const fetchFacts = async () => {
     console.debug("// SCC: Fetching facts");
     setAdminLoading('facts');
+    setFactsError(null);
     try {
-      const res = await fetch(`http://${getHost()}:3000/api/facts`);
+      const ctrl = new AbortController();
+      const to = setTimeout(() => ctrl.abort(), 10000);
+      const res = await fetch(`http://${getHost()}:3000/api/facts`, { signal: ctrl.signal });
+      clearTimeout(to);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
       setFacts(data.facts || []);
-    } catch (e) { console.error("// SCC: Facts fetch error:", e); }
-    finally { setAdminLoading(''); }
+      setFactsFetchedAt(Date.now());
+    } catch (e: any) {
+      console.error("// SCC: Facts fetch error:", e);
+      setFactsError(String(e?.message || e));
+      setFactsFetchedAt(Date.now());
+    } finally { setAdminLoading(''); }
   };
 
   const fetchQos = async () => {
@@ -1914,21 +1930,37 @@ ${cmdList}
             cursor: 'pointer', fontFamily: 'inherit', textTransform: 'uppercase', letterSpacing: '0.05em',
           }}>Settings</button>
         </div>
-        {/* Facts display */}
-        {facts.length > 0 && (
+        {/* Facts display: render empty/error states explicitly so a "successful but empty"
+            response is distinguishable from "user hasn't clicked yet". */}
+        {factsFetchedAt !== null && (
           <div style={{ marginTop: '14px' }}>
-            <div style={{ fontSize: '10px', fontWeight: 700, color: C.textMuted, marginBottom: '8px', textTransform: 'uppercase' }}>
-              Knowledge Facts ({facts.length})
+            <div style={{ fontSize: '10px', fontWeight: 700, color: C.textMuted, marginBottom: '8px', textTransform: 'uppercase', display: 'flex', justifyContent: 'space-between' }}>
+              <span>Knowledge Facts ({facts.length})</span>
+              <span style={{ color: C.textDim, fontWeight: 500 }}>{new Date(factsFetchedAt).toLocaleTimeString()}</span>
             </div>
-            <div style={{ maxHeight: '200px', overflowY: 'auto' }}>
-              {facts.map((f, i) => (
-                <div key={i} style={{ fontSize: '11px', padding: '6px 8px', borderBottom: `1px solid ${C.borderSubtle}` }}>
-                  <span style={{ color: C.accent, fontWeight: 700 }}>{f.key}</span>
-                  <span style={{ color: C.textDim }}> = </span>
-                  <span style={{ color: C.textSecondary }}>{f.value}</span>
-                </div>
-              ))}
-            </div>
+            {factsError ? (
+              <div style={{
+                padding: '10px 12px', fontSize: '11px', lineHeight: 1.4,
+                background: C.redBg, border: `1px solid ${C.redBorder}`,
+                borderRadius: '6px', color: C.red,
+              }}>Fetch failed: {factsError}</div>
+            ) : facts.length === 0 ? (
+              <div style={{
+                padding: '10px 12px', fontSize: '11px', lineHeight: 1.4,
+                background: C.bgInput, border: `1px solid ${C.borderSubtle}`,
+                borderRadius: '6px', color: C.textMuted,
+              }}>Server returned 0 facts. Knowledge base may still be hydrating — the live count is shown in Substrate Telemetry.</div>
+            ) : (
+              <div style={{ maxHeight: '200px', overflowY: 'auto' }}>
+                {facts.map((f, i) => (
+                  <div key={i} style={{ fontSize: '11px', padding: '6px 8px', borderBottom: `1px solid ${C.borderSubtle}` }}>
+                    <span style={{ color: C.accent, fontWeight: 700 }}>{f.key}</span>
+                    <span style={{ color: C.textDim }}> = </span>
+                    <span style={{ color: C.textSecondary }}>{f.value}</span>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         )}
         {/* QoS display */}
