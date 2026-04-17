@@ -3003,6 +3003,80 @@ pub fn create_router() -> Result<Router, Box<dyn std::error::Error>> {
         }))
     }
 
+    // ---- AI Visual Presence ----
+
+    /// GET /api/presence — what each AI agent is currently doing
+    async fn presence_handler(
+        State(state): State<Arc<AppState>>,
+    ) -> impl IntoResponse {
+        // Read fleet status from IPC files (orchestrator may be down)
+
+        // Read Claude status files from IPC
+        let c1_status = std::fs::read_to_string("/tmp/claude-ipc/from_claude1_status.md")
+            .unwrap_or_else(|_| "No status reported".to_string());
+        let c2_status = std::fs::read_to_string("/tmp/claude-ipc/from_claude2_status.md")
+            .unwrap_or_else(|_| "No status reported".to_string());
+
+        // Check orchestrator task queue
+        let task_count: i64 = {
+            let orch_db = std::path::Path::new("/root/.local/share/plausiden/orchestrator.db");
+            if orch_db.exists() {
+                rusqlite::Connection::open(orch_db)
+                    .ok()
+                    .and_then(|c| c.query_row("SELECT COUNT(*) FROM tasks WHERE status='pending'", [], |r| r.get(0)).ok())
+                    .unwrap_or(0)
+            } else { 0 }
+        };
+
+        // Server's own status
+        let fact_count: i64 = match state.db.conn.lock() {
+            Ok(conn) => conn.query_row("SELECT COUNT(*) FROM facts", [], |r| r.get(0)).unwrap_or(0),
+            Err(_) => 0,
+        };
+
+        let uptime_secs = {
+            // Approximate from process start
+            let start = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_secs()).unwrap_or(0);
+            start // We don't track exact start time, return epoch for now
+        };
+
+        axum::Json(json!({
+            "agents": [
+                {
+                    "id": "claude-0",
+                    "name": "The Architect",
+                    "role": "Core backend, security, architecture",
+                    "status": "active",
+                    "current_task": "Work cycle — building infrastructure",
+                    "color": "#3B82F6",
+                },
+                {
+                    "id": "claude-1",
+                    "name": "The Data Engineer",
+                    "role": "Data ingestion, testing, security hardening",
+                    "status": if c1_status.contains("STATUS") { "active" } else { "unknown" },
+                    "current_task": c1_status.lines().last().unwrap_or("Awaiting tasks"),
+                    "color": "#10B981",
+                },
+                {
+                    "id": "claude-2",
+                    "name": "The Frontend Engineer",
+                    "role": "Dashboard, UI/UX, design system",
+                    "status": if c2_status.contains("STATUS") { "active" } else { "unknown" },
+                    "current_task": c2_status.lines().last().unwrap_or("Awaiting tasks"),
+                    "color": "#F59E0B",
+                },
+            ],
+            "fleet_stats": {
+                "total_facts": fact_count,
+                "pending_tasks": task_count,
+                "active_agents": 3,
+            },
+        }))
+    }
+
     // Admin logs endpoint — real-time log access for the UI
     async fn admin_logs_handler(
         State(state): State<Arc<AppState>>,
@@ -3143,6 +3217,7 @@ pub fn create_router() -> Result<Router, Box<dyn std::error::Error>> {
         .route("/api/classroom/curriculum", get(classroom_curriculum_handler))
         .route("/api/admin/training/:action", post(admin_training_control_handler))
         .route("/api/admin/logs", get(admin_logs_handler))
+        .route("/api/presence", get(presence_handler))
         .layer(cors)
         // OBSERVABILITY: Request logging — method, path, status, latency
         .layer(axum::middleware::from_fn(request_logging_middleware))
