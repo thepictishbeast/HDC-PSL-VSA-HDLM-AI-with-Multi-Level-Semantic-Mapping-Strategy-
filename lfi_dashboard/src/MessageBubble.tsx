@@ -4,14 +4,14 @@ import React from 'react';
 // system + web first (zero-closure, trivial) so the pattern is proven before
 // tackling the heavier tool / user / assistant branches.
 
-export const SystemMessage: React.FC<{ content: string; C: any }> = ({ content, C }) => (
+export const SystemMessage: React.FC<{ content: string; C: any }> = React.memo(({ content, C }) => (
   <div style={{
     textAlign: 'center', padding: '8px 16px', fontSize: '12px',
     color: C.textMuted, fontStyle: 'italic',
   }}>
     {content}
   </div>
-);
+));
 
 export interface ToolMessageProps {
   msg: {
@@ -419,7 +419,7 @@ export const AssistantMessage: React.FC<AssistantMessageProps> = ({
   );
 };
 
-export const WebMessage: React.FC<{ content: string; C: any; isDesktop: boolean }> = ({ content, C, isDesktop }) => (
+export const WebMessage: React.FC<{ content: string; C: any; isDesktop: boolean }> = React.memo(({ content, C, isDesktop }) => (
   <div style={{
     padding: '14px 16px', borderRadius: '12px',
     background: C.greenBg, border: `1px solid ${C.greenBorder}`,
@@ -433,4 +433,4 @@ export const WebMessage: React.FC<{ content: string; C: any; isDesktop: boolean 
       fontSize: '13px', lineHeight: '1.6', color: C.text, margin: 0,
     }}>{content}</pre>
   </div>
-);
+));
