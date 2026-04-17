@@ -627,6 +627,11 @@ ${cmdList}
       // page load pushed its own entry.
       window.history.replaceState(null, '', url);
     }
+    // c0-020 E4: announce view change to screen readers so blind users know
+    // they've navigated into a different section, not just a modal.
+    if (want === 'admin') setSrAnnouncement('Admin console opened');
+    else if (want === 'classroom') setSrAnnouncement('Classroom view active');
+    else setSrAnnouncement('Chat view active');
   }, [activeView, showAdmin]);
   useEffect(() => {
     const onHashChange = () => {
