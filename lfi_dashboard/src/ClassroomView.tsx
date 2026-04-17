@@ -279,9 +279,7 @@ export const ClassroomView: React.FC<ClassroomViewProps> = ({ C, host, isDesktop
 
         {/* --- Lesson Plans --- */}
         {sub === 'lessons' && (
-          <Placeholder C={C} title='Lesson Plans'
-            body='Active training sessions, queue, and run controls land here once /api/classroom/lessons is live.'
-            data={data?.training} />
+          <LessonsTab C={C} training={data?.training} files={data?.training_files || []} />
         )}
 
         {/* --- Test Center --- */}
@@ -363,6 +361,65 @@ const DomainBars: React.FC<{ C: any; rows: Array<{ domain: string; count: number
           <span style={{ width: '96px', textAlign: 'right', fontSize: '12px', fontFamily: 'ui-monospace, monospace', color: C.textMuted }}>{r.count.toLocaleString()}</span>
         </div>
       ))}
+    </div>
+  );
+};
+
+const LessonsTab: React.FC<{
+  C: any;
+  training?: DashboardShape['training'];
+  files: Array<{ file: string; pairs: number; size_mb: number }>;
+}> = ({ C, training, files }) => {
+  const totalPairs = files.reduce((s, f) => s + f.pairs, 0);
+  const totalMb = files.reduce((s, f) => s + f.size_mb, 0);
+  return (
+    <div>
+      <h2 style={{ fontSize: '18px', fontWeight: 600, color: C.text, margin: '0 0 12px' }}>Lesson Plans</h2>
+      <p style={{ fontSize: '13px', color: C.textSecondary, margin: '0 0 16px', lineHeight: 1.55 }}>
+        Snapshot of the training roster. Full run-control (start/stop/queue) lands when /api/classroom/lessons
+        exposes session controls; for now this reflects what the consolidated dashboard reports.
+      </p>
+      <div style={{
+        display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
+        gap: T.spacing.md, marginBottom: T.spacing.xl,
+      }}>
+        <Stat C={C} label='Sessions' value={typeof training?.sessions === 'number' ? training.sessions.toLocaleString() : '—'} color={C.accent} />
+        <Stat C={C} label='Learning signals' value={typeof training?.learning_signals === 'number' ? training.learning_signals.toLocaleString() : '—'} color={C.purple} />
+        <Stat C={C} label='Total pairs' value={totalPairs ? totalPairs.toLocaleString() : '—'} color={C.green} />
+        <Stat C={C} label='Total size' value={totalMb ? `${totalMb.toFixed(1)} MB` : '—'} color={C.yellow} />
+      </div>
+      {files.length > 0 && (
+        <div>
+          <div style={{ fontSize: '11px', fontWeight: T.typography.weightBold, color: C.textMuted, textTransform: 'uppercase', letterSpacing: T.typography.trackingLoose, marginBottom: '10px' }}>
+            Active roster (by pairs)
+          </div>
+          <div style={{ border: `1px solid ${C.borderSubtle}`, borderRadius: T.radii.md, overflow: 'hidden' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px' }}>
+              <thead>
+                <tr>
+                  <th style={{ textAlign: 'left', padding: '8px 12px', fontWeight: T.typography.weightBold, color: C.textSecondary, background: C.bgCard, borderBottom: `1px solid ${C.borderSubtle}` }}>Dataset</th>
+                  <th style={{ textAlign: 'right', padding: '8px 12px', fontWeight: T.typography.weightBold, color: C.textSecondary, background: C.bgCard, borderBottom: `1px solid ${C.borderSubtle}` }}>Pairs</th>
+                  <th style={{ textAlign: 'right', padding: '8px 12px', fontWeight: T.typography.weightBold, color: C.textSecondary, background: C.bgCard, borderBottom: `1px solid ${C.borderSubtle}` }}>Size</th>
+                  <th style={{ textAlign: 'right', padding: '8px 12px', fontWeight: T.typography.weightBold, color: C.textSecondary, background: C.bgCard, borderBottom: `1px solid ${C.borderSubtle}` }}>Share</th>
+                </tr>
+              </thead>
+              <tbody>
+                {[...files].sort((a, b) => b.pairs - a.pairs).slice(0, 50).map(f => {
+                  const share = totalPairs > 0 ? (f.pairs / totalPairs) * 100 : 0;
+                  return (
+                    <tr key={f.file}>
+                      <td style={{ padding: '8px 12px', fontFamily: 'ui-monospace, monospace', color: C.text }}>{f.file}</td>
+                      <td style={{ padding: '8px 12px', textAlign: 'right', fontFamily: 'ui-monospace, monospace', color: C.accent }}>{f.pairs.toLocaleString()}</td>
+                      <td style={{ padding: '8px 12px', textAlign: 'right', fontFamily: 'ui-monospace, monospace', color: C.textMuted }}>{f.size_mb.toFixed(1)} MB</td>
+                      <td style={{ padding: '8px 12px', textAlign: 'right', fontFamily: 'ui-monospace, monospace', color: C.textMuted }}>{share.toFixed(1)}%</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
