@@ -1583,6 +1583,11 @@ ${cmdList}
         timestamp: Date.now(),
       }]);
     }
+    // c2-282: focus the chat input so the user can start typing immediately
+    // instead of clicking/tabbing. setTimeout 0 lets React finish the view
+    // transition (WelcomeScreen mounts on the now-empty message list) before
+    // the focus call lands.
+    setTimeout(() => inputRef.current?.focus(), 0);
   };
   const isCurrentIncognito = (() => {
     const c = conversations.find(c => c.id === currentConversationId);
