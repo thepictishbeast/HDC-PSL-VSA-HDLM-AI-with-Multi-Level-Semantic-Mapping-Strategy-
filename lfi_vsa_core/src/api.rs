@@ -151,7 +151,25 @@ pub async fn chat_handler(
 async fn handle_chat_socket(mut socket: WebSocket, state: Arc<AppState>) {
     info!("// AUDIT: SCC Chat client connected.");
 
+    // AUDIT FIX #16: Rate limiting — max 10 messages per 60 seconds per connection
+    let mut message_timestamps: std::collections::VecDeque<std::time::Instant> = std::collections::VecDeque::new();
+    let rate_window = std::time::Duration::from_secs(60);
+    let max_messages_per_window: usize = 10;
+
     while let Some(Ok(msg)) = socket.recv().await {
+        // Rate limit check
+        let now = std::time::Instant::now();
+        while message_timestamps.front().map(|t| now.duration_since(*t) > rate_window).unwrap_or(false) {
+            message_timestamps.pop_front();
+        }
+        if message_timestamps.len() >= max_messages_per_window {
+            let _ = socket.send(Message::Text(json!({
+                "type": "chat_error",
+                "error": "Rate limit exceeded. Please wait before sending more messages."
+            }).to_string())).await;
+            continue;
+        }
+        message_timestamps.push_back(now);
         match msg {
             Message::Text(text) => {
                 debug!("// AUDIT: Chat input received: {} bytes", text.len());

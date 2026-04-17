@@ -271,9 +271,11 @@ mod tests {
         let mut learner = ExperienceLearner::new();
         learner.capture(make_signal(SignalType::Correction));
         let actions = learner.process_pending();
-        assert_eq!(actions.len(), 2); // adversarial + corrected fact
+        // AUDIT FIX #19 added DowngradeQuality between adversarial and fact
+        assert_eq!(actions.len(), 3); // adversarial + downgrade + corrected fact
         assert!(matches!(actions[0], TrainingAction::CreateAdversarial { .. }));
-        assert!(matches!(actions[1], TrainingAction::CreateFact { .. }));
+        assert!(matches!(actions[1], TrainingAction::DowngradeQuality { .. }));
+        assert!(matches!(actions[2], TrainingAction::CreateFact { .. }));
     }
 
     #[test]

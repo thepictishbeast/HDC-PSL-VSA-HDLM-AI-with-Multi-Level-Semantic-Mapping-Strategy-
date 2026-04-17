@@ -8,7 +8,23 @@ import { compactNum } from './util';
 // affordance which users found cramped. Sortable + filterable tables, big-
 // number dashboard cards, bar-chart visualisations of domains + quality.
 
-export type AdminTab = 'dashboard' | 'domains' | 'training' | 'quality' | 'system' | 'logs';
+export type AdminTab = 'dashboard' | 'domains' | 'training' | 'quality' | 'system' | 'fleet' | 'logs';
+
+interface FleetInstance {
+  id: string;
+  name?: string;
+  role?: string;
+  status?: string;          // 'running' | 'idle' | 'error' | ...
+  last_seen?: number | string;
+  current_task?: string;
+  tasks_completed?: number;
+  tasks_pending?: number;
+}
+interface FleetShape {
+  instances?: FleetInstance[];
+  timeline?: Array<{ t: number | string; instance: string; event: string; data?: any }>;
+  stats?: { total_tasks?: number; completed?: number; running?: number };
+}
 
 interface DashboardShape {
   overview?: { total_facts?: number; total_sources?: number; cve_facts?: number; adversarial_facts?: number; total_training_pairs?: number };
@@ -83,6 +99,7 @@ export const AdminModal: React.FC<AdminModalProps> = ({
   const [accuracy, setAccuracy] = useState<AccuracyShape | null>(null);
   const [quality, setQuality] = useState<QualityShape | null>(null);
   const [sysInfo, setSysInfo] = useState<SystemShape | null>(null);
+  const [fleet, setFleet] = useState<FleetShape | null>(null);
   const [logs, setLogs] = useState<string[] | null>(null);
   const [err, setErr] = useState<Record<AdminTab, string | null>>({
     dashboard: null, domains: null, training: null, quality: null, system: null, logs: null,
@@ -122,6 +139,9 @@ export const AdminModal: React.FC<AdminModalProps> = ({
       }
       if (t === 'system') {
         setSysInfo(await fetchJson('/api/system/info', ctrl.signal));
+      }
+      if (t === 'fleet') {
+        setFleet(await fetchJson<FleetShape>('/api/orchestrator/dashboard', ctrl.signal));
       }
       if (t === 'logs') {
         try {
@@ -233,7 +253,7 @@ export const AdminModal: React.FC<AdminModalProps> = ({
         {/* Tab bar — WAI-ARIA tablist with arrow-key navigation. */}
         <div role='tablist' aria-label='Admin sections'
           onKeyDown={(e) => {
-            const all: AdminTab[] = ['dashboard', 'domains', 'training', 'quality', 'system', 'logs'];
+            const all: AdminTab[] = ['dashboard', 'domains', 'training', 'quality', 'system', 'fleet', 'logs'];
             const idx = all.indexOf(tab);
             if (idx < 0) return;
             if (e.key === 'ArrowRight') { e.preventDefault(); setTab(all[(idx + 1) % all.length]); }
@@ -251,6 +271,7 @@ export const AdminModal: React.FC<AdminModalProps> = ({
             { id: 'training', label: 'Training' },
             { id: 'quality', label: 'Quality' },
             { id: 'system', label: 'System' },
+            { id: 'fleet', label: 'Fleet' },
             { id: 'logs', label: 'Logs' },
           ] as const).map(t => (
             <button key={t.id} onClick={() => setTab(t.id)}
@@ -674,6 +695,115 @@ export const AdminModal: React.FC<AdminModalProps> = ({
             </div>
           )}
 
+          {/* ---------- Fleet (c0-031 autonomous directive #7) ---------- */}
+          {tab === 'fleet' && (
+            <div>
+              {err.fleet && <AdminErr C={C} msg={err.fleet} />}
+              {fleet === null && !err.fleet && (
+                <div style={{ padding: '40px', textAlign: 'center', color: C.textMuted }}>
+                  {loading === 'fleet' ? 'Loading fleet…' : 'Fleet endpoint not yet responsive.'}
+                </div>
+              )}
+              {fleet && (
+                <>
+                  {fleet.stats && (
+                    <div style={{
+                      display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))',
+                      gap: T.spacing.md, marginBottom: T.spacing.xl,
+                    }}>
+                      <DashCard C={C} label='Instances' value={String(fleet.instances?.length ?? 0)} color={C.accent} />
+                      <DashCard C={C} label='Tasks total' value={typeof fleet.stats.total_tasks === 'number' ? String(fleet.stats.total_tasks) : '—'} color={C.purple} />
+                      <DashCard C={C} label='Running' value={typeof fleet.stats.running === 'number' ? String(fleet.stats.running) : '—'} color={C.yellow} />
+                      <DashCard C={C} label='Completed' value={typeof fleet.stats.completed === 'number' ? String(fleet.stats.completed) : '—'} color={C.green} />
+                    </div>
+                  )}
+                  {fleet.instances && fleet.instances.length > 0 && (
+                    <div style={{
+                      display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))',
+                      gap: T.spacing.md, marginBottom: T.spacing.xl,
+                    }}>
+                      {fleet.instances.map(inst => {
+                        const statusColor = inst.status === 'running' ? C.green
+                          : inst.status === 'error' ? C.red
+                          : inst.status === 'idle' ? C.yellow : C.textMuted;
+                        return (
+                          <div key={inst.id} style={{
+                            padding: T.spacing.lg, borderRadius: T.radii.md,
+                            background: C.bgInput, border: `1px solid ${C.borderSubtle}`,
+                          }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                              <div style={{ fontSize: T.typography.sizeBody, fontWeight: T.typography.weightBold, color: C.text }}>
+                                {inst.name || inst.id}
+                              </div>
+                              <span style={{
+                                display: 'inline-flex', alignItems: 'center', gap: '6px',
+                                fontSize: '10px', fontWeight: T.typography.weightBold,
+                                color: statusColor, textTransform: 'uppercase', letterSpacing: T.typography.trackingLoose,
+                              }}>
+                                <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: statusColor }} aria-hidden='true' />
+                                {inst.status || 'unknown'}
+                              </span>
+                            </div>
+                            {inst.role && (
+                              <div style={{ fontSize: T.typography.sizeSm, color: C.textSecondary, marginBottom: '6px' }}>
+                                {inst.role}
+                              </div>
+                            )}
+                            {inst.current_task && (
+                              <div style={{
+                                padding: '6px 8px', background: C.bg, borderRadius: T.radii.sm,
+                                fontSize: '11px', color: C.textMuted, fontFamily: 'ui-monospace, monospace',
+                                marginBottom: '6px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                              }}>
+                                {inst.current_task}
+                              </div>
+                            )}
+                            <div style={{ display: 'flex', gap: T.spacing.md, fontSize: '11px', color: C.textMuted, fontFamily: 'ui-monospace, monospace' }}>
+                              {typeof inst.tasks_completed === 'number' && <span>✓ {inst.tasks_completed}</span>}
+                              {typeof inst.tasks_pending === 'number' && <span>⏳ {inst.tasks_pending}</span>}
+                              {inst.last_seen && <span style={{ marginLeft: 'auto' }}>
+                                last seen {typeof inst.last_seen === 'number' ? new Date(inst.last_seen * (inst.last_seen < 1e12 ? 1000 : 1)).toLocaleTimeString() : inst.last_seen}
+                              </span>}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                  {fleet.timeline && fleet.timeline.length > 0 && (
+                    <div>
+                      <div style={{ fontSize: '11px', fontWeight: T.typography.weightBold, color: C.textMuted, textTransform: 'uppercase', letterSpacing: T.typography.trackingLoose, marginBottom: '10px' }}>
+                        Recent activity ({fleet.timeline.length})
+                      </div>
+                      <div style={{ border: `1px solid ${C.borderSubtle}`, borderRadius: T.radii.md, overflow: 'hidden', maxHeight: '320px', overflowY: 'auto' }}>
+                        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px' }}>
+                          <thead>
+                            <tr>
+                              <th style={{ textAlign: 'left', padding: '8px 12px', fontWeight: T.typography.weightBold, color: C.textSecondary, background: C.bgCard, borderBottom: `1px solid ${C.borderSubtle}`, position: 'sticky', top: 0 }}>When</th>
+                              <th style={{ textAlign: 'left', padding: '8px 12px', fontWeight: T.typography.weightBold, color: C.textSecondary, background: C.bgCard, borderBottom: `1px solid ${C.borderSubtle}`, position: 'sticky', top: 0 }}>Who</th>
+                              <th style={{ textAlign: 'left', padding: '8px 12px', fontWeight: T.typography.weightBold, color: C.textSecondary, background: C.bgCard, borderBottom: `1px solid ${C.borderSubtle}`, position: 'sticky', top: 0 }}>Event</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {fleet.timeline.slice(0, 100).map((row, i) => (
+                              <tr key={i}>
+                                <td style={{ padding: '6px 12px', color: C.textMuted, fontFamily: 'ui-monospace, monospace', whiteSpace: 'nowrap' }}>
+                                  {typeof row.t === 'number' ? new Date(row.t * (row.t < 1e12 ? 1000 : 1)).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : row.t}
+                                </td>
+                                <td style={{ padding: '6px 12px', color: C.accent, fontFamily: 'ui-monospace, monospace' }}>{row.instance}</td>
+                                <td style={{ padding: '6px 12px', color: C.text, fontFamily: 'ui-monospace, monospace' }}>{row.event}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+          )}
+
           {/* ---------- Logs ---------- */}
           {tab === 'logs' && (
             <div>
@@ -708,6 +838,11 @@ export const AdminModal: React.FC<AdminModalProps> = ({
                 const filtered = [...localEvents].reverse().filter(e =>
                   !q || e.kind.toLowerCase().includes(q) || (e.data && JSON.stringify(e.data).toLowerCase().includes(q))
                 );
+                // Count unique kinds for the summary-pill row. Sorted by
+                // frequency desc so high-signal kinds come first.
+                const kindCounts = new Map<string, number>();
+                for (const e of localEvents) kindCounts.set(e.kind, (kindCounts.get(e.kind) || 0) + 1);
+                const sortedKinds = [...kindCounts.entries()].sort((a, b) => b[1] - a[1]);
                 return (
                   <div>
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: T.spacing.md, marginBottom: '6px', flexWrap: 'wrap' }}>
@@ -727,6 +862,7 @@ export const AdminModal: React.FC<AdminModalProps> = ({
                             fontSize: '12px', outline: 'none',
                           }}
                         />
+                        {/* Pills removed below in favor of a dedicated row. */}
                         <button onClick={() => {
                           // Export the currently-filtered events as JSON so the
                           // user can attach them to a support ticket without
@@ -754,6 +890,34 @@ export const AdminModal: React.FC<AdminModalProps> = ({
                             fontFamily: 'inherit', textTransform: 'uppercase',
                           }}>Export JSON</button>
                       </div>
+                    </div>
+                    {/* Kind-frequency pills — scannable summary. Click to
+                        filter the table to that kind. Click again to clear. */}
+                    <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap', marginBottom: '8px' }}>
+                      {sortedKinds.slice(0, 12).map(([kind, n]) => {
+                        const active = logFilter.trim().toLowerCase() === kind.toLowerCase();
+                        const dotColor =
+                          kind.includes('error') || kind.includes('failed') || kind.includes('negative') ? C.red
+                          : kind.includes('positive') || kind.includes('success') || kind.includes('done') ? C.green
+                          : kind.includes('warn') || kind.includes('stop') ? C.yellow
+                          : C.accent;
+                        return (
+                          <button key={kind} onClick={() => setLogFilter(active ? '' : kind)}
+                            title={active ? 'Clear filter' : `Filter to ${kind}`}
+                            style={{
+                              display: 'inline-flex', alignItems: 'center', gap: '6px',
+                              padding: '3px 10px', fontSize: '11px',
+                              background: active ? C.accentBg : C.bgInput,
+                              border: `1px solid ${active ? C.accentBorder : C.borderSubtle}`,
+                              color: C.text, borderRadius: '999px', cursor: 'pointer',
+                              fontFamily: 'inherit', fontWeight: T.typography.weightSemibold,
+                            }}>
+                            <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: dotColor }} aria-hidden='true' />
+                            <span style={{ fontFamily: 'ui-monospace, monospace' }}>{kind}</span>
+                            <span style={{ color: C.textMuted, fontFamily: 'ui-monospace, monospace' }}>{n}</span>
+                          </button>
+                        );
+                      })}
                     </div>
                     <div style={{ border: `1px solid ${C.borderSubtle}`, borderRadius: T.radii.md, overflow: 'hidden', maxHeight: '45vh', overflowY: 'auto' }}>
                       <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px' }}>

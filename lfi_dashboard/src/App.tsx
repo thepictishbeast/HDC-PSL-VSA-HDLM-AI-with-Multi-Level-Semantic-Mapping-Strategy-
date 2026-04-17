@@ -2231,14 +2231,19 @@ ${cmdList}
 
       {/* ========== ADMIN CONSOLE MODAL (c0-017) ========== */}
       {showAdmin && (
-        <AdminModal
-          C={C}
-          host={host}
-          factsCount={kg.facts}
-          sourcesCount={kg.sources}
-          localEvents={localEvents}
-          onClose={() => setShowAdmin(false)}
-        />
+        // Local error boundary: if any Admin panel throws (bad shape from
+        // /api/admin/dashboard, unexpected field, etc.) we only lose the
+        // modal's contents, not the whole chat UI.
+        <AppErrorBoundary themeBg={C.bg} themeText={C.text} themeAccent={C.accent}>
+          <AdminModal
+            C={C}
+            host={host}
+            factsCount={kg.facts}
+            sourcesCount={kg.sources}
+            localEvents={localEvents}
+            onClose={() => setShowAdmin(false)}
+          />
+        </AppErrorBoundary>
       )}
 
       {/* ========== ACTIVITY / LOGS MODAL ========== */}
@@ -2993,7 +2998,12 @@ ${cmdList}
               Loading classroom…
             </div>
           }>
-            <ClassroomView C={C} host={host} isDesktop={isDesktop} localEvents={localEvents} />
+            {/* Local boundary — Classroom is data-heavy and renders third-
+                party-shaped JSON from /api/admin/dashboard. A malformed field
+                should scope to the Classroom pane, not the whole app. */}
+            <AppErrorBoundary themeBg={C.bg} themeText={C.text} themeAccent={C.accent}>
+              <ClassroomView C={C} host={host} isDesktop={isDesktop} localEvents={localEvents} />
+            </AppErrorBoundary>
           </React.Suspense>
         )}
         <main id='main-content' role='main' aria-label='Chat' style={{
