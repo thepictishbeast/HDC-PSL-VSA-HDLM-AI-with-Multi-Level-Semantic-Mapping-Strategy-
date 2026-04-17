@@ -84,6 +84,15 @@ function useBreakpoint(): Breakpoint {
   return bp;
 }
 
+// id generator. Date.now() alone collided when >1 msg arrived/ms → React duplicate-key warnings.
+let __msgSeq = 0, __msgLastMs = 0;
+const msgId = (): number => {
+  const now = Date.now();
+  if (now === __msgLastMs) __msgSeq = (__msgSeq + 1) & 0x3ff;
+  else { __msgLastMs = now; __msgSeq = 0; }
+  return now * 1024 + __msgSeq;
+};
+
 // ---- Types ----
 interface ChatMessage {
   id: number;
@@ -625,7 +634,7 @@ ${cmdList}
 
 **Website:** plausiden.com
 **Architecture:** Built on the Supersociety stack — HDC, PSL, Active Inference, Rust.`;
-        setMessages(prev => [...prev, { id: Date.now(), role: 'system', content: help, timestamp: Date.now() }]);
+        setMessages(prev => [...prev, { id: msgId(), role: 'system', content: help, timestamp: Date.now() }]);
       } },
   ];
   const [showCmdPalette, setShowCmdPalette] = useState(false);
@@ -900,7 +909,7 @@ ${cmdList}
                 return [...prev.slice(0, -1), { ...last, content: last.content + (msg.text || '') }];
               }
               return [...prev, {
-                id: Date.now(), role: 'assistant' as const,
+                id: msgId(), role: 'assistant' as const,
                 content: msg.text || '', timestamp: Date.now(),
                 _streaming: true,
               } as any];
@@ -925,7 +934,7 @@ ${cmdList}
             setIsThinking(false);
             setThinkingStart(null);
             setMessages(prev => [...prev, {
-              id: Date.now(), role: 'assistant',
+              id: msgId(), role: 'assistant',
               content: msg.content || '',
               mode: msg.mode, confidence: msg.confidence,
               tier: msg.tier, intent: msg.intent,
@@ -940,7 +949,7 @@ ${cmdList}
           } else if (msg.type === 'web_result') {
             console.debug("// SCC: Web result, sources:", msg.source_count);
             setMessages(prev => [...prev, {
-              id: Date.now(), role: 'web',
+              id: msgId(), role: 'web',
               content: `${msg.source_count} sources | trust: ${(msg.trust * 100).toFixed(0)}%\n\n${msg.summary}`,
               timestamp: Date.now(),
             }]);
@@ -948,7 +957,7 @@ ${cmdList}
             console.debug("// SCC: Chat error:", msg.error);
             setIsThinking(false);
             setMessages(prev => [...prev, {
-              id: Date.now(), role: 'system',
+              id: msgId(), role: 'system',
               content: `Error: ${msg.error}`, timestamp: Date.now(),
             }]);
           }
@@ -1063,7 +1072,7 @@ ${cmdList}
         setCurrentTier(previous);
         // Surface rejection so the user doesn't see the select silently reset.
         setMessages(prev => [...prev, {
-          id: Date.now(), role: 'system',
+          id: msgId(), role: 'system',
           content: `Couldn't switch tier: ${data.reason || data.status}. Try clicking Settings then close once to refresh auth.`,
           timestamp: Date.now(),
         }]);
@@ -1071,7 +1080,7 @@ ${cmdList}
     } catch (e) {
       console.error("// SCC: Tier switch error:", e);
       setMessages(prev => [...prev, {
-        id: Date.now(), role: 'system',
+        id: msgId(), role: 'system',
         content: 'Tier switch failed — backend unreachable.',
         timestamp: Date.now(),
       }]);
@@ -1318,7 +1327,7 @@ ${cmdList}
     setMessages([]);
     if (incognito) {
       setMessages([{
-        id: Date.now(), role: 'system',
+        id: msgId(), role: 'system',
         content: 'Incognito mode — this conversation will not be saved, logged, or used for training.',
         timestamp: Date.now(),
       }]);
@@ -1376,7 +1385,7 @@ ${cmdList}
 
     // Record user message.
     setMessages(prev => [...prev, {
-      id: Date.now(), role: 'user', content: trimmed, timestamp: Date.now()
+      id: msgId(), role: 'user', content: trimmed, timestamp: Date.now()
     }]);
     setInput('');
     logEvent('message_sent', { length: trimmed.length, tier: currentTier, skill: activeSkill });
@@ -1386,7 +1395,7 @@ ${cmdList}
 
     try {
       if (activeSkill === 'research') {
-        const toolId = Date.now();
+        const toolId = msgId();
         setMessages(prev => [...prev, {
           id: toolId, role: 'tool', content: `Deep research: ${trimmed.slice(0, 60)}`,
           toolName: 'deep_research', toolStatus: 'running', toolInput: trimmed,
@@ -1414,7 +1423,7 @@ ${cmdList}
             }
           }
           setMessages(prev => [...prev, {
-            id: Date.now(), role: 'assistant',
+            id: msgId(), role: 'assistant',
             content: synthesis, timestamp: Date.now(),
           }]);
         } catch (e) {
@@ -1443,7 +1452,7 @@ ${cmdList}
         return;
       }
       if (activeSkill === 'web') {
-        const toolId = Date.now();
+        const toolId = msgId();
         setMessages(prev => [...prev, {
           id: toolId, role: 'tool', content: `Searching: ${trimmed.slice(0, 80)}`,
           toolName: 'web_search', toolStatus: 'running', toolInput: trimmed,
@@ -1462,7 +1471,7 @@ ${cmdList}
           content: `${data.source_count ?? 0} sources found`,
         } : m));
         setMessages(prev => [...prev, {
-          id: Date.now(), role: 'web',
+          id: msgId(), role: 'web',
           content: `${data.source_count ?? 0} sources \u00B7 trust ${(((data.trust ?? 0) as number) * 100).toFixed(0)}%\n\n${data.summary ?? data.best_summary ?? '(no summary)'}`,
           timestamp: Date.now(),
         }]);
@@ -1472,7 +1481,7 @@ ${cmdList}
         return;
       }
       if (activeSkill === 'analyze') {
-        const toolId = Date.now();
+        const toolId = msgId();
         setMessages(prev => [...prev, {
           id: toolId, role: 'tool', content: `Running PSL audit`,
           toolName: 'psl_audit', toolStatus: 'running', toolInput: trimmed.slice(0, 200),
@@ -1491,7 +1500,7 @@ ${cmdList}
           content: `Audit complete: ${data.verdict || data.status}`,
         } : m));
         setMessages(prev => [...prev, {
-          id: Date.now(), role: 'assistant',
+          id: msgId(), role: 'assistant',
           content: `**PSL audit**\n\n\`\`\`json\n${JSON.stringify(data, null, 2)}\n\`\`\``,
           timestamp: Date.now(),
         }]);
@@ -1501,7 +1510,7 @@ ${cmdList}
         return;
       }
       if (activeSkill === 'opsec') {
-        const toolId = Date.now();
+        const toolId = msgId();
         setMessages(prev => [...prev, {
           id: toolId, role: 'tool', content: `Scanning for secrets & PII`,
           toolName: 'opsec_scan', toolStatus: 'running', toolInput: `${trimmed.length} chars`,
@@ -1521,7 +1530,7 @@ ${cmdList}
           content: findings === 0 ? 'No issues' : `${findings} finding(s)`,
         } : m));
         setMessages(prev => [...prev, {
-          id: Date.now(), role: 'assistant',
+          id: msgId(), role: 'assistant',
           content: `**OPSEC scan**\n\n${findings === 0 ? 'No secrets or PII detected.' : `Found ${findings} issue(s):`}\n\n\`\`\`json\n${JSON.stringify(data, null, 2)}\n\`\`\``,
           timestamp: Date.now(),
         }]);
@@ -1539,7 +1548,7 @@ ${cmdList}
       const wsOpen = chatWsRef.current && chatWsRef.current.readyState === WebSocket.OPEN;
       if (!wsOpen) {
         setMessages(prev => [...prev, {
-          id: Date.now(), role: 'system',
+          id: msgId(), role: 'system',
           content: 'Not connected yet \u2014 give the link a moment and try again.',
           timestamp: Date.now(),
         }]);
@@ -1554,7 +1563,7 @@ ${cmdList}
     } catch (e) {
       console.warn('// SCC: handleSend failed', e);
       setMessages(prev => [...prev, {
-        id: Date.now(), role: 'system',
+        id: msgId(), role: 'system',
         content: `Request failed: ${(e as Error).message || 'unknown error'}`,
         timestamp: Date.now(),
       }]);
@@ -1611,7 +1620,7 @@ ${cmdList}
       if (ws && ws.readyState === WebSocket.OPEN) {
         ws.send(JSON.stringify({ content: lastUser.content }));
         setMessages(prev => [...prev, {
-          id: Date.now(), role: 'user', content: lastUser.content, timestamp: Date.now(),
+          id: msgId(), role: 'user', content: lastUser.content, timestamp: Date.now(),
         }]);
         setInput('');
         setIsThinking(true);
@@ -3995,7 +4004,7 @@ ${cmdList}
                                 .then(r => r.json())
                                 .then(d => {
                                   setMessages(prev => [...prev, {
-                                    id: Date.now(), role: 'system',
+                                    id: msgId(), role: 'system',
                                     content: `Provenance #${msg.conclusion_id}:\n${d.explanation || JSON.stringify(d, null, 2).slice(0, 500)}`,
                                     timestamp: Date.now(),
                                   }]);
@@ -4396,7 +4405,7 @@ ${cmdList}
                       if (files.length === 0) return;
                       const names = files.map(f => f.name).join(', ');
                       setMessages(prev => [...prev, {
-                        id: Date.now(), role: 'system',
+                        id: msgId(), role: 'system',
                         content: `Attached: ${names} (${files.length} file${files.length === 1 ? '' : 's'}). Upload backend is not yet wired \u2014 names logged for now.`,
                         timestamp: Date.now(),
                       }]);
@@ -4412,7 +4421,7 @@ ${cmdList}
                   onClick={() => {
                     const Rec: any = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
                     if (!Rec) {
-                      setMessages(prev => [...prev, { id: Date.now(), role: 'system',
+                      setMessages(prev => [...prev, { id: msgId(), role: 'system',
                         content: 'Voice input needs a browser with SpeechRecognition (Chrome/Edge).',
                         timestamp: Date.now() }]);
                       return;
