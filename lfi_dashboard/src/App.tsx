@@ -46,6 +46,7 @@ import { TicTacToeModal } from './TicTacToeModal';
 import { KnowledgeBrowser } from './KnowledgeBrowser';
 import { ActivityModal } from './ActivityModal';
 import { CommandPalette, type CmdPaletteItem } from './CommandPalette';
+import { DARK, THEMES } from './themes';
 
 hljs.registerLanguage('rust', rust);
 hljs.registerLanguage('javascript', javascript);
