@@ -1590,10 +1590,22 @@ ${cmdList}
   useEffect(() => {
     const c = conversations.find(x => x.id === currentConversationId);
     const title = c?.title && c.title !== 'New chat' ? c.title.slice(0, 60) : null;
-    const base = title ? `${title} · PlausiDen AI` : 'PlausiDen AI';
+    // c2-334: when the user is in a non-chat section, prefix the tab title
+    // with the section name so users on mobile (no visible top-nav) can
+    // tell where they are from the browser tab/home-screen label. Admin
+    // uses the modal so it doesn't get a prefix — modal titles own that UX.
+    const sectionPrefix = showAdmin ? 'Admin'
+      : activeView === 'classroom' ? 'Classroom'
+      : activeView === 'fleet' ? 'Fleet'
+      : activeView === 'library' ? 'Library'
+      : activeView === 'auditorium' ? 'Auditorium'
+      : null;
+    const base = sectionPrefix
+      ? `${sectionPrefix} · PlausiDen AI`
+      : title ? `${title} · PlausiDen AI` : 'PlausiDen AI';
     document.title = unreadReplies > 0 ? `(${unreadReplies}) ${base}` : base;
     return () => { document.title = 'PlausiDen AI'; };
-  }, [currentConversationId, conversations, unreadReplies]);
+  }, [currentConversationId, conversations, unreadReplies, activeView, showAdmin]);
 
   // Save draft to conversation when switching away, restore when switching in.
   // c2-266: flush the active-convo draft to localStorage on pagehide /
