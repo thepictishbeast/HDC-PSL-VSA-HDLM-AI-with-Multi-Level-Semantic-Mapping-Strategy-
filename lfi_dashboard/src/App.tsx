@@ -299,98 +299,396 @@ const THEMES: Record<string, typeof DARK> = {
 const C = DARK;
 
 // ---- Training Dashboard Sub-Component ----
+// Skeleton block — animated shimmer placeholder for in-flight fetches.
+// Used wherever we have known geometry but pending data; better than a spinner
+// because the layout doesn't jump when real data arrives.
+const Skeleton: React.FC<{ w?: string | number; h?: string | number; radius?: number; style?: React.CSSProperties }> = ({ w = '100%', h = 14, radius = 6, style }) => (
+  <div style={{
+    width: typeof w === 'number' ? `${w}px` : w,
+    height: typeof h === 'number' ? `${h}px` : h,
+    borderRadius: radius,
+    background: 'linear-gradient(90deg, rgba(255,255,255,0.04) 0%, rgba(255,255,255,0.12) 50%, rgba(255,255,255,0.04) 100%)',
+    backgroundSize: '200% 100%',
+    animation: 'lfi-shimmer 1.4s infinite linear',
+    ...style,
+  }} />
+);
+
+// Error boundary — class component because React 18 still requires class for this.
+// Shows a helpful recovery surface instead of a blank page when any child throws
+// during render. Resets on button click; offers reload as escape hatch.
+class AppErrorBoundary extends React.Component<
+  { children: React.ReactNode; themeBg?: string; themeText?: string; themeAccent?: string },
+  { error: Error | null; componentStack: string | null }
+> {
+  state = { error: null as Error | null, componentStack: null as string | null };
+  static getDerivedStateFromError(error: Error) { return { error, componentStack: null }; }
+  componentDidCatch(error: Error, info: React.ErrorInfo) {
+    console.error('[AppErrorBoundary]', error, info?.componentStack);
+    this.setState({ componentStack: info?.componentStack ?? null });
+  }
+  reset = () => { this.setState({ error: null, componentStack: null }); };
+  render() {
+    if (!this.state.error) return this.props.children;
+    const bg = this.props.themeBg || '#0b0d14';
+    const fg = this.props.themeText || '#e8e6f0';
+    const accent = this.props.themeAccent || '#8b7bf7';
+    const err = this.state.error;
+    return (
+      <div role="alert" style={{
+        minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center',
+        background: bg, color: fg, padding: '40px', fontFamily: "'DM Sans', -apple-system, sans-serif",
+      }}>
+        <div style={{ maxWidth: '560px', width: '100%' }}>
+          <div style={{ fontSize: '13px', color: accent, fontWeight: 700, letterSpacing: '0.14em', textTransform: 'uppercase', marginBottom: '8px' }}>
+            UI Error
+          </div>
+          <h2 style={{ fontSize: '22px', fontWeight: 700, margin: '0 0 10px', letterSpacing: '-0.01em' }}>
+            Something broke — but your work is safe
+          </h2>
+          <p style={{ fontSize: '14px', lineHeight: 1.6, opacity: 0.8, margin: '0 0 18px' }}>
+            The dashboard hit a rendering error. Conversations and settings live in localStorage and
+            are untouched. Try again to re-mount the UI; if that fails, reload.
+          </p>
+          <pre style={{
+            background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)',
+            borderRadius: '8px', padding: '12px 14px', fontSize: '12px', lineHeight: 1.5,
+            color: fg, overflow: 'auto', maxHeight: '200px', margin: '0 0 18px',
+            fontFamily: "'JetBrains Mono', monospace",
+          }}>{String(err?.message || err)}</pre>
+          <div style={{ display: 'flex', gap: '10px' }}>
+            <button onClick={this.reset} style={{
+              padding: '10px 18px', fontSize: '13px', fontWeight: 700,
+              color: '#fff', background: accent, border: 'none', borderRadius: '8px',
+              cursor: 'pointer', fontFamily: 'inherit',
+            }}>Try again</button>
+            <button onClick={() => window.location.reload()} style={{
+              padding: '10px 18px', fontSize: '13px', fontWeight: 700,
+              color: fg, background: 'transparent',
+              border: '1px solid rgba(255,255,255,0.12)', borderRadius: '8px',
+              cursor: 'pointer', fontFamily: 'inherit',
+            }}>Reload page</button>
+          </div>
+          {this.state.componentStack && (
+            <details style={{ marginTop: '18px', fontSize: '11px', opacity: 0.6 }}>
+              <summary style={{ cursor: 'pointer' }}>Component stack</summary>
+              <pre style={{
+                background: 'rgba(255,255,255,0.03)', padding: '10px',
+                borderRadius: '6px', overflow: 'auto', maxHeight: '160px',
+                fontFamily: "'JetBrains Mono', monospace", fontSize: '10px',
+              }}>{this.state.componentStack}</pre>
+            </details>
+          )}
+        </div>
+      </div>
+    );
+  }
+}
+
+// Compact number formatter: 56_750_622 → "56.7M", 168 → "168", 3945 → "3.9K".
+const compactNum = (n: number | null | undefined): string => {
+  if (n == null || Number.isNaN(n)) return '—';
+  const abs = Math.abs(n);
+  if (abs >= 1e9) return (n / 1e9).toFixed(1).replace(/\.0$/, '') + 'B';
+  if (abs >= 1e6) return (n / 1e6).toFixed(1).replace(/\.0$/, '') + 'M';
+  if (abs >= 1e3) return (n / 1e3).toFixed(1).replace(/\.0$/, '') + 'K';
+  return String(n);
+};
+
 function TrainingDashboardContent({ host, C }: { host: string; C: any }) {
-  const [data, setData] = React.useState<any>(null);
-  const [loading, setLoading] = React.useState(true);
-  React.useEffect(() => {
-    fetch(`http://${host}:3000/api/training/status`)
-      .then(r => r.json())
-      .then(d => { setData(d); setLoading(false); })
-      .catch(() => setLoading(false));
+  // Three independent fetches — one slow/failed endpoint should not black out the
+  // whole panel. Each slice tracks its own state so we can render partial data.
+  const [accuracy, setAccuracy] = React.useState<any | null>(null);
+  const [domains, setDomains] = React.useState<Array<{ domain: string; fact_count: number; avg_quality: number | null; avg_length: number | null }> | null>(null);
+  const [sessions, setSessions] = React.useState<any | null>(null);
+  const [errors, setErrors] = React.useState<{ accuracy?: string; domains?: string; sessions?: string }>({});
+  const [lastUpdated, setLastUpdated] = React.useState<number | null>(null);
+
+  const [control, setControl] = React.useState<{ busy: 'start' | 'stop' | null; msg: string | null; ok: boolean }>({ busy: null, msg: null, ok: true });
+
+  const refetch = React.useCallback(async () => {
+    const mk = (path: string, timeoutMs = 15000) => async () => {
+      const ctrl = new AbortController();
+      const to = setTimeout(() => ctrl.abort(), timeoutMs);
+      try {
+        const r = await fetch(`http://${host}:3000${path}`, { signal: ctrl.signal });
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        return await r.json();
+      } finally { clearTimeout(to); }
+    };
+    const [a, d, s] = await Promise.allSettled([
+      mk('/api/admin/training/accuracy')(),
+      mk('/api/admin/training/domains')(),
+      mk('/api/admin/training/sessions')(),
+    ]);
+    const nextErrors: typeof errors = {};
+    if (a.status === 'fulfilled') setAccuracy(a.value); else nextErrors.accuracy = String(a.reason?.message || a.reason);
+    if (d.status === 'fulfilled') setDomains(Array.isArray(d.value?.domains) ? d.value.domains : []); else nextErrors.domains = String(d.reason?.message || d.reason);
+    if (s.status === 'fulfilled') setSessions(s.value); else nextErrors.sessions = String(s.reason?.message || s.reason);
+    setErrors(nextErrors);
+    setLastUpdated(Date.now());
   }, [host]);
 
-  if (loading) return <div style={{ padding: '40px', textAlign: 'center', color: C.textMuted }}>Loading training data...</div>;
-  if (!data) return <div style={{ padding: '40px', textAlign: 'center', color: C.textMuted }}>Could not load training status. Is the server running?</div>;
+  const controlTrainer = React.useCallback(async (action: 'start' | 'stop') => {
+    setControl({ busy: action, msg: null, ok: true });
+    try {
+      const ctrl = new AbortController();
+      const to = setTimeout(() => ctrl.abort(), 10000);
+      const r = await fetch(`http://${host}:3000/api/admin/training/${action}`, { method: 'POST', signal: ctrl.signal });
+      clearTimeout(to);
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      const body = await r.json().catch(() => ({}));
+      setControl({ busy: null, msg: body?.message || `Trainer ${action} requested`, ok: true });
+      setTimeout(refetch, 500);
+    } catch (e: any) {
+      setControl({ busy: null, msg: `Failed to ${action}: ${e?.message || e}`, ok: false });
+    }
+  }, [host, refetch]);
 
-  const domains = data.domain_state && typeof data.domain_state === 'object' ? Object.entries(data.domain_state) : [];
+  React.useEffect(() => {
+    refetch();
+    const id = setInterval(refetch, 30000);
+    return () => clearInterval(id);
+  }, [refetch]);
+
+  const totalFacts: number | null = accuracy?.total_facts ?? null;
+  const adversarialFacts: number | null = accuracy?.adversarial_facts ?? null;
+  const psl = accuracy?.psl_calibration || null;
+  const passRatePct: number | null = typeof psl?.pass_rate === 'number' ? psl.pass_rate * 100 : null;
+  const reasoningChains: number | null = accuracy?.reasoning_chains ?? null;
+
+  const trainingState = sessions?.training_state || {};
+  const domainStateEntries: [string, any][] = Object.entries(trainingState);
+  const anyRecentlyTrained = domainStateEntries.some(([, st]: any) => st?.last_trained && (Date.now() / 1000 - Number(st.last_trained)) < 300);
+  const trainerActive = !!(sessions?.trainer_running) || anyRecentlyTrained;
+
+  const allFailed = errors.accuracy && errors.domains && errors.sessions;
+  const firstLoad = lastUpdated == null;
+
+  if (firstLoad) {
+    // Skeleton mirrors the real layout so content doesn't jump when data arrives.
+    return (
+      <div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '10px', marginBottom: '20px' }}>
+          {[0, 1, 2].map(i => (
+            <div key={i} style={{ padding: '14px', background: C.bgInput, border: `1px solid ${C.borderSubtle}`, borderRadius: '10px' }}>
+              <Skeleton w={80} h={24} style={{ margin: '0 auto 8px' }} />
+              <Skeleton w={96} h={10} style={{ margin: '0 auto' }} />
+            </div>
+          ))}
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '10px', marginBottom: '20px' }}>
+          {[0, 1, 2, 3].map(i => (
+            <div key={i} style={{ padding: '14px', background: C.bgInput, border: `1px solid ${C.borderSubtle}`, borderRadius: '10px' }}>
+              <Skeleton w={64} h={20} style={{ margin: '0 auto 6px' }} />
+              <Skeleton w={88} h={8} style={{ margin: '0 auto 4px' }} />
+              <Skeleton w={72} h={6} style={{ margin: '0 auto' }} />
+            </div>
+          ))}
+        </div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+          {[0, 1, 2, 3, 4, 5].map(i => (
+            <div key={i} style={{ padding: '8px 14px', background: C.bgInput, borderRadius: '8px', border: `1px solid ${C.borderSubtle}` }}>
+              <Skeleton h={14} />
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  }
+  if (allFailed) {
+    return (
+      <div style={{ padding: '24px', textAlign: 'center', color: C.textMuted }}>
+        <div style={{ fontSize: '14px', color: C.red, marginBottom: '6px' }}>Training endpoints unreachable</div>
+        <div style={{ fontSize: '12px', color: C.textDim }}>Backend may be restarting or the DB is in a write-lock window.</div>
+        <button onClick={refetch} style={{
+          marginTop: '12px', padding: '6px 14px', background: C.bgInput,
+          border: `1px solid ${C.borderSubtle}`, borderRadius: '6px', color: C.text,
+          fontSize: '12px', cursor: 'pointer',
+        }}>Retry now</button>
+      </div>
+    );
+  }
 
   return (
     <div>
       {/* Summary cards */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '10px', marginBottom: '20px' }}>
         <div style={{ padding: '14px', background: C.accentBg, border: `1px solid ${C.accentBorder}`, borderRadius: '10px', textAlign: 'center' }}>
-          <div style={{ fontSize: '24px', fontWeight: 800, color: C.accent }}>{data.facts_in_db}</div>
+          <div style={{ fontSize: '24px', fontWeight: 800, color: C.accent }}>{compactNum(totalFacts)}</div>
           <div style={{ fontSize: '11px', color: C.textMuted, textTransform: 'uppercase', letterSpacing: '0.08em', marginTop: '4px' }}>Facts in DB</div>
         </div>
         <div style={{ padding: '14px', background: C.greenBg, border: `1px solid ${C.greenBorder}`, borderRadius: '10px', textAlign: 'center' }}>
-          <div style={{ fontSize: '24px', fontWeight: 800, color: C.green }}>{domains.length}</div>
+          <div style={{ fontSize: '24px', fontWeight: 800, color: C.green }}>{domains?.length ?? domainStateEntries.length ?? '—'}</div>
           <div style={{ fontSize: '11px', color: C.textMuted, textTransform: 'uppercase', letterSpacing: '0.08em', marginTop: '4px' }}>Domains</div>
         </div>
-        <div style={{ padding: '14px', background: data.trainer_running ? C.greenBg : C.redBg, border: `1px solid ${data.trainer_running ? C.greenBorder : C.redBorder}`, borderRadius: '10px', textAlign: 'center' }}>
-          <div style={{ fontSize: '24px', fontWeight: 800, color: data.trainer_running ? C.green : C.red }}>
-            {data.trainer_running ? '\u25CF' : '\u25CB'}
+        <div style={{ padding: '14px', background: trainerActive ? C.greenBg : C.redBg, border: `1px solid ${trainerActive ? C.greenBorder : C.redBorder}`, borderRadius: '10px', textAlign: 'center' }}>
+          <div style={{ fontSize: '24px', fontWeight: 800, color: trainerActive ? C.green : C.red, lineHeight: 1 }}>
+            <span
+              className={trainerActive ? 'lfi-trainer-pulse' : undefined}
+              style={{
+                display: 'inline-block', width: '14px', height: '14px', borderRadius: '50%',
+                background: trainerActive ? C.green : 'transparent',
+                border: trainerActive ? 'none' : `2px solid ${C.red}`,
+                verticalAlign: 'middle',
+              }}
+            />
           </div>
-          <div style={{ fontSize: '11px', color: C.textMuted, textTransform: 'uppercase', letterSpacing: '0.08em', marginTop: '4px' }}>
-            {data.trainer_running ? 'Trainer Active' : 'Trainer Stopped'}
+          <div style={{ fontSize: '11px', color: C.textMuted, textTransform: 'uppercase', letterSpacing: '0.08em', marginTop: '6px' }}>
+            {trainerActive ? 'Trainer Active' : 'Trainer Idle'}
           </div>
+          <div style={{ display: 'flex', gap: '6px', justifyContent: 'center', marginTop: '8px' }}>
+            <button
+              onClick={() => controlTrainer('start')}
+              disabled={control.busy !== null || trainerActive}
+              style={{
+                flex: 1, padding: '5px 8px', fontSize: '10px', fontWeight: 700,
+                textTransform: 'uppercase', letterSpacing: '0.06em',
+                color: trainerActive ? C.textDim : C.green,
+                background: trainerActive ? 'transparent' : C.greenBg,
+                border: `1px solid ${trainerActive ? C.borderSubtle : C.greenBorder}`,
+                borderRadius: '6px',
+                cursor: (control.busy !== null || trainerActive) ? 'not-allowed' : 'pointer',
+                opacity: control.busy === 'start' ? 0.55 : 1,
+              }}
+            >{control.busy === 'start' ? '…' : 'Start'}</button>
+            <button
+              onClick={() => controlTrainer('stop')}
+              disabled={control.busy !== null || !trainerActive}
+              style={{
+                flex: 1, padding: '5px 8px', fontSize: '10px', fontWeight: 700,
+                textTransform: 'uppercase', letterSpacing: '0.06em',
+                color: !trainerActive ? C.textDim : C.red,
+                background: !trainerActive ? 'transparent' : C.redBg,
+                border: `1px solid ${!trainerActive ? C.borderSubtle : C.redBorder}`,
+                borderRadius: '6px',
+                cursor: (control.busy !== null || !trainerActive) ? 'not-allowed' : 'pointer',
+                opacity: control.busy === 'stop' ? 0.55 : 1,
+              }}
+            >{control.busy === 'stop' ? '…' : 'Stop'}</button>
+          </div>
+          {control.msg && (
+            <div style={{
+              marginTop: '6px', fontSize: '10px',
+              color: control.ok ? C.textMuted : C.red,
+              lineHeight: 1.3,
+            }}>{control.msg}</div>
+          )}
         </div>
       </div>
 
-      {/* Quality & Security metrics row */}
+      {/* Quality & Security metrics row — all values live from /api/admin/training/accuracy */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '10px', marginBottom: '20px' }}>
         <div style={{ padding: '14px', background: C.greenBg, border: `1px solid ${C.greenBorder}`, borderRadius: '10px', textAlign: 'center' }}>
-          <div style={{ fontSize: '20px', fontWeight: 800, color: C.green }}>97.2%</div>
+          <div style={{ fontSize: '20px', fontWeight: 800, color: C.green }}>
+            {passRatePct != null ? `${passRatePct.toFixed(1)}%` : '—'}
+          </div>
           <div style={{ fontSize: '10px', color: C.textMuted, textTransform: 'uppercase', letterSpacing: '0.08em', marginTop: '4px' }}>PSL Pass Rate</div>
-          <div style={{ fontSize: '9px', color: C.textDim, marginTop: '2px' }}>Target: 95-98%</div>
+          <div style={{ fontSize: '9px', color: C.textDim, marginTop: '2px' }}>
+            {psl?.target ? `Target: ${psl.target}` : 'Target: 95-98%'}
+          </div>
+          {/* fill bar — width tracks pass rate; tint shifts red→amber→green by threshold */}
+          <div style={{ height: '4px', marginTop: '8px', background: 'rgba(255,255,255,0.08)', borderRadius: '2px', overflow: 'hidden' }}>
+            <div
+              className="lfi-progress-fill"
+              style={{
+                height: '100%',
+                width: passRatePct != null ? `${Math.max(0, Math.min(100, passRatePct))}%` : '0%',
+                background: passRatePct == null ? C.textDim : (passRatePct >= 95 ? C.green : passRatePct >= 85 ? C.yellow : C.red),
+              }}
+            />
+          </div>
         </div>
         <div style={{ padding: '14px', background: C.accentBg, border: `1px solid ${C.accentBorder}`, borderRadius: '10px', textAlign: 'center' }}>
-          <div style={{ fontSize: '20px', fontWeight: 800, color: C.accent }}>392K</div>
+          <div style={{ fontSize: '20px', fontWeight: 800, color: C.accent }}>{compactNum(adversarialFacts)}</div>
           <div style={{ fontSize: '10px', color: C.textMuted, textTransform: 'uppercase', letterSpacing: '0.08em', marginTop: '4px' }}>Adversarial Facts</div>
           <div style={{ fontSize: '9px', color: C.textDim, marginTop: '2px' }}>ANLI + FEVER + TruthfulQA</div>
         </div>
-        <div style={{ padding: '14px', background: C.greenBg, border: `1px solid ${C.greenBorder}`, borderRadius: '10px', textAlign: 'center' }}>
-          <div style={{ fontSize: '20px', fontWeight: 800, color: C.green }}>{'\u2713'}</div>
-          <div style={{ fontSize: '10px', color: C.textMuted, textTransform: 'uppercase', letterSpacing: '0.08em', marginTop: '4px' }}>FTS5 Search</div>
-          <div style={{ fontSize: '9px', color: C.textDim, marginTop: '2px' }}>52M+ indexed</div>
-        </div>
         <div style={{ padding: '14px', background: C.accentBg, border: `1px solid ${C.accentBorder}`, borderRadius: '10px', textAlign: 'center' }}>
-          <div style={{ fontSize: '20px', fontWeight: 800, color: C.accent }}>168</div>
-          <div style={{ fontSize: '10px', color: C.textMuted, textTransform: 'uppercase', letterSpacing: '0.08em', marginTop: '4px' }}>Data Sources</div>
-          <div style={{ fontSize: '9px', color: C.textDim, marginTop: '2px' }}>Curated + crawled</div>
+          <div style={{ fontSize: '20px', fontWeight: 800, color: C.accent }}>{compactNum(reasoningChains)}</div>
+          <div style={{ fontSize: '10px', color: C.textMuted, textTransform: 'uppercase', letterSpacing: '0.08em', marginTop: '4px' }}>Reasoning Chains</div>
+          <div style={{ fontSize: '9px', color: C.textDim, marginTop: '2px' }}>Self-play + teacher</div>
+        </div>
+        <div style={{ padding: '14px', background: C.greenBg, border: `1px solid ${C.greenBorder}`, borderRadius: '10px', textAlign: 'center' }}>
+          <div style={{ fontSize: '20px', fontWeight: 800, color: C.green }}>
+            {accuracy?.learning_signals != null ? compactNum(accuracy.learning_signals) : '—'}
+          </div>
+          <div style={{ fontSize: '10px', color: C.textMuted, textTransform: 'uppercase', letterSpacing: '0.08em', marginTop: '4px' }}>Learning Signals</div>
+          <div style={{ fontSize: '9px', color: C.textDim, marginTop: '2px' }}>Corrections + gaps + PSL</div>
         </div>
       </div>
 
-      {/* Per-domain breakdown */}
-      {domains.length > 0 && (
-        <div style={{ marginBottom: '20px' }}>
-          <div style={{ fontSize: '11px', fontWeight: 700, color: C.textMuted, textTransform: 'uppercase', letterSpacing: '0.10em', marginBottom: '10px' }}>
-            Per-Domain Training State
-          </div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-            {(domains as [string, any][]).sort((a, b) => (b[1].sessions || 0) - (a[1].sessions || 0)).map(([domain, state]) => (
-              <div key={domain} style={{
-                display: 'flex', alignItems: 'center', gap: '12px',
-                padding: '10px 14px', background: C.bgInput, borderRadius: '8px',
-                border: `1px solid ${C.borderSubtle}`,
-              }}>
-                <span style={{ fontSize: '13px', fontWeight: 600, color: C.text, minWidth: '100px' }}>{domain}</span>
-                <span style={{ fontSize: '12px', color: C.textMuted }}>{state.sessions || 0} sessions</span>
-                <span style={{ fontSize: '12px', color: C.textMuted }}>{state.total_examples || 0} examples</span>
-                <div style={{ flex: 1 }} />
-                <span style={{ fontSize: '10px', color: C.textDim }}>
-                  {state.last_trained ? new Date(state.last_trained * 1000).toLocaleTimeString() : 'never'}
-                </span>
+      {/* Per-domain breakdown + heatmap (from /api/admin/training/domains + session timestamps) */}
+      {domains && domains.length > 0 && (() => {
+        const maxFacts = Math.max(...domains.map(d => d.fact_count || 0), 1);
+        const nowSec = Date.now() / 1000;
+        const heatColor = (fc: number, q: number | null) => {
+          // Density drives hue strength; quality darkens low-quality domains.
+          const share = fc / maxFacts;
+          const qMul = q == null ? 1 : Math.max(0.5, Math.min(1, q));
+          const alpha = Math.max(0.12, Math.min(0.9, share * qMul));
+          return `rgba(139, 123, 247, ${alpha.toFixed(2)})`; // accent-tinted heatmap
+        };
+        return (
+          <div style={{ marginBottom: '20px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+              <div style={{ fontSize: '11px', fontWeight: 700, color: C.textMuted, textTransform: 'uppercase', letterSpacing: '0.10em' }}>
+                Per-Domain Coverage ({domains.length})
               </div>
-            ))}
+              <div style={{ fontSize: '9px', color: C.textDim }}>bar width = fact share · tint = quality</div>
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+              {[...domains].sort((a, b) => b.fact_count - a.fact_count).map((d) => {
+                const st = trainingState[d.domain] || {};
+                const pct = Math.round((d.fact_count / maxFacts) * 100);
+                const recent = st.last_trained && (nowSec - Number(st.last_trained)) < 300;
+                return (
+                  <div key={d.domain} style={{
+                    position: 'relative',
+                    padding: '8px 14px', background: C.bgInput, borderRadius: '8px',
+                    border: `1px solid ${recent ? C.greenBorder : C.borderSubtle}`,
+                    overflow: 'hidden',
+                  }}>
+                    {/* heatmap background bar */}
+                    <div
+                      className="lfi-progress-fill"
+                      style={{
+                        position: 'absolute', inset: 0,
+                        width: `${pct}%`, background: heatColor(d.fact_count, d.avg_quality),
+                        pointerEvents: 'none',
+                      }}
+                    />
+                    {/* content */}
+                    <div style={{ position: 'relative', display: 'flex', alignItems: 'center', gap: '12px', fontSize: '12px' }}>
+                      <span style={{ fontWeight: 600, color: C.text, minWidth: '110px' }}>{d.domain}</span>
+                      <span style={{ color: C.textMuted }}>{compactNum(d.fact_count)} facts</span>
+                      {d.avg_quality != null && (
+                        <span style={{ color: C.textMuted }}>q={(d.avg_quality).toFixed(2)}</span>
+                      )}
+                      {st.sessions != null && (
+                        <span style={{ color: C.textMuted }}>{st.sessions} sessions</span>
+                      )}
+                      <div style={{ flex: 1 }} />
+                      {recent && (
+                        <span style={{ fontSize: '9px', color: C.green, fontWeight: 700, letterSpacing: '0.08em' }}>LIVE</span>
+                      )}
+                      <span style={{ fontSize: '10px', color: C.textDim }}>
+                        {st.last_trained ? new Date(st.last_trained * 1000).toLocaleTimeString() : 'never'}
+                      </span>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
 
-      {/* Recent cycles */}
-      {data.recent_cycles && data.recent_cycles.length > 0 && (
+      {/* Recent training log (from /api/admin/training/accuracy) */}
+      {Array.isArray(accuracy?.recent_training_log) && accuracy.recent_training_log.length > 0 && (
         <div>
           <div style={{ fontSize: '11px', fontWeight: 700, color: C.textMuted, textTransform: 'uppercase', letterSpacing: '0.10em', marginBottom: '10px' }}>
-            Recent Cycles
+            Recent Training Log
           </div>
           <pre style={{
             padding: '12px', background: C.bgInput, borderRadius: '8px',
@@ -399,32 +697,23 @@ function TrainingDashboardContent({ host, C }: { host: string; C: any }) {
             whiteSpace: 'pre-wrap', maxHeight: '200px', overflowY: 'auto',
             margin: 0,
           }}>
-            {data.recent_cycles.reverse().join('\n')}
+            {accuracy.recent_training_log.slice(-40).join('\n')}
           </pre>
         </div>
       )}
 
-      {/* Training history from DB */}
-      {data.training_history && data.training_history.length > 0 && (
-        <div style={{ marginTop: '20px' }}>
-          <div style={{ fontSize: '11px', fontWeight: 700, color: C.textMuted, textTransform: 'uppercase', letterSpacing: '0.10em', marginBottom: '10px' }}>
-            Accuracy History
-          </div>
-          {data.training_history.slice(0, 20).map((r: any, i: number) => (
-            <div key={i} style={{
-              display: 'flex', gap: '12px', padding: '6px 10px',
-              borderBottom: `1px solid ${C.borderSubtle}`, fontSize: '12px',
-            }}>
-              <span style={{ color: C.accent, minWidth: '80px', fontWeight: 600 }}>{r.domain}</span>
-              <span style={{ color: r.accuracy > 0.8 ? C.green : r.accuracy > 0.5 ? C.yellow : C.red, fontWeight: 700 }}>
-                {(r.accuracy * 100).toFixed(1)}%
-              </span>
-              <span style={{ color: C.textMuted }}>{r.correct}/{r.total}</span>
-              <span style={{ color: C.textDim, marginLeft: 'auto' }}>{r.timestamp}</span>
-            </div>
-          ))}
-        </div>
-      )}
+      {/* Freshness + error footnote */}
+      <div style={{ marginTop: '16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '10px', color: C.textDim }}>
+        <span>
+          {lastUpdated ? `Updated ${new Date(lastUpdated).toLocaleTimeString()}` : ''}
+          {(errors.accuracy || errors.domains || errors.sessions) ? ` \u00B7 partial (${Object.keys(errors).join(', ')} failed)` : ''}
+        </span>
+        <button onClick={refetch} style={{
+          padding: '4px 10px', background: 'transparent',
+          border: `1px solid ${C.borderSubtle}`, borderRadius: '6px', color: C.textMuted,
+          fontSize: '10px', cursor: 'pointer',
+        }}>Refresh</button>
+      </div>
     </div>
   );
 }
@@ -476,9 +765,20 @@ const SovereignCommandConsole: React.FC = () => {
 
   // Knowledge graph counters pulled periodically from /api/status so the
   // telemetry cards reflect state that actually changes as LFI learns.
-  const [kg, setKg] = useState<{ facts: number; concepts: number; axioms: number; entropy: number }>(
-    { facts: 0, concepts: 0, axioms: 0, entropy: 0 }
+  const [kg, setKg] = useState<{ facts: number; concepts: number; sources: number; entropy: number }>(
+    { facts: 0, concepts: 0, sources: 0, entropy: 0 }
   );
+  // Heavier quality metrics (adversarial count, PSL pass rate, FTS5, source count, last-calibration)
+  // pulled from /api/quality/report on a slower cadence. Null = not yet fetched.
+  const [quality, setQuality] = useState<{
+    adversarial: number;
+    psl_pass_rate: number | null;
+    psl_status: string | null;
+    psl_last_run: string | null;
+    fts5_enabled: boolean;
+    distinct_sources: number;
+    stale: boolean;
+  } | null>(null);
 
   // Host info pulled once from /api/system/info so the sidebar can show
   // what device the user is on (OS + hostname).
@@ -1184,7 +1484,11 @@ ${cmdList}
     if (!isAuthenticated) return;
     const fetchStatus = async () => {
       try {
-        const res = await fetch(`http://${getHost()}:3000/api/status`);
+        // 8 s timeout: backend DB can block on write-lock windows; don't freeze the UI.
+        const ctrl = new AbortController();
+        const to = setTimeout(() => ctrl.abort(), 8000);
+        const res = await fetch(`http://${getHost()}:3000/api/status`, { signal: ctrl.signal });
+        clearTimeout(to);
         const data = await res.json();
         // Do NOT sync tier from status polling — the user's local selection is
         // authoritative. Polling was causing "reverts to Pulse" when backend
@@ -1193,13 +1497,51 @@ ${cmdList}
         setKg(k => ({
           facts: typeof data.facts_count === 'number' ? data.facts_count : k.facts,
           concepts: typeof data.concepts_count === 'number' ? data.concepts_count : k.concepts,
-          axioms: typeof data.axiom_count === 'number' ? data.axiom_count : k.axioms,
+          sources: typeof data.sources_count === 'number' ? data.sources_count : k.sources,
           entropy: typeof data.entropy === 'number' ? data.entropy : k.entropy,
         }));
       } catch (_) { /* server might not be up yet */ }
     };
     fetchStatus();
     const id = setInterval(fetchStatus, 5000);
+    return () => clearInterval(id);
+  }, [isAuthenticated]);
+
+  // Poll /api/quality/report every 30 s for heavier metrics (adversarial, PSL pass rate, FTS5).
+  // Backend query scans tables — don't hammer it. Marks `stale` if the last fetch failed
+  // or is older than 90s, so the dashboard can show the data as possibly out-of-date.
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    let lastOk = 0;
+    const fetchQuality = async () => {
+      try {
+        const ctrl = new AbortController();
+        const to = setTimeout(() => ctrl.abort(), 12000);
+        const res = await fetch(`http://${getHost()}:3000/api/quality/report`, { signal: ctrl.signal });
+        clearTimeout(to);
+        const d = await res.json();
+        lastOk = Date.now();
+        setQuality({
+          adversarial: typeof d.adversarial_count === 'number' ? d.adversarial_count : 0,
+          psl_pass_rate: typeof d?.psl_calibration?.pass_rate === 'number' ? d.psl_calibration.pass_rate : null,
+          psl_status: d?.psl_calibration?.status ?? null,
+          psl_last_run: d?.psl_calibration?.last_run ?? null,
+          fts5_enabled: !!d.fts5_enabled,
+          distinct_sources: typeof d.distinct_sources === 'number' ? d.distinct_sources : 0,
+          stale: false,
+        });
+      } catch (_) {
+        // Mark existing data stale so the UI can show it faded rather than silently lying.
+        setQuality(q => q ? { ...q, stale: true } : q);
+      }
+    };
+    fetchQuality();
+    const id = setInterval(() => {
+      fetchQuality();
+      if (lastOk && Date.now() - lastOk > 90000) {
+        setQuality(q => q ? { ...q, stale: true } : q);
+      }
+    }, 30000);
     return () => clearInterval(id);
   }, [isAuthenticated]);
 
@@ -1974,6 +2316,25 @@ ${cmdList}
             { label: 'Tier', value: currentTier, color: tierColor(currentTier) },
             { label: 'Throttled', value: stats.is_throttled ? 'YES' : 'NO', color: stats.is_throttled ? C.red : C.green },
             { label: 'Logic Density', value: stats.logic_density.toFixed(3), color: C.purple },
+            {
+              label: 'PSL Pass',
+              value: quality?.psl_pass_rate != null
+                ? `${(quality.psl_pass_rate * 100).toFixed(1)}%${quality.stale ? ' (stale)' : ''}`
+                : '—',
+              color: quality?.psl_pass_rate == null
+                ? C.textMuted
+                : (quality.psl_pass_rate >= 0.95 ? C.green : quality.psl_pass_rate >= 0.85 ? C.yellow : C.red),
+            },
+            {
+              label: 'Adversarial',
+              value: quality?.adversarial != null ? compactNum(quality.adversarial) : '—',
+              color: C.accent,
+            },
+            {
+              label: 'Sources',
+              value: kg.sources ? String(kg.sources) : (quality?.distinct_sources ? String(quality.distinct_sources) : '—'),
+              color: C.purple,
+            },
           ].map(row => (
             <div key={row.label} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px' }}>
               <span style={{ color: C.textMuted }}>{row.label}</span>
@@ -4656,6 +5017,31 @@ ${cmdList}
         }
         .lfi-typing-dot:nth-child(2) { animation-delay: 0.18s; }
         .lfi-typing-dot:nth-child(3) { animation-delay: 0.36s; }
+        /* Shimmer for skeleton loaders — low-amplitude so it doesn't fight content animations. */
+        @keyframes lfi-shimmer {
+          0%   { background-position: 100% 50%; }
+          100% { background-position: -100% 50%; }
+        }
+        @media (prefers-reduced-motion: reduce) {
+          [style*="lfi-shimmer"], [style*="animation: lfi-shimmer"] { animation: none !important; }
+        }
+        /* Active training indicator — soft pulsing halo so the dot reads as live. */
+        @keyframes lfi-trainer-pulse {
+          0%   { box-shadow: 0 0 0 0 ${C.greenBorder}; transform: scale(1); }
+          70%  { box-shadow: 0 0 0 10px rgba(0,0,0,0); transform: scale(1.04); }
+          100% { box-shadow: 0 0 0 0 rgba(0,0,0,0); transform: scale(1); }
+        }
+        .lfi-trainer-pulse {
+          animation: lfi-trainer-pulse 1.6s infinite ease-out;
+          border-radius: 50%;
+          display: inline-block;
+        }
+        /* Smooth progress-bar fill animation */
+        .lfi-progress-fill { transition: width 320ms cubic-bezier(0.22, 1, 0.36, 1); }
+        /* Respect prefers-reduced-motion: switch pulse to a static tint */
+        @media (prefers-reduced-motion: reduce) {
+          .lfi-trainer-pulse { animation: none; }
+        }
         * { box-sizing: border-box; }
         body { margin: 0; padding: 0; overflow: hidden; background: ${C.bg}; color: ${C.text}; }
         html { background: ${C.bg}; }
@@ -4681,4 +5067,13 @@ ${cmdList}
   );
 };
 
-export default SovereignCommandConsole;
+// Wrap in an error boundary so render-time exceptions surface a helpful recovery
+// page instead of a white screen. Theme fallback uses the dark palette defaults
+// since the boundary renders above the theme context.
+const AppRoot: React.FC = () => (
+  <AppErrorBoundary themeBg={DARK.bg} themeText={DARK.text} themeAccent={DARK.accent}>
+    <SovereignCommandConsole />
+  </AppErrorBoundary>
+);
+
+export default AppRoot;
