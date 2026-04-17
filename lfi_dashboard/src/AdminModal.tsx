@@ -226,8 +226,17 @@ export const AdminModal: React.FC<AdminModalProps> = ({
             }}>{'\u2715'}</button>
         </div>
 
-        {/* Tab bar */}
+        {/* Tab bar — WAI-ARIA tablist with arrow-key navigation. */}
         <div role='tablist' aria-label='Admin sections'
+          onKeyDown={(e) => {
+            const all: AdminTab[] = ['dashboard', 'domains', 'training', 'quality', 'system', 'logs'];
+            const idx = all.indexOf(tab);
+            if (idx < 0) return;
+            if (e.key === 'ArrowRight') { e.preventDefault(); setTab(all[(idx + 1) % all.length]); }
+            else if (e.key === 'ArrowLeft') { e.preventDefault(); setTab(all[(idx - 1 + all.length) % all.length]); }
+            else if (e.key === 'Home') { e.preventDefault(); setTab(all[0]); }
+            else if (e.key === 'End') { e.preventDefault(); setTab(all[all.length - 1]); }
+          }}
           style={{
             display: 'flex', gap: '2px', padding: '0 22px',
             borderBottom: `1px solid ${C.borderSubtle}`, overflowX: 'auto',
@@ -242,6 +251,7 @@ export const AdminModal: React.FC<AdminModalProps> = ({
           ] as const).map(t => (
             <button key={t.id} onClick={() => setTab(t.id)}
               role='tab' aria-selected={tab === t.id}
+              tabIndex={tab === t.id ? 0 : -1}
               style={{
                 padding: '12px 16px', fontSize: T.typography.sizeMd, fontWeight: T.typography.weightBold,
                 background: 'transparent', border: 'none', cursor: 'pointer',

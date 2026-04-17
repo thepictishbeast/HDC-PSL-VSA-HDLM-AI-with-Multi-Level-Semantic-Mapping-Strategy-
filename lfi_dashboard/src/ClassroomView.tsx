@@ -89,8 +89,16 @@ export const ClassroomView: React.FC<ClassroomViewProps> = ({ C, host, isDesktop
       flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0,
       background: C.bg, color: C.text, overflow: 'hidden',
     }}>
-      {/* Sub-nav */}
+      {/* Sub-nav — WAI-ARIA tablist with arrow-key navigation. */}
       <div role='tablist' aria-label='Classroom sections'
+        onKeyDown={(e) => {
+          const idx = SUBS.findIndex(s => s.id === sub);
+          if (idx < 0) return;
+          if (e.key === 'ArrowRight') { e.preventDefault(); setSub(SUBS[(idx + 1) % SUBS.length].id); }
+          else if (e.key === 'ArrowLeft') { e.preventDefault(); setSub(SUBS[(idx - 1 + SUBS.length) % SUBS.length].id); }
+          else if (e.key === 'Home') { e.preventDefault(); setSub(SUBS[0].id); }
+          else if (e.key === 'End') { e.preventDefault(); setSub(SUBS[SUBS.length - 1].id); }
+        }}
         style={{
           display: 'flex', gap: '2px', padding: '0 24px',
           borderBottom: `1px solid ${C.borderSubtle}`, overflowX: 'auto',
@@ -99,6 +107,7 @@ export const ClassroomView: React.FC<ClassroomViewProps> = ({ C, host, isDesktop
         {SUBS.map(s => (
           <button key={s.id} onClick={() => setSub(s.id)}
             role='tab' aria-selected={sub === s.id} title={s.hint}
+            tabIndex={sub === s.id ? 0 : -1}
             style={{
               padding: '14px 16px', fontSize: T.typography.sizeMd, fontWeight: T.typography.weightSemibold,
               background: 'transparent', border: 'none', cursor: 'pointer',
