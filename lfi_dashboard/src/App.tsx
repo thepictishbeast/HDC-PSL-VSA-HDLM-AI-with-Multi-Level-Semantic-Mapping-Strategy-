@@ -50,6 +50,9 @@ const AdminModal = React.lazy(() => import('./AdminModal').then(m => ({ default:
 import type { AdminTab } from './AdminModal';
 // Classroom full page (c0-027). Lazy — not visited until user switches view.
 const ClassroomView = React.lazy(() => import('./ClassroomView').then(m => ({ default: m.ClassroomView })));
+// c0-037 #2 / c2-328: dedicated Fleet page. Lazy so the orchestrator SDK
+// payload doesn't bloat the initial chat bundle.
+const FleetView = React.lazy(() => import('./FleetView').then(m => ({ default: m.FleetView })));
 import { TelemetryCard } from './TelemetryCards';
 import { SidebarStatus } from './SidebarStatus';
 import { SubstrateTelemetry } from './SubstrateTelemetry';
@@ -425,6 +428,8 @@ const SovereignCommandConsole: React.FC = () => {
       run: () => { setShowAdmin(true); } },
     { cmd: '/classroom', label: 'Classroom', desc: 'Training, grades, datasets',
       run: () => { setShowAdmin(false); setActiveView('classroom'); } },
+    { cmd: '/fleet', label: 'Fleet', desc: 'Orchestrator: instances, tasks, timeline',
+      run: () => { setShowAdmin(false); setActiveView('fleet'); } },
     { cmd: '/help', label: 'Help & docs', desc: 'Commands, shortcuts, tips, and feedback guide',
       run: () => {
         const cmdList = slashCommands.filter(c => c.cmd !== '/help').map(c => `  ${c.cmd.padEnd(14)} ${c.desc}`).join('\n');
@@ -711,6 +716,7 @@ ${cmdList}
     // they've navigated into a different section, not just a modal.
     if (want === 'admin') setSrAnnouncement('Admin console opened');
     else if (want === 'classroom') setSrAnnouncement('Classroom view active');
+    else if (want === 'fleet') setSrAnnouncement('Fleet view active');
     else setSrAnnouncement('Chat view active');
   }, [activeView, showAdmin]);
   useEffect(() => {
@@ -721,6 +727,9 @@ ${cmdList}
       } else if (h === 'classroom') {
         setShowAdmin(false);
         setActiveView('classroom');
+      } else if (h === 'fleet') {
+        setShowAdmin(false);
+        setActiveView('fleet');
       } else {
         setShowAdmin(false);
         setActiveView('chat');
@@ -1291,12 +1300,14 @@ ${cmdList}
       else if (mod && k === ',') { e.preventDefault(); setShowSettings(true); }
       else if (mod && k === 'e') { e.preventDefault(); inputRef.current?.focus(); }
       else if (mod && k === '/') { e.preventDefault(); inputRef.current?.focus(); }
-      // c0-020: top-level view shortcuts — Cmd/Ctrl + 1 / 2 / 3.
-      else if (mod && !e.shiftKey && (k === '1' || k === '2' || k === '3')) {
+      // c0-020: top-level view shortcuts. c2-328 added ⌘4 for the new
+      // Fleet view so the keyboard map now covers all 4 destinations.
+      else if (mod && !e.shiftKey && (k === '1' || k === '2' || k === '3' || k === '4')) {
         e.preventDefault();
         if (k === '1') { setActiveView('chat'); setShowAdmin(false); }
         else if (k === '2') { setActiveView('classroom'); setShowAdmin(false); }
-        else { setShowAdmin(true); }
+        else if (k === '3') { setShowAdmin(true); }
+        else { setActiveView('fleet'); setShowAdmin(false); }
       }
       else if (mod && e.shiftKey && k === 'k') { e.preventDefault(); setShowKnowledge(true); fetchKnowledge(); }
       else if (mod && e.shiftKey && k === 'd') {
@@ -1905,9 +1916,11 @@ ${cmdList}
   // but Chat and Classroom are true top-level views that replace each other.
   // Hash-route-aware: #chat / #classroom / #admin hydrate the view on mount
   // and forward/back history traversal updates the active view.
-  const [activeView, setActiveView] = useState<'chat' | 'classroom'>(() => {
+  const [activeView, setActiveView] = useState<'chat' | 'classroom' | 'fleet'>(() => {
     const h = (typeof window !== 'undefined' && window.location.hash.replace('#', '')) || 'chat';
-    return h === 'classroom' ? 'classroom' : 'chat';
+    if (h === 'classroom') return 'classroom';
+    if (h === 'fleet') return 'fleet';
+    return 'chat';
   });
   const [convoSearch, setConvoSearch] = useState('');
 
@@ -3918,10 +3931,24 @@ ${cmdList}
             </AppErrorBoundary>
           </React.Suspense>
         )}
+        {/* c0-037 #2 / c2-328: Fleet is a full-page view like Classroom.
+            Scoped in its own ErrorBoundary because orchestrator JSON can be
+            raggedly shaped during bus recovery. */}
+        {activeView === 'fleet' && (
+          <React.Suspense fallback={
+            <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: C.textMuted }}>
+              Loading fleet…
+            </div>
+          }>
+            <AppErrorBoundary themeBg={C.bg} themeText={C.text} themeAccent={C.accent}>
+              <FleetView C={C} host={host} isDesktop={isDesktop} />
+            </AppErrorBoundary>
+          </React.Suspense>
+        )}
         <main id='main-content' role='main' aria-label='Chat'
           aria-busy={isThinking || undefined}
           style={{
-          flex: 1, display: activeView === 'classroom' ? 'none' : 'flex', flexDirection: 'column',
+          flex: 1, display: activeView === 'chat' ? 'flex' : 'none', flexDirection: 'column',
           overflow: 'hidden', minWidth: 0, position: 'relative',
         }}>
           {/* Inline message search (Cmd+Shift+F). Slides down from the top of
