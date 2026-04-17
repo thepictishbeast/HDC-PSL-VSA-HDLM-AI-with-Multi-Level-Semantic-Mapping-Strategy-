@@ -55,11 +55,23 @@ Instance: claude-2 (frontend/UI). Session start: 2026-04-16 ~23:05 EDT. Date rol
 4. Service worker (`public/sw.js`) is in place but dev-disabled by `import.meta.env.PROD` guard; validate against a real `npm run build` before shipping.
 5. Full focus-trap with Tab/Shift-Tab cycling inside the 4 aria-modal dialogs — currently only declared semantic modals, not behavior.
 
-## FILES (25 total in `lfi_dashboard/src/`, 7000+ LOC)
+## FILES (27 TS/TSX in `lfi_dashboard/src/` + 1 JS in `public/`, ~6580 LOC)
 
 | File | Lines | Purpose |
 |---|---|---|
-| App.tsx | 2988 | Main container, state, WS, routing |
+| App.tsx | 2987 | Main container, state, WS, routing |
+| public/sw.js | (ext) | Cache-first service worker for fonts/js/css (prod-only) |
+| useAutoScroll.ts | 23 | Auto-scroll hook: scroll to ref when tracked count grows |
+| useModalFocus.ts | 31 | Initial + restore focus for dialogs |
+| usePolls.ts | 119 | useStatusPoll / useQualityPoll / useSysInfoPoll |
+| useTicTacToe.ts | 63 | Game state hook |
+| markdown.tsx | 145 | renderInlineMd + renderMessageBody |
+| FactsPanel.tsx | 47 | sidebar /api/facts panel |
+| QosPanel.tsx | 79 | sidebar /api/qos panel |
+| SidebarStatus.tsx | 79 | sidebar Status rows |
+| SubstrateTelemetry.tsx | 82 | sidebar telemetry card grid + alerts |
+| AdminActions.tsx | 45 | sidebar admin button cluster |
+| TelemetryCards.tsx | 33 | single colored stat card |
 | MessageBubble.tsx | 436 | System/Web/Tool/User/Assistant message variants |
 | TrainingDashboard.tsx | 429 | Admin/training panel with live banner + heatmap |
 | SettingsModal.tsx | 422 | 4-tab settings (profile/appearance/behavior/data) |
@@ -82,7 +94,20 @@ Instance: claude-2 (frontend/UI). Session start: 2026-04-16 ~23:05 EDT. Date rol
 | TelemetryCards.tsx | 32 | Single colored stat card |
 | main.tsx | 9 | Entry |
 
-App.tsx session delta: **4675 → 2988 (-1687, 36.1% reduction)** despite adding >20 visible features. Further files added since the 22-file snapshot: markdown.tsx (renderInlineMd + renderMessageBody), useTicTacToe hook, usePolls hook (status/quality/sysinfo).
+App.tsx session delta: **4675 → 2987 (-1688, 36.1% reduction)** despite adding >20 visible features.
+
+Beyond-c0-078 work:
+- Phase 2 #2: code-splitting of 5 modals via React.lazy + Suspense.
+- Phase 2 #3: service worker at public/sw.js (prod-only register).
+- Phase 2 #4: WebSocket exponential backoff + jitter.
+- Phase 2 #1 partial: react-virtuoso installed; wiring pending a ChatView extraction.
+- react-virtuoso@4.18 added to package.json.
+- A11y pass: role=dialog + aria-modal + aria-label on 4 modals; role=tablist/tab/tabpanel + aria-selected on Settings + Activity tabs; aria-label on icon-only close buttons + chat textarea; role=status + aria-live=polite on thinking indicator.
+- Focus management: useModalFocus hook wired into 3 modals (initial focus + restore).
+- React.memo on SystemMessage + WebMessage leaf components.
+- First-visit theme defaults to OS `prefers-color-scheme`.
+- Browser tab title tracks active conversation.
+- Cmd+K discoverability hint in input footer.
 
 ## CHECKPOINTS (`working-*` tags)
 
