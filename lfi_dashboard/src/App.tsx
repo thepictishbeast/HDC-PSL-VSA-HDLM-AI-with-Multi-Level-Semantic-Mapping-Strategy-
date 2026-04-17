@@ -3873,7 +3873,11 @@ ${cmdList}
               aria-label='Scroll to latest message'
               title='Scroll to latest'
               style={{
-                position: 'absolute', bottom: '120px', right: '24px',
+                // c2-289: bump the bottom offset by the safe-area inset so the
+                // FAB doesn't tuck behind the chat input on iPhones with a
+                // home-indicator bar. calc() falls back cleanly on platforms
+                // without env() support (gives the original 120px).
+                position: 'absolute', bottom: 'calc(120px + env(safe-area-inset-bottom, 0px))', right: '24px',
                 width: '40px', height: '40px', borderRadius: T.radii.round,
                 background: C.bgCard, border: `1px solid ${C.accentBorder}`,
                 color: C.accent, cursor: 'pointer', boxShadow: T.shadows.card,
