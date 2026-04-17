@@ -1803,6 +1803,8 @@ ${cmdList}
         <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
           <button onClick={() => setShowConvoSidebar(v => !v)}
             title={showConvoSidebar ? 'Hide chats sidebar' : 'Show chats sidebar'}
+            aria-label={showConvoSidebar ? 'Hide chats sidebar' : 'Show chats sidebar'}
+            aria-pressed={showConvoSidebar}
             style={{
               width: '36px', height: '36px', flexShrink: 0,
               display: 'flex', alignItems: 'center', justifyContent: 'center',
@@ -1844,6 +1846,9 @@ ${cmdList}
         <div style={{ position: 'relative', order: 3 }} ref={accountMenuRef}>
           <button onClick={() => setShowAccountMenu(v => !v)}
             title='Account'
+            aria-label='Account menu'
+            aria-haspopup='menu'
+            aria-expanded={showAccountMenu}
             style={{
               display: 'flex', alignItems: 'center', gap: '10px',
               padding: '4px 10px 4px 4px',
