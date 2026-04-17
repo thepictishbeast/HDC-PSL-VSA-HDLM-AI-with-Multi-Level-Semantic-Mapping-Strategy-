@@ -2,6 +2,7 @@ import React, { useRef } from 'react';
 import { THEMES } from './themes';
 import { AVATAR_PRESETS } from './catalogs';
 import { useModalFocus } from './useModalFocus';
+import { T } from './tokens';
 
 export type SettingsTab = 'profile' | 'appearance' | 'behavior' | 'data';
 
@@ -54,22 +55,22 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   return (
   <div onClick={onClose}
     style={{
-      position: 'fixed', inset: 0, zIndex: 200,
+      position: 'fixed', inset: 0, zIndex: T.z.modal,
       background: 'rgba(0,0,0,0.55)',
       display: 'flex', alignItems: 'center', justifyContent: 'center',
-      padding: '16px',
+      padding: T.spacing.lg,
     }}>
-    <div ref={dialogRef} role='dialog' aria-modal='true' aria-label='Settings'
+    <div ref={dialogRef} role='dialog' aria-modal='true' aria-labelledby='scc-settings-title'
       onClick={(e) => e.stopPropagation()}
       style={{
         width: '100%', maxWidth: '520px',
-        background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: '14px',
-        padding: isMobile ? '20px' : '28px', color: C.text,
-        boxShadow: '0 24px 60px rgba(0,0,0,0.45)',
+        background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: T.radii.xxl,
+        padding: isMobile ? T.spacing.xl : '28px', color: C.text,
+        boxShadow: T.shadows.modal,
         maxHeight: '90vh', overflowY: 'auto',
       }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
-        <h2 style={{ margin: 0, fontSize: '15px', fontWeight: 800, letterSpacing: '0.12em', textTransform: 'uppercase' }}>Settings</h2>
+        <h2 id='scc-settings-title' style={{ margin: 0, fontSize: '15px', fontWeight: 800, letterSpacing: '0.12em', textTransform: 'uppercase' }}>Settings</h2>
         <button onClick={onClose} aria-label='Close settings'
           style={{ background: 'transparent', border: 'none', color: C.textMuted, fontSize: '20px', cursor: 'pointer' }}>
           {'\u2715'}

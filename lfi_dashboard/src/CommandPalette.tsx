@@ -1,4 +1,5 @@
 import React from 'react';
+import { T } from './tokens';
 
 // Cmd+K command palette. Parent builds the full items list (items capture lots
 // of closure state like tier handlers, conversations, skills) and passes it
@@ -56,16 +57,16 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
   return (
     <div onClick={onClose}
       style={{
-        position: 'fixed', inset: 0, zIndex: 220,
+        position: 'fixed', inset: 0, zIndex: T.z.palette,
         background: 'rgba(0,0,0,0.55)',
         display: 'flex', alignItems: 'flex-start', justifyContent: 'center',
-        padding: isMobile ? '16px' : '10vh 16px',
+        padding: isMobile ? T.spacing.lg : `10vh ${T.spacing.lg}`,
       }}>
       <div onClick={(e) => e.stopPropagation()}
         style={{
           width: '100%', maxWidth: '560px',
           background: C.bgCard, border: `1px solid ${C.border}`,
-          borderRadius: '12px', boxShadow: '0 24px 60px rgba(0,0,0,0.45)',
+          borderRadius: T.radii.xl, boxShadow: T.shadows.modal,
           overflow: 'hidden', display: 'flex', flexDirection: 'column',
         }}>
         <input autoFocus
@@ -92,9 +93,10 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
             outline: 'none', color: C.text, fontFamily: 'inherit',
             fontSize: '15px', boxSizing: 'border-box',
           }} />
+
         <div id='lfi-cmd-listbox' role='listbox' aria-label='Command palette results' style={{ maxHeight: '60vh', overflowY: 'auto', padding: '6px' }}>
           {filtered.length === 0 && (
-            <div style={{ padding: '20px', color: C.textMuted, fontSize: '13px', textAlign: 'center' }}>
+            <div style={{ padding: T.spacing.xl, color: C.textMuted, fontSize: T.typography.sizeMd, textAlign: 'center' }}>
               No matches for "{query}"
             </div>
           )}
@@ -105,8 +107,8 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
               <div key={it.id}>
                 {it.group !== prev && (
                   <div role='presentation' style={{
-                    padding: '10px 12px 4px', fontSize: '10px', fontWeight: 700,
-                    color: C.textMuted, textTransform: 'uppercase', letterSpacing: '0.10em',
+                    padding: '10px 12px 4px', fontSize: '10px', fontWeight: T.typography.weightBold,
+                    color: C.textMuted, textTransform: 'uppercase', letterSpacing: T.typography.trackingLoose,
                   }}>{it.group}</div>
                 )}
                 <button
@@ -117,7 +119,7 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
                   style={{
                     width: '100%', textAlign: 'left', cursor: 'pointer',
                     padding: '10px 12px', background: picked ? C.accentBg : 'transparent',
-                    border: 'none', borderRadius: '8px', fontFamily: 'inherit',
+                    border: 'none', borderRadius: T.radii.md, fontFamily: 'inherit',
                     color: C.text, display: 'flex', justifyContent: 'space-between', alignItems: 'center',
                   }}>
                   <div style={{ minWidth: 0, overflow: 'hidden' }}>
@@ -141,7 +143,7 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
         <div style={{
           display: 'flex', gap: '14px', padding: '8px 14px',
           borderTop: `1px solid ${C.borderSubtle}`,
-          fontSize: '11px', color: C.textDim,
+          fontSize: T.typography.sizeXs, color: C.textDim,
         }}>
           <span>{'\u2191\u2193'} navigate</span>
           <span>{'\u21B5'} select</span>

@@ -55,7 +55,7 @@ export const ShortcutsModal: React.FC<ShortcutsModalProps> = ({ C, onClose }) =>
         display: 'flex', alignItems: 'center', justifyContent: 'center',
         padding: T.spacing.lg,
       }}>
-      <div ref={dialogRef} role='dialog' aria-modal='true' aria-label='Keyboard shortcuts'
+      <div ref={dialogRef} role='dialog' aria-modal='true' aria-labelledby='scc-shortcuts-title'
         onClick={(e) => e.stopPropagation()}
         style={{
           width: '100%', maxWidth: '520px', maxHeight: '85vh', overflowY: 'auto',
@@ -63,7 +63,7 @@ export const ShortcutsModal: React.FC<ShortcutsModalProps> = ({ C, onClose }) =>
           padding: T.spacing.xl, boxShadow: T.shadows.modal,
         }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: T.spacing.lg }}>
-          <h2 style={{ margin: 0, fontSize: '15px', fontWeight: T.typography.weightBlack, letterSpacing: '0.12em', textTransform: 'uppercase', color: C.text }}>
+          <h2 id='scc-shortcuts-title' style={{ margin: 0, fontSize: '15px', fontWeight: T.typography.weightBlack, letterSpacing: '0.12em', textTransform: 'uppercase', color: C.text }}>
             Keyboard Shortcuts
           </h2>
           <button onClick={onClose} aria-label='Close shortcuts'

@@ -46,6 +46,7 @@ import { SystemMessage, WebMessage, ToolMessage, UserMessage, AssistantMessage }
 // load their code on demand. Cuts the initial JS bundle by ~1000 lines of TSX.
 import { type CmdPaletteItem } from './CommandPalette';
 import { DARK, THEMES } from './themes';
+import { T } from './tokens';
 import { WelcomeScreen } from './WelcomeScreen';
 import { FactsPanel } from './FactsPanel';
 import { QosPanel } from './QosPanel';
@@ -415,8 +416,12 @@ ${cmdList}
   const [knowledgeFacts, setKnowledgeFacts] = useState<Array<{ key: string; value: string }>>([]);
   const [knowledgeConcepts, setKnowledgeConcepts] = useState<Array<{ name: string; mastery: number; review_count: number }>>([]);
   const [knowledgeDue, setKnowledgeDue] = useState<Array<{ name: string; mastery: number; days_overdue: number }>>([]);
+  const [knowledgeLoading, setKnowledgeLoading] = useState(false);
+  const [knowledgeError, setKnowledgeError] = useState<string | null>(null);
   const fetchKnowledge = async () => {
     const host = getHost();
+    setKnowledgeLoading(true);
+    setKnowledgeError(null);
     try {
       const [f, c, d] = await Promise.all([
         fetch(`http://${host}:3000/api/facts`).then(r => r.json()),
@@ -426,7 +431,12 @@ ${cmdList}
       setKnowledgeFacts(f.facts || []);
       setKnowledgeConcepts(c.concepts || []);
       setKnowledgeDue(d.due || []);
-    } catch (e) { console.warn('knowledge fetch failed', e); }
+    } catch (e) {
+      console.warn('knowledge fetch failed', e);
+      setKnowledgeError((e as Error).message || 'Network error — is the backend reachable?');
+    } finally {
+      setKnowledgeLoading(false);
+    }
   };
   // Tic-tac-toe state
   const { board: tttBoard, winner: tttWinner, play: tttPlay, reset: tttReset } = useTicTacToe();
@@ -1496,19 +1506,21 @@ ${cmdList}
       {/* ========== TOOL CONFIRMATION DIALOG ========== */}
       {pendingConfirm && (
         <div style={{
-          position: 'fixed', inset: 0, zIndex: 260,
+          position: 'fixed', inset: 0, zIndex: T.z.modal + 60,
           background: 'rgba(0,0,0,0.55)',
-          display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '16px',
+          display: 'flex', alignItems: 'center', justifyContent: 'center', padding: T.spacing.lg,
         }}>
-          <div style={{
+          <div role='dialog' aria-modal='true'
+            aria-labelledby='scc-confirm-title' aria-describedby='scc-confirm-desc'
+            style={{
             width: '100%', maxWidth: '440px',
-            background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: '14px',
-            padding: '24px', boxShadow: '0 24px 60px rgba(0,0,0,0.45)',
+            background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: T.radii.xxl,
+            padding: T.spacing.xl, boxShadow: T.shadows.modal,
           }}>
-            <h3 style={{ margin: '0 0 8px', fontSize: '16px', fontWeight: 700, color: C.text }}>
+            <h3 id='scc-confirm-title' style={{ margin: '0 0 8px', fontSize: T.typography.sizeXl, fontWeight: T.typography.weightBold, color: C.text }}>
               {pendingConfirm.tool} requires approval
             </h3>
-            <p style={{ margin: '0 0 18px', fontSize: '13px', color: C.textSecondary, lineHeight: 1.6 }}>
+            <p id='scc-confirm-desc' style={{ margin: '0 0 18px', fontSize: T.typography.sizeMd, color: C.textSecondary, lineHeight: T.typography.lineLoose }}>
               {pendingConfirm.desc}
             </p>
             <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end' }}>
@@ -1536,13 +1548,14 @@ ${cmdList}
           display: 'flex', alignItems: 'center', justifyContent: 'center',
           padding: '16px',
         }}>
-          <div style={{
+          <div role='dialog' aria-modal='true' aria-labelledby='scc-tos-title'
+            style={{
             width: '100%', maxWidth: '560px',
             background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: '16px',
             padding: isMobile ? '24px' : '36px',
             boxShadow: '0 32px 80px rgba(0,0,0,0.5)',
           }}>
-            <h1 style={{ margin: '0 0 8px', fontSize: '20px', fontWeight: 700, color: C.text }}>
+            <h1 id='scc-tos-title' style={{ margin: '0 0 8px', fontSize: '20px', fontWeight: 700, color: C.text }}>
               PlausiDen <span style={{ color: C.accent }}>AI</span> — Terms of Use
             </h1>
             <p style={{ margin: '0 0 16px', fontSize: '13px', color: C.textMuted }}>
@@ -1591,7 +1604,8 @@ ${cmdList}
           display: 'flex', alignItems: 'center', justifyContent: 'center',
           padding: '16px',
         }}>
-          <div style={{
+          <div role='dialog' aria-modal='true' aria-labelledby='scc-welcome-title'
+            style={{
             width: '100%', maxWidth: '520px',
             background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: '16px',
             padding: isMobile ? '24px' : '36px',
@@ -1605,7 +1619,7 @@ ${cmdList}
             }}>
             PlausiDen <span style={{ opacity: 0.7 }}>AI</span>
             </pre>
-            <h1 style={{ margin: '0 0 6px', fontSize: '22px', fontWeight: 700, color: C.text }}>
+            <h1 id='scc-welcome-title' style={{ margin: '0 0 6px', fontSize: '22px', fontWeight: 700, color: C.text }}>
               Welcome to PlausiDen <span style={{ color: C.accent }}>AI</span>
             </h1>
             <p style={{ margin: '0 0 24px', fontSize: '14px', color: C.textMuted, lineHeight: 1.6 }}>
@@ -1692,6 +1706,9 @@ ${cmdList}
           facts={knowledgeFacts}
           concepts={knowledgeConcepts}
           due={knowledgeDue}
+          loading={knowledgeLoading}
+          error={knowledgeError}
+          onRetry={fetchKnowledge}
           onClose={() => setShowKnowledge(false)}
         />
       )}
@@ -1768,6 +1785,7 @@ ${cmdList}
           serverChatLog={serverChatLog}
           chatLogError={chatLogError}
           chatLogFetchedAt={chatLogFetchedAt}
+          onRefreshChatLog={() => fetchChatLog(50)}
           localEvents={localEvents}
           isConnected={isConnected}
           currentTier={currentTier}

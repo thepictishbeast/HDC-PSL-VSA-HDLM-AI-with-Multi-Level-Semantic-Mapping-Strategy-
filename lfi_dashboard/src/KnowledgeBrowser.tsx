@@ -1,5 +1,6 @@
 import React, { useRef } from 'react';
 import { useModalFocus } from './useModalFocus';
+import { T } from './tokens';
 
 // Knowledge browser modal: facts, concepts, and the "due for review" list.
 // Pure presentational — parent owns the data and the fetchKnowledge trigger.
@@ -13,35 +14,39 @@ export interface KnowledgeBrowserProps {
   facts: KnowledgeFact[];
   concepts: KnowledgeConcept[];
   due: KnowledgeDue[];
+  loading?: boolean;
+  error?: string | null;
+  onRetry?: () => void;
   onClose: () => void;
 }
 
-export const KnowledgeBrowser: React.FC<KnowledgeBrowserProps> = ({ C, facts, concepts, due, onClose }) => {
+export const KnowledgeBrowser: React.FC<KnowledgeBrowserProps> = ({ C, facts, concepts, due, loading, error, onRetry, onClose }) => {
   const dialogRef = useRef<HTMLDivElement>(null);
   useModalFocus(true, dialogRef);
+  const isEmpty = !loading && !error && facts.length === 0 && concepts.length === 0 && due.length === 0;
   return (
   <div onClick={onClose}
     style={{
-      position: 'fixed', inset: 0, zIndex: 230,
+      position: 'fixed', inset: 0, zIndex: T.z.modal + 30,
       background: 'rgba(0,0,0,0.55)',
       display: 'flex', alignItems: 'center', justifyContent: 'center',
-      padding: '16px',
+      padding: T.spacing.lg,
     }}>
-    <div ref={dialogRef} role='dialog' aria-modal='true' aria-label='Knowledge browser'
+    <div ref={dialogRef} role='dialog' aria-modal='true' aria-labelledby='scc-knowledge-title'
       onClick={(e) => e.stopPropagation()}
       style={{
         width: '100%', maxWidth: '700px', height: '80vh',
-        background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: '14px',
+        background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: T.radii.xxl,
         display: 'flex', flexDirection: 'column', overflow: 'hidden',
-        boxShadow: '0 24px 60px rgba(0,0,0,0.45)',
+        boxShadow: T.shadows.modal,
       }}>
       <div style={{
         display: 'flex', justifyContent: 'space-between', alignItems: 'center',
         padding: '16px 20px', borderBottom: `1px solid ${C.borderSubtle}`,
       }}>
-        <h2 style={{ margin: 0, fontSize: '16px', fontWeight: 700, color: C.text }}>Knowledge Browser</h2>
-        <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-          <span style={{ fontSize: '12px', color: C.textMuted }}>
+        <h2 id='scc-knowledge-title' style={{ margin: 0, fontSize: T.typography.sizeXl, fontWeight: T.typography.weightBold, color: C.text }}>Knowledge Browser</h2>
+        <div style={{ display: 'flex', gap: T.spacing.sm, alignItems: 'center' }}>
+          <span style={{ fontSize: T.typography.sizeSm, color: C.textMuted }}>
             {facts.length} facts &middot; {concepts.length} concepts &middot; {due.length} due
           </span>
           <button onClick={onClose} aria-label='Close knowledge browser'
@@ -51,8 +56,59 @@ export const KnowledgeBrowser: React.FC<KnowledgeBrowserProps> = ({ C, facts, co
         </div>
       </div>
       <div style={{ flex: 1, overflowY: 'auto', padding: '16px 20px' }}>
+        {/* Loading skeleton — shown while the 3-endpoint fetch is inflight. */}
+        {loading && (
+          <div aria-busy='true' aria-live='polite' style={{ padding: '12px 0' }}>
+            {[0, 1, 2].map(i => (
+              <div key={i} style={{
+                height: '42px', marginBottom: '10px', borderRadius: '8px',
+                background: `linear-gradient(90deg, ${C.bgInput} 0%, ${C.bgHover} 50%, ${C.bgInput} 100%)`,
+                backgroundSize: '200% 100%',
+                animation: 'scc-skel 1.4s ease-in-out infinite',
+              }} />
+            ))}
+            <style>{`@keyframes scc-skel { 0% { background-position: 200% 0 } 100% { background-position: -200% 0 } }`}</style>
+          </div>
+        )}
+        {/* Error — tell the user what/why/what next (Tier 4 §26). */}
+        {error && !loading && (
+          <div role='alert' style={{
+            padding: '16px 18px', marginBottom: '16px',
+            background: C.redBg, border: `1px solid ${C.redBorder}`, borderRadius: '10px',
+            display: 'flex', flexDirection: 'column', gap: '8px',
+          }}>
+            <div style={{ fontSize: '13px', fontWeight: 700, color: C.red }}>Could not load knowledge</div>
+            <div style={{ fontSize: '12px', color: C.textSecondary, lineHeight: 1.55 }}>
+              {error} &middot; The backend at <code style={{ fontFamily: 'monospace' }}>/api/facts</code>, <code style={{ fontFamily: 'monospace' }}>/api/knowledge/concepts</code>, <code style={{ fontFamily: 'monospace' }}>/api/knowledge/due</code> did not respond. Check that the Rust server is running on port 3000.
+            </div>
+            {onRetry && (
+              <button onClick={onRetry}
+                style={{
+                  alignSelf: 'flex-start', padding: '6px 14px', fontSize: '12px', fontWeight: 700,
+                  background: C.accentBg, border: `1px solid ${C.accentBorder}`, color: C.accent,
+                  borderRadius: '6px', cursor: 'pointer', fontFamily: 'inherit',
+                }}>Retry</button>
+            )}
+          </div>
+        )}
+        {/* Full zero state — no facts, no concepts, nothing due. */}
+        {isEmpty && (
+          <div style={{
+            padding: '40px 20px', textAlign: 'center',
+            display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '10px',
+          }}>
+            <svg width='48' height='48' viewBox='0 0 24 24' fill='none' stroke={C.textMuted} strokeWidth='1.5' aria-hidden='true'>
+              <path d='M12 3v18M3 12h18' strokeLinecap='round' />
+              <circle cx='12' cy='12' r='9' />
+            </svg>
+            <div style={{ fontSize: '14px', fontWeight: 700, color: C.text }}>Nothing learned yet</div>
+            <div style={{ fontSize: '12px', color: C.textMuted, maxWidth: '360px', lineHeight: 1.6 }}>
+              PlausiDen's knowledge base is empty. Start chatting — it records facts and reinforces concepts from every exchange. Use <code style={{ fontFamily: 'monospace', color: C.accent }}>/knowledge</code> to seed it manually.
+            </div>
+          </div>
+        )}
         {/* Due for review */}
-        {due.length > 0 && (
+        {!loading && !error && due.length > 0 && (
           <div style={{ marginBottom: '20px' }}>
             <div style={{ fontSize: '11px', fontWeight: 700, color: C.accent, textTransform: 'uppercase', letterSpacing: '0.10em', marginBottom: '10px' }}>
               Due for review ({due.length})
@@ -83,6 +139,7 @@ export const KnowledgeBrowser: React.FC<KnowledgeBrowserProps> = ({ C, facts, co
         )}
 
         {/* Facts */}
+        {!loading && !error && !isEmpty && (
         <div style={{ marginBottom: '20px' }}>
           <div style={{ fontSize: '11px', fontWeight: 700, color: C.textMuted, textTransform: 'uppercase', letterSpacing: '0.10em', marginBottom: '10px' }}>
             Facts ({facts.length})
@@ -103,8 +160,10 @@ export const KnowledgeBrowser: React.FC<KnowledgeBrowserProps> = ({ C, facts, co
             ))
           )}
         </div>
+        )}
 
         {/* Concepts */}
+        {!loading && !error && !isEmpty && (
         <div>
           <div style={{ fontSize: '11px', fontWeight: 700, color: C.textMuted, textTransform: 'uppercase', letterSpacing: '0.10em', marginBottom: '10px' }}>
             Concepts ({concepts.length})
@@ -137,6 +196,7 @@ export const KnowledgeBrowser: React.FC<KnowledgeBrowserProps> = ({ C, facts, co
             ))
           )}
         </div>
+        )}
       </div>
     </div>
   </div>

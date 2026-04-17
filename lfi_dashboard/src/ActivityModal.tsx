@@ -1,5 +1,6 @@
 import React, { useRef } from 'react';
 import { useModalFocus } from './useModalFocus';
+import { T } from './tokens';
 
 // Activity & Logs modal: 3 tabs (server chat log, local UI events, system snapshot).
 // Kept as a pure render — parent owns all of the data + fetch triggers.
@@ -35,6 +36,7 @@ export interface ActivityModalProps {
   serverChatLog: ActivityChatEntry[];
   chatLogError: string | null;
   chatLogFetchedAt: number | null;
+  onRefreshChatLog?: () => void;
   localEvents: ActivityLocalEvent[];
   isConnected: boolean;
   currentTier: string;
@@ -51,7 +53,7 @@ export interface ActivityModalProps {
 
 export const ActivityModal: React.FC<ActivityModalProps> = ({
   C, tab, onTabChange, onClose,
-  serverChatLog, chatLogError, chatLogFetchedAt,
+  serverChatLog, chatLogError, chatLogFetchedAt, onRefreshChatLog,
   localEvents,
   isConnected, currentTier, thermalThrottled, ramLabel, cpuTempC, factsLabel, conceptsLabel, logicDensity,
   qosReport, onRefreshQos, onRefreshFacts,
@@ -61,24 +63,24 @@ export const ActivityModal: React.FC<ActivityModalProps> = ({
   return (
   <div onClick={onClose}
     style={{
-      position: 'fixed', inset: 0, zIndex: 220,
+      position: 'fixed', inset: 0, zIndex: T.z.palette,
       background: 'rgba(0,0,0,0.55)',
       display: 'flex', alignItems: 'center', justifyContent: 'center',
-      padding: '16px',
+      padding: T.spacing.lg,
     }}>
-    <div ref={dialogRef} role='dialog' aria-modal='true' aria-label='Activity and logs'
+    <div ref={dialogRef} role='dialog' aria-modal='true' aria-labelledby='scc-activity-title'
       onClick={(e) => e.stopPropagation()}
       style={{
         width: '100%', maxWidth: '900px', height: '82vh',
-        background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: '14px',
+        background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: T.radii.xxl,
         display: 'flex', flexDirection: 'column', overflow: 'hidden',
-        boxShadow: '0 24px 60px rgba(0,0,0,0.45)',
+        boxShadow: T.shadows.modal,
       }}>
       <div style={{
         display: 'flex', justifyContent: 'space-between', alignItems: 'center',
         padding: '16px 20px', borderBottom: `1px solid ${C.borderSubtle}`,
       }}>
-        <h2 style={{ margin: 0, fontSize: '15px', fontWeight: 800, letterSpacing: '0.12em', textTransform: 'uppercase', color: C.text }}>
+        <h2 id='scc-activity-title' style={{ margin: 0, fontSize: '15px', fontWeight: T.typography.weightBlack, letterSpacing: '0.12em', textTransform: 'uppercase', color: C.text }}>
           Activity &amp; Logs
         </h2>
         <button onClick={onClose} aria-label='Close activity'
@@ -109,12 +111,20 @@ export const ActivityModal: React.FC<ActivityModalProps> = ({
           <>
             {serverChatLog.length === 0 && (
               chatLogError ? (
-                <div style={{ fontSize: '13px', padding: '16px', background: C.redBg, border: `1px solid ${C.redBorder}`, borderRadius: '8px', color: C.red, lineHeight: 1.5 }}>
+                <div role='alert' style={{ fontSize: '13px', padding: '16px', background: C.redBg, border: `1px solid ${C.redBorder}`, borderRadius: '8px', color: C.red, lineHeight: 1.5 }}>
                   <div style={{ fontWeight: 700, marginBottom: '4px' }}>Could not load chat log</div>
                   <div style={{ fontSize: '12px', opacity: 0.9 }}>{chatLogError}</div>
                   <div style={{ fontSize: '11px', marginTop: '8px', color: C.textMuted }}>
-                    {chatLogError.toLowerCase().includes('auth') ? 'Server is gating this endpoint; the passwordless-mode flag may be off-sync after a restart.' : null}
+                    {chatLogError.toLowerCase().includes('auth') ? 'Server is gating this endpoint; the passwordless-mode flag may be off-sync after a restart.' : 'Check that the Rust backend is running on port 3000 and try again.'}
                   </div>
+                  {onRefreshChatLog && (
+                    <button onClick={onRefreshChatLog}
+                      style={{
+                        marginTop: '10px', padding: '6px 14px', fontSize: '12px', fontWeight: 700,
+                        background: C.accentBg, border: `1px solid ${C.accentBorder}`, color: C.accent,
+                        borderRadius: '6px', cursor: 'pointer', fontFamily: 'inherit',
+                      }}>Retry</button>
+                  )}
                 </div>
               ) : chatLogFetchedAt ? (
                 <div style={{ color: C.textMuted, fontSize: '13px', padding: '20px', textAlign: 'center' }}>

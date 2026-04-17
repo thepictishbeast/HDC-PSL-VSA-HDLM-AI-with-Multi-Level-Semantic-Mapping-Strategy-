@@ -172,7 +172,8 @@ def main():
         updates = []
         for rowid, value, source, domain, old_score in rows:
             new_score = compute_quality(value or "", source or "", domain or "")
-            if abs(new_score - (old_score or 0)) > 0.02:  # Only update if meaningful change
+            old = old_score if old_score is not None else 0.0
+            if abs(new_score - old) > 0.02:  # Only update if meaningful change
                 updates.append((new_score, rowid))
 
         if updates:
