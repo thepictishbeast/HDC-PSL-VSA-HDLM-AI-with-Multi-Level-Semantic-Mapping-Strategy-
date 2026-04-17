@@ -58,5 +58,7 @@ pub mod camel_barrier;
 pub mod knowledge_benchmark;
 pub mod storage_tiering;
 pub mod data_connector;
+pub mod reward_model;
 
 pub use data_connector::{DataSourceRegistry, DataSourceConfig, SourceType, IngestResult, ColumnMapping};
+pub use reward_model::{RewardClassifier, TrainingPair, ClassificationResult, QualityTier, BatchStats};
