@@ -36,7 +36,7 @@ import css from 'highlight.js/lib/languages/css';
 import xml from 'highlight.js/lib/languages/xml';
 import go from 'highlight.js/lib/languages/go';
 import 'highlight.js/styles/github-dark.css';
-import { compactNum, formatRam, formatTime, copyToClipboard, diskPressure } from './util';
+import { compactNum, formatRam, formatTime, copyToClipboard, diskPressure, smartTitle } from './util';
 import { TrainingDashboardContent } from './TrainingDashboard';
 import { AppErrorBoundary } from './AppErrorBoundary';
 import { LoginScreen } from './LoginScreen';
@@ -1201,20 +1201,6 @@ ${cmdList}
   // Smart auto-title: look at the first user turn + first assistant reply,
   // pick a short key-phrase that beats simple truncation. Falls back to
   // titleFrom if no signal. Rule-of-thumb similar to ChatGPT/Gemini heuristics.
-  const smartTitle = (msgs: ChatMessage[]): string => {
-    const firstUser = msgs.find(m => m.role === 'user');
-    if (!firstUser) return 'New chat';
-    const raw = firstUser.content.replace(/\s+/g, ' ').trim();
-    // If the message is a question, keep it whole (up to 52 chars).
-    if (/\?\s*$/.test(raw)) return raw.slice(0, 52);
-    // Extract action verb + object pattern (first 6-8 words).
-    const words = raw.split(' ');
-    if (words.length <= 7) return raw.slice(0, 52);
-    // Prefer the first clause (stops at punctuation).
-    const clause = raw.split(/[.,;!?]/)[0].trim();
-    if (clause.length >= 6 && clause.length <= 60) return clause;
-    return raw.slice(0, 52);
-  };
   const [showConvoSidebar, setShowConvoSidebar] = useState<boolean>(true);
   const [showPlanSidebar, setShowPlanSidebar] = useState<boolean>(true);
   const [convoSearch, setConvoSearch] = useState('');

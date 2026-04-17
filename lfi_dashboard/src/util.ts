@@ -35,6 +35,21 @@ export const copyToClipboard = async (text: string): Promise<void> => {
   }
 };
 
+// Auto-title a conversation from its message list. Used once, but extracted so
+// the heuristic (questions preserved, first clause preferred, 52-char cap) is
+// easy to test + tune without scrolling through App.tsx.
+export const smartTitle = (msgs: Array<{ role: string; content: string }>): string => {
+  const firstUser = msgs.find(m => m.role === 'user');
+  if (!firstUser) return 'New chat';
+  const raw = firstUser.content.replace(/\s+/g, ' ').trim();
+  if (/\?\s*$/.test(raw)) return raw.slice(0, 52);
+  const words = raw.split(' ');
+  if (words.length <= 7) return raw.slice(0, 52);
+  const clause = raw.split(/[.,;!?]/)[0].trim();
+  if (clause.length >= 6 && clause.length <= 60) return clause;
+  return raw.slice(0, 52);
+};
+
 // Summarise disk pressure from /api/system/info byte counts. Returns null when
 // the inputs aren't usable. Used by sidebar banner + status row so the pct +
 // GB conversion stays in one place; callers pick their own thresholds.
