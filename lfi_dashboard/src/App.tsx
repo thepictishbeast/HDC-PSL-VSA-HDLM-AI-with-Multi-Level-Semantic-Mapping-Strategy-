@@ -1065,12 +1065,26 @@ ${cmdList}
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [showCmdPalette, showSettings, showKnowledge, showActivity, showGame]);
 
-  // Fetch /api/system/info once on mount for the sidebar footer label.
+  // Fetch /api/system/info on mount + every 60s so disk-pressure warnings
+  // stay current. Host + OS are static; disk fills up under ingestion.
   useEffect(() => {
     if (!isAuthenticated) return;
-    fetch(`http://${getHost()}:3000/api/system/info`)
-      .then(r => r.json()).then(d => setSysInfo({ hostname: d.hostname, os: d.os, cpu_count: d.cpu_count }))
-      .catch(() => {});
+    const fetchSys = () => {
+      fetch(`http://${getHost()}:3000/api/system/info`)
+        .then(r => r.json())
+        .then(d => setSysInfo({
+          hostname: d.hostname,
+          os: d.os,
+          cpu_count: d.cpu_count,
+          cpu_model: d.cpu_model,
+          disk_free: typeof d.disk_root_free_bytes === 'number' ? d.disk_root_free_bytes : undefined,
+          disk_total: typeof d.disk_root_total_bytes === 'number' ? d.disk_root_total_bytes : undefined,
+        }))
+        .catch(() => {});
+    };
+    fetchSys();
+    const id = setInterval(fetchSys, 60000);
+    return () => clearInterval(id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isAuthenticated]);
 
@@ -1876,6 +1890,20 @@ ${cmdList}
               value: kg.sources ? String(kg.sources) : (quality?.distinct_sources ? String(quality.distinct_sources) : '—'),
               color: C.purple,
             },
+            (() => {
+              // Disk pressure on the server's root partition. Claude 0 flagged /root
+              // at ~90% early in the session; showing this lets users spot storage
+              // issues before the server starts failing writes.
+              const free = sysInfo.disk_free, total = sysInfo.disk_total;
+              if (!free || !total) return { label: 'Disk', value: '—', color: C.textMuted };
+              const usedPct = ((total - free) / total) * 100;
+              const freeGb = (free / (1024 ** 3)).toFixed(1);
+              return {
+                label: 'Disk',
+                value: `${usedPct.toFixed(0)}% · ${freeGb}G free`,
+                color: usedPct >= 90 ? C.red : usedPct >= 75 ? C.yellow : C.green,
+              };
+            })(),
           ].map(row => (
             <div key={row.label} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px' }}>
               <span style={{ color: C.textMuted }}>{row.label}</span>
