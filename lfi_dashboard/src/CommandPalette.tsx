@@ -106,7 +106,7 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
             width: '100%', padding: '16px 18px', background: 'transparent',
             border: 'none', borderBottom: `1px solid ${C.borderSubtle}`,
             outline: 'none', color: C.text, fontFamily: 'inherit',
-            fontSize: '15px', boxSizing: 'border-box',
+            fontSize: T.typography.sizeLg, boxSizing: 'border-box',
           }} />
 
         <div id='lfi-cmd-listbox' role='listbox' aria-label='Command palette results' style={{ maxHeight: '60vh', overflowY: 'auto', padding: '6px' }}>
@@ -122,7 +122,7 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
               <div key={it.id}>
                 {it.group !== prev && (
                   <div role='presentation' style={{
-                    padding: '10px 12px 4px', fontSize: '10px', fontWeight: T.typography.weightBold,
+                    padding: '10px 12px 4px', fontSize: T.typography.sizeXs, fontWeight: T.typography.weightBold,
                     color: C.textMuted, textTransform: 'uppercase', letterSpacing: T.typography.trackingLoose,
                   }}>{it.group}</div>
                 )}
@@ -145,7 +145,7 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
                       {it.hint}
                     </div>
                   </div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginLeft: '10px', flexShrink: 0 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: T.spacing.sm, marginLeft: '10px', flexShrink: 0 }}>
                     {it.shortcut && (
                       <kbd style={{
                         fontFamily: 'ui-monospace, SFMono-Regular, monospace',

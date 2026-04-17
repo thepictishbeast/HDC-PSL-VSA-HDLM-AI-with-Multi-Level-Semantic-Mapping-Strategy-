@@ -89,7 +89,7 @@ export const ActivityModal: React.FC<ActivityModalProps> = ({
         </button>
       </div>
       <div role='tablist' aria-label='Activity sections'
-        style={{ display: 'flex', gap: '4px', padding: '8px 12px', borderBottom: `1px solid ${C.borderSubtle}` }}>
+        style={{ display: 'flex', gap: T.spacing.xs, padding: '8px 12px', borderBottom: `1px solid ${C.borderSubtle}` }}>
         {([
           { id: 'chat', label: `Conversations (${serverChatLog.length})` },
           { id: 'events', label: `UI events (${localEvents.length})` },
@@ -98,11 +98,11 @@ export const ActivityModal: React.FC<ActivityModalProps> = ({
           <button key={t.id} onClick={() => onTabChange(t.id)}
             role='tab' aria-selected={tab === t.id}
             style={{
-              padding: '8px 14px', fontSize: '12px',
+              padding: '8px 14px', fontSize: T.typography.sizeSm,
               background: tab === t.id ? C.accentBg : 'transparent',
               border: `1px solid ${tab === t.id ? C.accentBorder : 'transparent'}`,
               color: tab === t.id ? C.accent : C.textMuted,
-              borderRadius: '8px', cursor: 'pointer', fontFamily: 'inherit', fontWeight: 700,
+              borderRadius: T.radii.lg, cursor: 'pointer', fontFamily: 'inherit', fontWeight: 700,
             }}>{t.label}</button>
         ))}
       </div>
@@ -111,30 +111,30 @@ export const ActivityModal: React.FC<ActivityModalProps> = ({
           <>
             {serverChatLog.length === 0 && (
               chatLogError ? (
-                <div role='alert' style={{ fontSize: '13px', padding: '16px', background: C.redBg, border: `1px solid ${C.redBorder}`, borderRadius: '8px', color: C.red, lineHeight: 1.5 }}>
-                  <div style={{ fontWeight: 700, marginBottom: '4px' }}>Could not load chat log</div>
-                  <div style={{ fontSize: '12px', opacity: 0.9 }}>{chatLogError}</div>
-                  <div style={{ fontSize: '11px', marginTop: '8px', color: C.textMuted }}>
+                <div role='alert' style={{ fontSize: T.typography.sizeMd, padding: T.spacing.lg, background: C.redBg, border: `1px solid ${C.redBorder}`, borderRadius: T.radii.lg, color: C.red, lineHeight: 1.5 }}>
+                  <div style={{ fontWeight: 700, marginBottom: T.spacing.xs }}>Could not load chat log</div>
+                  <div style={{ fontSize: T.typography.sizeSm, opacity: 0.9 }}>{chatLogError}</div>
+                  <div style={{ fontSize: T.typography.sizeXs, marginTop: T.spacing.sm, color: C.textMuted }}>
                     {chatLogError.toLowerCase().includes('auth') ? 'Server is gating this endpoint; the passwordless-mode flag may be off-sync after a restart.' : 'Check that the Rust backend is running on port 3000 and try again.'}
                   </div>
                   {onRefreshChatLog && (
                     <button onClick={onRefreshChatLog}
                       style={{
-                        marginTop: '10px', padding: '6px 14px', fontSize: '12px', fontWeight: 700,
+                        marginTop: '10px', padding: '6px 14px', fontSize: T.typography.sizeSm, fontWeight: 700,
                         background: C.accentBg, border: `1px solid ${C.accentBorder}`, color: C.accent,
-                        borderRadius: '6px', cursor: 'pointer', fontFamily: 'inherit',
+                        borderRadius: T.radii.md, cursor: 'pointer', fontFamily: 'inherit',
                       }}>Retry</button>
                   )}
                 </div>
               ) : chatLogFetchedAt ? (
-                <div style={{ color: C.textMuted, fontSize: '13px', padding: '20px', textAlign: 'center' }}>
+                <div style={{ color: C.textMuted, fontSize: T.typography.sizeMd, padding: '20px', textAlign: 'center' }}>
                   No logged turns yet. Send a message to populate.
-                  <div style={{ fontSize: '11px', color: C.textDim, marginTop: '6px' }}>
+                  <div style={{ fontSize: T.typography.sizeXs, color: C.textDim, marginTop: '6px' }}>
                     Last checked {new Date(chatLogFetchedAt).toLocaleTimeString()}
                   </div>
                 </div>
               ) : (
-                <div style={{ color: C.textMuted, fontSize: '13px', padding: '20px', textAlign: 'center' }}>
+                <div style={{ color: C.textMuted, fontSize: T.typography.sizeMd, padding: '20px', textAlign: 'center' }}>
                   Loading chat log…
                 </div>
               )
@@ -144,16 +144,16 @@ export const ActivityModal: React.FC<ActivityModalProps> = ({
                 padding: '12px 14px', marginBottom: '8px',
                 background: C.bgInput, border: `1px solid ${C.borderSubtle}`, borderRadius: '10px',
               }}>
-                <div style={{ fontSize: '10px', color: C.textDim, marginBottom: '6px', display: 'flex', gap: '10px' }}>
+                <div style={{ fontSize: '10px', color: C.textDim, marginBottom: '6px', display: 'flex', gap: T.spacing.md }}>
                   <span>{new Date((e.ts || 0) * 1000).toLocaleString()}</span>
                   <span style={{ color: C.accent }}>{e.tier}</span>
                   <span style={{ color: C.purple }}>{(e.intent || '').split('{')[0]}</span>
                   <span style={{ color: C.green }}>{e.confidence ? `${(e.confidence * 100).toFixed(0)}%` : ''}</span>
                 </div>
-                <div style={{ fontSize: '13px', color: C.accent, marginBottom: '4px' }}>
+                <div style={{ fontSize: T.typography.sizeMd, color: C.accent, marginBottom: T.spacing.xs }}>
                   <strong>User:</strong> {e.user}
                 </div>
-                <div style={{ fontSize: '13px', color: C.text, whiteSpace: 'pre-wrap' }}>
+                <div style={{ fontSize: T.typography.sizeMd, color: C.text, whiteSpace: 'pre-wrap' }}>
                   <strong style={{ color: C.green }}>AI:</strong> {e.reply}
                 </div>
               </div>
@@ -163,14 +163,14 @@ export const ActivityModal: React.FC<ActivityModalProps> = ({
         {tab === 'events' && (
           <>
             {localEvents.length === 0 && (
-              <div style={{ color: C.textMuted, fontSize: '13px', padding: '20px', textAlign: 'center' }}>
+              <div style={{ color: C.textMuted, fontSize: T.typography.sizeMd, padding: '20px', textAlign: 'center' }}>
                 No UI events captured yet.
               </div>
             )}
             {localEvents.slice().reverse().map((e, i) => (
               <div key={i} style={{
                 display: 'flex', gap: '12px', padding: '6px 10px',
-                borderBottom: `1px solid ${C.borderSubtle}`, fontSize: '12px',
+                borderBottom: `1px solid ${C.borderSubtle}`, fontSize: T.typography.sizeSm,
               }}>
                 <span style={{ color: C.textDim, minWidth: '120px' }}>
                   {new Date(e.t).toLocaleTimeString()}
@@ -184,8 +184,8 @@ export const ActivityModal: React.FC<ActivityModalProps> = ({
           </>
         )}
         {tab === 'system' && (
-          <div style={{ fontSize: '12px', color: C.textSecondary }}>
-            <div style={{ marginBottom: '12px', display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '10px' }}>
+          <div style={{ fontSize: T.typography.sizeSm, color: C.textSecondary }}>
+            <div style={{ marginBottom: '12px', display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: T.spacing.md }}>
               {[
                 ['Connection', isConnected ? 'LIVE' : 'DOWN'],
                 ['Tier', currentTier],
@@ -199,7 +199,7 @@ export const ActivityModal: React.FC<ActivityModalProps> = ({
                 <div key={k} style={{
                   display: 'flex', justifyContent: 'space-between',
                   padding: '8px 12px',
-                  background: C.bgInput, border: `1px solid ${C.borderSubtle}`, borderRadius: '8px',
+                  background: C.bgInput, border: `1px solid ${C.borderSubtle}`, borderRadius: T.radii.lg,
                 }}>
                   <span style={{ color: C.textMuted }}>{k}</span>
                   <span style={{ color: C.text, fontWeight: 700 }}>{v}</span>
@@ -209,23 +209,23 @@ export const ActivityModal: React.FC<ActivityModalProps> = ({
             <div style={{ display: 'flex', gap: '8px' }}>
               <button onClick={onRefreshQos}
                 style={{
-                  padding: '8px 14px', fontSize: '12px', background: C.accentBg,
+                  padding: '8px 14px', fontSize: T.typography.sizeSm, background: C.accentBg,
                   border: `1px solid ${C.accentBorder}`, color: C.accent,
-                  borderRadius: '8px', cursor: 'pointer', fontFamily: 'inherit', fontWeight: 700,
+                  borderRadius: T.radii.lg, cursor: 'pointer', fontFamily: 'inherit', fontWeight: 700,
                 }}>Refresh QoS</button>
               <button onClick={onRefreshFacts}
                 style={{
-                  padding: '8px 14px', fontSize: '12px', background: C.purpleBg,
+                  padding: '8px 14px', fontSize: T.typography.sizeSm, background: C.purpleBg,
                   border: `1px solid ${C.purpleBorder}`, color: C.purple,
-                  borderRadius: '8px', cursor: 'pointer', fontFamily: 'inherit', fontWeight: 700,
+                  borderRadius: T.radii.lg, cursor: 'pointer', fontFamily: 'inherit', fontWeight: 700,
                 }}>Refresh facts</button>
             </div>
             {qosReport && (
-              <div style={{ marginTop: '14px', display: 'flex', flexDirection: 'column', gap: '4px' }}>
+              <div style={{ marginTop: '14px', display: 'flex', flexDirection: 'column', gap: T.spacing.xs }}>
                 {qosReport.checks?.map((c, i) => (
                   <div key={i} style={{
                     display: 'flex', justifyContent: 'space-between',
-                    padding: '6px 10px', borderRadius: '6px',
+                    padding: '6px 10px', borderRadius: T.radii.md,
                     background: c.passed ? C.greenBg : C.redBg,
                     border: `1px solid ${c.passed ? C.greenBorder : C.redBorder}`,
                   }}>

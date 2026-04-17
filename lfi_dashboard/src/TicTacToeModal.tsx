@@ -1,6 +1,9 @@
 import React, { useRef } from 'react';
 import { useModalFocus } from './useModalFocus';
 import { T } from './tokens';
+// c2-339: dsType.sizes['2xl'] (24px) from the cross-platform design-system;
+// T.typography caps at 22px so the playful XL grid face needs the bigger step.
+import { typography as dsType } from './design-system';
 
 // Tic-Tac-Toe easter egg. Purely presentational — board/turn/winner state and
 // the play/reset handlers live in the parent so the game logic stays alongside
@@ -45,7 +48,7 @@ export const TicTacToeModal: React.FC<TicTacToeModalProps> = ({ C, board, winner
           <button key={i} onClick={() => onPlay(i)}
             style={{
               width: '60px', height: '60px',
-              fontSize: '24px', fontWeight: T.typography.weightBlack,
+              fontSize: dsType.sizes['2xl'], fontWeight: T.typography.weightBlack,
               background: cell === 'X' ? C.accentBg : cell === 'O' ? C.redBg : C.bgInput,
               border: `1px solid ${C.border}`,
               borderRadius: T.radii.md, cursor: cell || winner ? 'default' : 'pointer',

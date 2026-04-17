@@ -61,7 +61,7 @@ export const KnowledgeBrowser: React.FC<KnowledgeBrowserProps> = ({ C, facts, co
           <div aria-busy='true' aria-live='polite' style={{ padding: '12px 0' }}>
             {[0, 1, 2].map(i => (
               <div key={i} style={{
-                height: '42px', marginBottom: '10px', borderRadius: '8px',
+                height: '42px', marginBottom: T.spacing.md, borderRadius: T.radii.lg,
                 background: `linear-gradient(90deg, ${C.bgInput} 0%, ${C.bgHover} 50%, ${C.bgInput} 100%)`,
                 backgroundSize: '200% 100%',
                 animation: 'scc-skel 1.4s ease-in-out infinite',
@@ -73,18 +73,18 @@ export const KnowledgeBrowser: React.FC<KnowledgeBrowserProps> = ({ C, facts, co
         {/* Error — tell the user what/why/what next (Tier 4 §26). */}
         {error && !loading && (
           <div role='alert' style={{
-            padding: '16px 18px', marginBottom: '16px',
+            padding: '16px 18px', marginBottom: T.spacing.lg,
             background: C.redBg, border: `1px solid ${C.redBorder}`, borderRadius: '10px',
-            display: 'flex', flexDirection: 'column', gap: '8px',
+            display: 'flex', flexDirection: 'column', gap: T.spacing.sm,
           }}>
-            <div style={{ fontSize: '13px', fontWeight: 700, color: C.red }}>Could not load knowledge</div>
-            <div style={{ fontSize: '12px', color: C.textSecondary, lineHeight: 1.55 }}>
+            <div style={{ fontSize: T.typography.sizeMd, fontWeight: 700, color: C.red }}>Could not load knowledge</div>
+            <div style={{ fontSize: T.typography.sizeSm, color: C.textSecondary, lineHeight: 1.55 }}>
               {error} &middot; The backend at <code style={{ fontFamily: 'monospace' }}>/api/facts</code>, <code style={{ fontFamily: 'monospace' }}>/api/knowledge/concepts</code>, <code style={{ fontFamily: 'monospace' }}>/api/knowledge/due</code> did not respond. Check that the Rust server is running on port 3000.
             </div>
             {onRetry && (
               <button onClick={onRetry}
                 style={{
-                  alignSelf: 'flex-start', padding: '6px 14px', fontSize: '12px', fontWeight: 700,
+                  alignSelf: 'flex-start', padding: '6px 14px', fontSize: T.typography.sizeSm, fontWeight: 700,
                   background: C.accentBg, border: `1px solid ${C.accentBorder}`, color: C.accent,
                   borderRadius: '6px', cursor: 'pointer', fontFamily: 'inherit',
                 }}>Retry</button>
@@ -102,7 +102,7 @@ export const KnowledgeBrowser: React.FC<KnowledgeBrowserProps> = ({ C, facts, co
               <circle cx='12' cy='12' r='9' />
             </svg>
             <div style={{ fontSize: '14px', fontWeight: 700, color: C.text }}>Nothing learned yet</div>
-            <div style={{ fontSize: '12px', color: C.textMuted, maxWidth: '360px', lineHeight: 1.6 }}>
+            <div style={{ fontSize: T.typography.sizeSm, color: C.textMuted, maxWidth: '360px', lineHeight: 1.6 }}>
               PlausiDen's knowledge base is empty. Start chatting — it records facts and reinforces concepts from every exchange. Use <code style={{ fontFamily: 'monospace', color: C.accent }}>/knowledge</code> to seed it manually.
             </div>
           </div>
@@ -110,23 +110,23 @@ export const KnowledgeBrowser: React.FC<KnowledgeBrowserProps> = ({ C, facts, co
         {/* Due for review */}
         {!loading && !error && due.length > 0 && (
           <div style={{ marginBottom: '20px' }}>
-            <div style={{ fontSize: '11px', fontWeight: 700, color: C.accent, textTransform: 'uppercase', letterSpacing: '0.10em', marginBottom: '10px' }}>
+            <div style={{ fontSize: T.typography.sizeXs, fontWeight: 700, color: C.accent, textTransform: 'uppercase', letterSpacing: '0.10em', marginBottom: T.spacing.md }}>
               Due for review ({due.length})
             </div>
             {due.map((d, i) => (
               <div key={i} style={{
-                display: 'flex', alignItems: 'center', gap: '12px', padding: '10px 12px',
-                background: C.accentBg, border: `1px solid ${C.accentBorder}`, borderRadius: '8px',
+                display: 'flex', alignItems: 'center', gap: T.spacing.md, padding: '10px 12px',
+                background: C.accentBg, border: `1px solid ${C.accentBorder}`, borderRadius: T.radii.lg,
                 marginBottom: '6px',
               }}>
                 <div style={{ flex: 1 }}>
-                  <div style={{ fontSize: '13px', fontWeight: 600, color: C.text }}>{d.name}</div>
-                  <div style={{ fontSize: '11px', color: C.textMuted }}>
+                  <div style={{ fontSize: T.typography.sizeMd, fontWeight: 600, color: C.text }}>{d.name}</div>
+                  <div style={{ fontSize: T.typography.sizeXs, color: C.textMuted }}>
                     Mastery {(d.mastery * 100).toFixed(0)}% &middot; {d.days_overdue.toFixed(1)} days overdue
                   </div>
                 </div>
                 <div style={{
-                  width: '60px', height: '6px', background: C.bgInput, borderRadius: '3px', overflow: 'hidden',
+                  width: '60px', height: '6px', background: C.bgInput, borderRadius: T.radii.xs, overflow: 'hidden',
                 }}>
                   <div style={{
                     width: `${d.mastery * 100}%`, height: '100%',
@@ -141,18 +141,18 @@ export const KnowledgeBrowser: React.FC<KnowledgeBrowserProps> = ({ C, facts, co
         {/* Facts */}
         {!loading && !error && !isEmpty && (
         <div style={{ marginBottom: '20px' }}>
-          <div style={{ fontSize: '11px', fontWeight: 700, color: C.textMuted, textTransform: 'uppercase', letterSpacing: '0.10em', marginBottom: '10px' }}>
+          <div style={{ fontSize: T.typography.sizeXs, fontWeight: 700, color: C.textMuted, textTransform: 'uppercase', letterSpacing: '0.10em', marginBottom: T.spacing.md }}>
             Facts ({facts.length})
           </div>
           {facts.length === 0 ? (
-            <div style={{ fontSize: '13px', color: C.textDim, padding: '12px', textAlign: 'center' }}>
+            <div style={{ fontSize: T.typography.sizeMd, color: C.textDim, padding: T.spacing.md, textAlign: 'center' }}>
               No facts learned yet. Chat with the AI — it picks up facts from conversation.
             </div>
           ) : (
             facts.map((f, i) => (
               <div key={i} style={{
-                display: 'flex', gap: '8px', padding: '8px 12px',
-                borderBottom: `1px solid ${C.borderSubtle}`, fontSize: '13px',
+                display: 'flex', gap: T.spacing.sm, padding: '8px 12px',
+                borderBottom: `1px solid ${C.borderSubtle}`, fontSize: T.typography.sizeMd,
               }}>
                 <span style={{ color: C.accent, fontWeight: 600, minWidth: '120px' }}>{f.key}</span>
                 <span style={{ color: C.text, flex: 1 }}>{f.value}</span>
@@ -165,27 +165,27 @@ export const KnowledgeBrowser: React.FC<KnowledgeBrowserProps> = ({ C, facts, co
         {/* Concepts */}
         {!loading && !error && !isEmpty && (
         <div>
-          <div style={{ fontSize: '11px', fontWeight: 700, color: C.textMuted, textTransform: 'uppercase', letterSpacing: '0.10em', marginBottom: '10px' }}>
+          <div style={{ fontSize: T.typography.sizeXs, fontWeight: 700, color: C.textMuted, textTransform: 'uppercase', letterSpacing: '0.10em', marginBottom: T.spacing.md }}>
             Concepts ({concepts.length})
           </div>
           {concepts.length === 0 ? (
-            <div style={{ fontSize: '13px', color: C.textDim, padding: '12px', textAlign: 'center' }}>
+            <div style={{ fontSize: T.typography.sizeMd, color: C.textDim, padding: T.spacing.md, textAlign: 'center' }}>
               No concepts yet. Teach the AI with /knowledge or via Settings.
             </div>
           ) : (
             concepts.map((c, i) => (
               <div key={i} style={{
-                display: 'flex', alignItems: 'center', gap: '12px',
+                display: 'flex', alignItems: 'center', gap: T.spacing.md,
                 padding: '10px 12px', borderBottom: `1px solid ${C.borderSubtle}`,
               }}>
                 <div style={{ flex: 1 }}>
-                  <div style={{ fontSize: '13px', fontWeight: 600, color: C.text }}>{c.name}</div>
-                  <div style={{ fontSize: '11px', color: C.textDim }}>
+                  <div style={{ fontSize: T.typography.sizeMd, fontWeight: 600, color: C.text }}>{c.name}</div>
+                  <div style={{ fontSize: T.typography.sizeXs, color: C.textDim }}>
                     {c.review_count} reviews &middot; mastery {(c.mastery * 100).toFixed(0)}%
                   </div>
                 </div>
                 <div style={{
-                  width: '80px', height: '6px', background: C.bgInput, borderRadius: '3px', overflow: 'hidden',
+                  width: '80px', height: '6px', background: C.bgInput, borderRadius: T.radii.xs, overflow: 'hidden',
                 }}>
                   <div style={{
                     width: `${c.mastery * 100}%`, height: '100%',
