@@ -316,6 +316,64 @@ export const ClassroomView: React.FC<ClassroomViewProps> = ({ C, host, isDesktop
                 maxWidth: '640px', margin: '0 auto', padding: T.spacing.lg,
                 background: C.bgCard, border: `1px solid ${C.borderSubtle}`, borderRadius: T.radii.lg,
               }}>
+                {/* c2-366 / task 118: radar chart of the 4 breakdown scores.
+                    Renders as a square SVG with 4 axes (N/E/S/W) and a filled
+                    polygon whose vertices sit at distance proportional to
+                    the score. Labels ride just outside each axis endpoint.
+                    Hidden when any metric is non-numeric so we don't draw a
+                    degenerate triangle. */}
+                {(() => {
+                  const keys = ['quality', 'adversarial', 'coverage', 'training'] as const;
+                  const pts = keys.map(k => {
+                    const v = data.score?.breakdown?.[k];
+                    if (typeof v !== 'number') return null;
+                    return v <= 1.5 ? v * 100 : v;
+                  });
+                  if (pts.some(p => p == null)) return null;
+                  const size = 200;
+                  const c = size / 2;
+                  const r = size / 2 - 20;   // leave room for labels
+                  // axis angles: top, right, bottom, left
+                  const angles = [-Math.PI / 2, 0, Math.PI / 2, Math.PI];
+                  const toXY = (pc: number, i: number) => {
+                    const rr = (pc / 100) * r;
+                    return [c + rr * Math.cos(angles[i]), c + rr * Math.sin(angles[i])];
+                  };
+                  const axisXY = (i: number) => [c + r * Math.cos(angles[i]), c + r * Math.sin(angles[i])];
+                  const labelXY = (i: number) => [c + (r + 14) * Math.cos(angles[i]), c + (r + 14) * Math.sin(angles[i])];
+                  const poly = pts.map((pc, i) => toXY(pc as number, i).join(',')).join(' ');
+                  return (
+                    <div style={{ display: 'flex', justifyContent: 'center', marginBottom: T.spacing.md }}>
+                      <svg width={size} height={size} aria-label='Breakdown radar chart'
+                        style={{ display: 'block' }}>
+                        {/* concentric guide rings at 25/50/75/100 % */}
+                        {[0.25, 0.5, 0.75, 1].map(f => (
+                          <circle key={f} cx={c} cy={c} r={r * f}
+                            fill='none' stroke={C.borderSubtle} strokeWidth={1} />
+                        ))}
+                        {/* axes */}
+                        {angles.map((_, i) => {
+                          const [ax, ay] = axisXY(i);
+                          return <line key={i} x1={c} y1={c} x2={ax} y2={ay}
+                            stroke={C.borderSubtle} strokeWidth={1} />;
+                        })}
+                        {/* filled polygon */}
+                        <polygon points={poly}
+                          fill={C.accentBg} stroke={C.accent} strokeWidth={2} />
+                        {/* axis labels */}
+                        {keys.map((k, i) => {
+                          const [lx, ly] = labelXY(i);
+                          return (
+                            <text key={k} x={lx} y={ly}
+                              fontSize={T.typography.sizeXs} fill={C.textMuted}
+                              textAnchor='middle' dominantBaseline='middle'
+                              style={{ textTransform: 'capitalize' }}>{k}</text>
+                          );
+                        })}
+                      </svg>
+                    </div>
+                  );
+                })()}
                 <Label color={C.textMuted} mb={T.spacing.md}>
                   Strengths &amp; weaknesses
                 </Label>
