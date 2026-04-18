@@ -1359,6 +1359,13 @@ impl CognitiveCore {
                  in a more straightforward way.".to_string()
             }
             Some(Intent::Unknown { raw }) => {
+                // POST-LLM: unknown intent still benefits from the HDC-indexed
+                // fact base. Try retrieval first — if facts are found, surface
+                // them; only fall back to "tell me more" when retrieval was
+                // empty (genuinely no grounding).
+                if !self.rag_context.is_empty() {
+                    return Ok(hdc_retrieval_response(raw, &self.rag_context));
+                }
                 // REGRESSION-GUARD: user complaint — AI was saying "I'll create
                 // a plan for that" on unknown inputs. Now gives a warm,
                 // conversational fallback instead of a canned template.
