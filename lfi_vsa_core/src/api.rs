@@ -326,7 +326,7 @@ async fn handle_chat_socket(mut socket: WebSocket, state: Arc<AppState>) {
                     // SUPERSOCIETY: This is the core intelligence mechanism —
                     // 52M+ facts grounding every response through retrieval.
                     let rag_facts = state.db.search_facts(input, 5);
-                    agent.rag_context = rag_facts;
+                    agent.rag_context = rag_facts.clone();
 
                     match agent.chat_traced(input) {
                         Ok((response, conclusion_id)) => {
@@ -352,6 +352,16 @@ async fn handle_chat_socket(mut socket: WebSocket, state: Arc<AppState>) {
                                 })),
                                 // Provenance: client can query /api/provenance/:id with this
                                 "conclusion_id": conclusion_id,
+                                // Citations: which facts the RAG retrieval used to
+                                // ground this answer. Frontend renders [key] badges
+                                // with click-through to /api/library/fact/:key.
+                                // UX-DEBT: value_preview capped at 200 chars to keep
+                                // payloads bounded; full text via the fact endpoint.
+                                "facts_used": rag_facts.iter().map(|(k, v, score)| json!({
+                                    "key": k,
+                                    "value_preview": v.chars().take(200).collect::<String>(),
+                                    "score": score,
+                                })).collect::<Vec<_>>(),
                             });
                             // Persist every turn for later review + training data
                             // sourcing. Skip when incognito — per Bible §4.5.
