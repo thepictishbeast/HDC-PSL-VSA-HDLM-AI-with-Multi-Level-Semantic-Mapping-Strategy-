@@ -205,6 +205,34 @@ impl BrainDb {
                 INSERT INTO facts_fts(facts_fts, rowid, value) VALUES('delete', old.rowid, old.value);
                 INSERT INTO facts_fts(rowid, value) VALUES (new.rowid, new.value);
             END;
+
+            -- Fact versioning: auto-record the pre-image whenever a fact's
+            -- value or confidence changes. Skips no-op updates (touching
+            -- updated_at without content change) so the history isn't
+            -- polluted with non-changes.
+            -- REGRESSION-GUARD: references only columns present in the base
+            -- migrate() schema — prod has extras (quality_score etc.) added
+            -- out-of-band; a trigger referencing those would crash inserts
+            -- on fresh DBs. See #321 for the broader drift issue.
+            -- AVP-PASS-1: auditable history trail for every fact mutation (#292).
+            CREATE TRIGGER IF NOT EXISTS facts_version_au AFTER UPDATE ON facts
+            WHEN OLD.value IS NOT NEW.value
+              OR OLD.confidence IS NOT NEW.confidence
+            BEGIN
+                INSERT INTO fact_versions(
+                    fact_key, old_value, new_value,
+                    old_quality, new_quality,
+                    change_type, changed_by, reason, created_at
+                ) VALUES (
+                    OLD.key, OLD.value, NEW.value,
+                    OLD.confidence,
+                    NEW.confidence,
+                    'updated',
+                    COALESCE(NEW.source, 'system'),
+                    NULL,
+                    datetime('now')
+                );
+            END;
         ");
         match &fts_setup {
             Ok(_) => {
@@ -1128,6 +1156,31 @@ mod tests {
 
         let all = db.get_all_domain_xrefs();
         assert_eq!(all.len(), 1);
+    }
+
+    #[test]
+    fn version_trigger_auto_records_on_update() {
+        let db = temp_db();
+        db.upsert_fact("planet_count", "8", "astronomy", 0.9);
+        // No history yet — just the initial insert.
+        assert_eq!(db.count_versions(), 0);
+
+        // Update value — trigger must record the pre-image.
+        db.upsert_fact("planet_count", "9", "astronomy", 0.9);
+        assert_eq!(db.count_versions(), 1, "value change should record");
+        let hist = db.get_fact_history("planet_count", 10);
+        assert_eq!(hist.len(), 1);
+        // hist row shape: (id, old_value, new_value, old_q, new_q, change_type, ...)
+        assert_eq!(hist[0].1.as_deref(), Some("8"));
+        assert_eq!(hist[0].2, "9");
+
+        // Confidence-only change also records.
+        db.upsert_fact("planet_count", "9", "astronomy", 0.7);
+        assert_eq!(db.count_versions(), 2, "confidence change should record");
+
+        // No-op update (same value + same confidence) should NOT record.
+        db.upsert_fact("planet_count", "9", "astronomy", 0.7);
+        assert_eq!(db.count_versions(), 2, "no-op update must not record");
     }
 
     #[test]
