@@ -22,20 +22,40 @@ impl BrainDb {
             let _ = std::fs::create_dir_all(parent);
         }
         let conn = Connection::open(path)?;
-        // SECURITY: WAL mode allows concurrent reads during writes.
-        // Critical for 40M+ fact DB where ingestion and serving overlap.
-        // PERFORMANCE: Disable auto-checkpoint on startup to prevent 24GB WAL
-        // blocking server for 10+ minutes. Nightly cron handles checkpointing.
+        // SECURITY: WAL mode — concurrent reads during writes; required for
+        // 75GB+ fact DB where ingestion and serving overlap.
+        //
+        // PERFORMANCE: tuning chosen for read-heavy 75GB workload on a box
+        // with 16GB+ RAM. See docs (or PRAGMA comments below) for rationale.
+        // AVP-PASS-1: each PRAGMA is documented so future tuners know what
+        // to keep and what is negotiable (#319).
+        //
+        //   journal_mode=WAL         concurrent reads during writes
+        //   busy_timeout=30000       survive WAL checkpoints without EBUSY
+        //   synchronous=NORMAL       WAL-safe durability; ~2x writes vs FULL
+        //   cache_size=-262144       256 MB page cache (hot fact working set)
+        //   mmap_size=8589934592     8 GB mmap — zero-copy reads for FTS5
+        //                            (kernel handles page cache; freed on
+        //                            memory pressure, no OOM risk)
+        //   temp_store=MEMORY        FTS5/ORDER BY scratch in RAM, not disk
+        //   page_size=8192           only effective on a pristine DB; current
+        //                            prod DB is locked to whatever it was
+        //                            created with — changing requires VACUUM
+        //   wal_autocheckpoint=0     block startup checkpoints; nightly cron
+        //                            owns WAL checkpointing for the big DB
         conn.execute_batch(
             "PRAGMA journal_mode=WAL;\
-             PRAGMA busy_timeout=5000;\
+             PRAGMA busy_timeout=30000;\
              PRAGMA synchronous=NORMAL;\
-             PRAGMA cache_size=-64000;\
+             PRAGMA cache_size=-262144;\
+             PRAGMA mmap_size=8589934592;\
+             PRAGMA temp_store=MEMORY;\
+             PRAGMA page_size=8192;\
              PRAGMA wal_autocheckpoint=0;"
         )?;
         let db = Self { conn: Mutex::new(conn) };
         db.migrate()?;
-        info!("// PERSISTENCE: SQLite opened at {} (WAL mode, 30s timeout)", path.display());
+        info!("// PERSISTENCE: SQLite opened at {} (WAL, 30s busy_timeout, 256MB cache, 8GB mmap)", path.display());
         Ok(db)
     }
 
