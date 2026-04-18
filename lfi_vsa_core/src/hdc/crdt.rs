@@ -24,6 +24,7 @@
 
 use crate::hdc::vector::{BipolarVector, HD_DIMENSIONS};
 use crate::hdc::error::HdcError;
+use serde::{Serialize, Deserialize};
 use std::collections::HashMap;
 
 /// A replica identifier for the mesh.
@@ -32,7 +33,10 @@ pub type ReplicaId = u64;
 /// Per-dimension PN-counter for CRDT-safe HDC consensus.
 /// Each dimension independently tracks positive and negative votes
 /// from each replica, ensuring associative, commutative, idempotent merge.
-#[derive(Debug, Clone)]
+///
+/// #346 serde derive: enables bincode-serialised gossip payloads over
+/// the wire and `to_bytes`/`from_bytes` round-trips for persistence.
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HdcCrdt {
     /// Per-replica positive vote counts for each dimension.
     /// positive[replica_id][dim] = count of +1 votes from that replica.
@@ -174,11 +178,130 @@ impl HdcCrdt {
         }
         deltas
     }
+
+    /// #346 Apply a received delta from a peer replica. Monotonic: counts
+    /// never decrease — if the peer's count is lower, we keep our own.
+    /// Returns the number of dimensions actually updated.
+    pub fn apply_delta(&mut self, replica: ReplicaId, delta: &CrdtDelta) -> usize {
+        let pos = self.positive.entry(replica).or_insert_with(|| vec![0; self.dim]);
+        let neg = self.negative.entry(replica).or_insert_with(|| vec![0; self.dim]);
+        let mut changed = 0;
+        for &(dim_idx, p, n) in &delta.entries {
+            if dim_idx >= self.dim { continue; }
+            let new_p = pos[dim_idx].max(p);
+            let new_n = neg[dim_idx].max(n);
+            if new_p != pos[dim_idx] || new_n != neg[dim_idx] {
+                pos[dim_idx] = new_p;
+                neg[dim_idx] = new_n;
+                changed += 1;
+            }
+        }
+        changed
+    }
+
+    /// Serialise the entire CRDT state for wire transport or persistence.
+    /// Uses bincode for compactness (u32 counters pack to 4B each).
+    pub fn to_bytes(&self) -> Result<Vec<u8>, HdcError> {
+        bincode::serialize(self).map_err(|e| HdcError::PersistenceFailure { detail: e.to_string() })
+    }
+
+    /// Deserialise a CRDT state produced by `to_bytes`.
+    pub fn from_bytes(bytes: &[u8]) -> Result<Self, HdcError> {
+        bincode::deserialize(bytes).map_err(|e| HdcError::PersistenceFailure { detail: e.to_string() })
+    }
+
+    /// Build a wire-format delta relative to a baseline snapshot.
+    pub fn delta_payload(&self, replica: ReplicaId,
+                         last_pos: &[u32], last_neg: &[u32]) -> CrdtDelta {
+        CrdtDelta {
+            replica,
+            dim: self.dim,
+            entries: self.delta_since(replica, last_pos, last_neg),
+        }
+    }
+}
+
+/// Wire-format delta for mesh gossip. Serde-serialisable so it can fly
+/// over any byte-safe transport (HTTPS POST body, QUIC, WireGuard UDP).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CrdtDelta {
+    pub replica: ReplicaId,
+    pub dim: usize,
+    /// (dimension_index, positive_count, negative_count) tuples.
+    pub entries: Vec<(usize, u32, u32)>,
+}
+
+impl CrdtDelta {
+    pub fn to_bytes(&self) -> Result<Vec<u8>, HdcError> {
+        bincode::serialize(self).map_err(|e| HdcError::PersistenceFailure { detail: e.to_string() })
+    }
+
+    pub fn from_bytes(bytes: &[u8]) -> Result<Self, HdcError> {
+        bincode::deserialize(bytes).map_err(|e| HdcError::PersistenceFailure { detail: e.to_string() })
+    }
+
+    pub fn entry_count(&self) -> usize { self.entries.len() }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_crdt_roundtrip_through_bytes() {
+        let v = BipolarVector::from_seed(7);
+        let mut crdt = HdcCrdt::standard();
+        crdt.contribute(42, &v).unwrap();
+        let bytes = crdt.to_bytes().unwrap();
+        let restored = HdcCrdt::from_bytes(&bytes).unwrap();
+        assert_eq!(restored.readout(), crdt.readout());
+        assert_eq!(restored.replica_count(), crdt.replica_count());
+    }
+
+    #[test]
+    fn test_crdt_apply_delta_matches_direct_contribute() {
+        // Node A contributes directly; node B receives the delta and applies it.
+        // Readouts must match.
+        let v = BipolarVector::from_seed(99);
+        let mut node_a = HdcCrdt::standard();
+        node_a.contribute(1, &v).unwrap();
+
+        let mut node_b = HdcCrdt::standard();
+        let delta = node_a.delta_payload(1, &[], &[]);
+        let updated = node_b.apply_delta(1, &delta);
+        assert!(updated > 0, "delta should have non-zero updates");
+        assert_eq!(node_a.readout(), node_b.readout());
+    }
+
+    #[test]
+    fn test_crdt_delta_apply_is_idempotent() {
+        // Applying the same delta twice must not change state further.
+        let v = BipolarVector::from_seed(123);
+        let mut source = HdcCrdt::standard();
+        source.contribute(5, &v).unwrap();
+        let delta = source.delta_payload(5, &[], &[]);
+
+        let mut sink = HdcCrdt::standard();
+        let first = sink.apply_delta(5, &delta);
+        let readout1 = sink.readout();
+        let second = sink.apply_delta(5, &delta);
+        assert!(first > 0);
+        assert_eq!(second, 0, "re-applying same delta must be a no-op");
+        assert_eq!(sink.readout(), readout1);
+    }
+
+    #[test]
+    fn test_crdt_delta_wire_roundtrip() {
+        let v = BipolarVector::from_seed(4242);
+        let mut node = HdcCrdt::standard();
+        node.contribute(9, &v).unwrap();
+        let delta = node.delta_payload(9, &[], &[]);
+        let bytes = delta.to_bytes().unwrap();
+        let restored = CrdtDelta::from_bytes(&bytes).unwrap();
+        assert_eq!(restored.replica, 9);
+        assert_eq!(restored.dim, HD_DIMENSIONS);
+        assert_eq!(restored.entry_count(), delta.entry_count());
+    }
 
     #[test]
     fn test_crdt_join_is_commutative() {
