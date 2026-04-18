@@ -349,7 +349,37 @@ async fn handle_chat_socket(mut socket: WebSocket, state: Arc<AppState>) {
                     // RAG: Query brain.db for relevant facts and inject into agent
                     // SUPERSOCIETY: This is the core intelligence mechanism —
                     // 52M+ facts grounding every response through retrieval.
-                    let rag_facts = state.db.search_facts(input, 5);
+                    //
+                    // #341 multi-turn enrichment: when the input looks like a
+                    // follow-up (short + pronoun/anaphor), fold the most
+                    // recent prior user utterance from the Global Workspace
+                    // into the retrieval query so "what about it?" picks up
+                    // the previous turn's subject. Only uses salience>=0.5
+                    // items, skipping stale content.
+                    //
+                    // NOTE: workspace is server-wide right now (all connections
+                    // share the LfiAgent). Cross-session leakage is the price
+                    // of this simplicity; per-conversation workspace is
+                    // follow-up work.
+                    let input_lower = input.to_lowercase();
+                    let looks_like_followup = input.split_whitespace().count() <= 6 && [
+                        " it", " that", " this", " these", " those",
+                        " they", " them", " its", " their",
+                        "what about", "tell me more", "and why", "and how",
+                        "more details", "expand on",
+                    ].iter().any(|p| input_lower.contains(p) || input_lower.starts_with(p.trim_start()));
+                    let enriched_query = if looks_like_followup {
+                        let ws = agent.workspace.broadcast();
+                        let prior_user = ws.iter()
+                            .find(|e| e.source_module == "dialogue_user" && e.salience >= 0.5);
+                        match prior_user {
+                            Some(e) => format!("{} {}", input, e.label),
+                            None => input.to_string(),
+                        }
+                    } else {
+                        input.to_string()
+                    };
+                    let rag_facts = state.db.search_facts(&enriched_query, 5);
                     agent.rag_context = rag_facts.clone();
 
                     // #345: Layer-5 speech-act classification. Ahead of the
@@ -421,11 +451,41 @@ async fn handle_chat_socket(mut socket: WebSocket, state: Arc<AppState>) {
                             let primary = state.db.causal_summary(&final_concept, 8);
                             if primary.is_some() {
                                 primary
-                            } else {
-                                final_concept.rsplit_once(' ')
-                                    .map(|(_, last)| last.to_string())
-                                    .and_then(|last| state.db.causal_summary(&last, 8))
-                            }
+                            } else if let Some(last_token) = final_concept.rsplit_once(' ')
+                                .map(|(_, last)| last.to_string())
+                                .and_then(|last| state.db.causal_summary(&last, 8))
+                            {
+                                Some(last_token)
+                            } else if looks_like_followup {
+                                // #341 follow-up: pull the prior user
+                                // utterance from workspace and try to extract
+                                // a concept from that. Lets "and how do they
+                                // form" (following a volcano question) still
+                                // hit volcano's edges.
+                                let ws = agent.workspace.broadcast();
+                                let prior = ws.iter()
+                                    .find(|e| e.source_module == "dialogue_user"
+                                              && e.salience >= 0.5);
+                                prior.and_then(|e| {
+                                    let p_lower = e.label.to_lowercase();
+                                    let p_stripped = [
+                                        "what is ", "what's ", "whats ",
+                                        "why does ", "why is ", "why do ",
+                                        "how do i ", "how to ", "how does ",
+                                        "explain ", "describe ", "tell me about ",
+                                    ].iter().find_map(|pfx| p_lower.strip_prefix(pfx).map(str::to_string))
+                                        .unwrap_or(p_lower);
+                                    let p_clean = p_stripped
+                                        .trim_end_matches('?').trim()
+                                        .trim_start_matches("a ")
+                                        .trim_start_matches("an ")
+                                        .trim_start_matches("the ")
+                                        .to_string();
+                                    state.db.causal_summary(&p_clean, 8)
+                                        .or_else(|| p_clean.rsplit_once(' ')
+                                            .and_then(|(_, last)| state.db.causal_summary(last, 8)))
+                                })
+                            } else { None }
                         } else { None }
                     };
 
