@@ -912,6 +912,39 @@ ${cmdList}
         setIsConnected(true);
         setWsReconnectAt(null);
         reconnectDelayMs = 1000; // reset backoff after healthy connect
+        // c2-382 / BIG #177: drain the offline outbox. Each queued payload
+        // gets replayed in FIFO order. If the send throws mid-drain (socket
+        // closed again), we leave the remainder in place for the next
+        // onopen. Successful sends have their corresponding user bubbles
+        // re-flagged to drop the 'queued' badge.
+        try {
+          const raw = localStorage.getItem('lfi_outbox') || '[]';
+          const queue = JSON.parse(raw) as Array<{ id: number; convId: string; content: string; incognito: boolean; at: number }>;
+          if (!queue.length) return;
+          const sent: number[] = [];
+          for (const entry of queue) {
+            try {
+              ws.send(JSON.stringify({ content: entry.content, incognito: entry.incognito }));
+              sent.push(entry.id);
+            } catch {
+              break; // socket broke mid-drain; keep the rest for next open
+            }
+          }
+          const remaining = queue.filter(e => !sent.includes(e.id));
+          localStorage.setItem('lfi_outbox', JSON.stringify(remaining));
+          if (sent.length > 0) {
+            // Unbadge the user messages we just sent. Best-effort across
+            // all convos since _queued is client-only state.
+            setConversations(prev => prev.map(c => ({
+              ...c,
+              messages: c.messages.map(m => (m as any)._queued && sent.some(sid => sid === (m as any)._queuedId) ? { ...m, _queued: false } : m),
+            })));
+            setMessages(prev => prev.map(m => (m as any)._queued ? { ...m, _queued: false } : m));
+            logEvent('msg_queue_drained', { count: sent.length });
+          }
+        } catch (err) {
+          console.warn('// SCC: outbox drain failed', err);
+        }
       };
 
       ws.onmessage = (event) => {
@@ -2215,11 +2248,28 @@ ${cmdList}
       // Default: WebSocket chat
       const wsOpen = chatWsRef.current && chatWsRef.current.readyState === WebSocket.OPEN;
       if (!wsOpen) {
-        setMessages(prev => [...prev, {
-          id: msgId(), role: 'system',
-          content: 'Not connected yet \u2014 give the link a moment and try again.',
-          timestamp: Date.now(),
-        }]);
+        // c2-382 / BIG #177: offline queue. Instead of bouncing the send,
+        // persist the payload to localStorage and surface the message with
+        // a "Queued (offline)" status. The ws.onopen drain loop will replay
+        // on reconnect. Guarded by convId so a mid-send convo switch doesn't
+        // strand messages in the wrong thread.
+        const convId = currentConversationId;
+        try {
+          const raw = localStorage.getItem('lfi_outbox') || '[]';
+          const queue = JSON.parse(raw) as Array<{ id: number; convId: string; content: string; incognito: boolean; at: number }>;
+          queue.push({ id: msgId(), convId, content: trimmed, incognito: isCurrentIncognito || false, at: Date.now() });
+          localStorage.setItem('lfi_outbox', JSON.stringify(queue.slice(-50)));
+        } catch (err) {
+          console.warn('// SCC: outbox persist failed', err);
+        }
+        // Mark the user bubble as queued so the rendering layer can badge it.
+        setMessages(prev => prev.map((m, i) =>
+          i === prev.length - 1 && m.role === 'user' && m.content === trimmed
+            ? { ...m, _queued: true } as any
+            : m
+        ));
+        logEvent('msg_queued_offline', { len: trimmed.length });
+        showToast('Queued — will send when reconnected');
         setIsThinking(false);
         return;
       }
@@ -4516,6 +4566,22 @@ ${cmdList}
                       return next;
                     })}
                   />
+                )}
+                {msg.role === 'user' && (msg as any)._queued && (
+                  /* c2-382 / BIG #177: offline queue badge. Sits above the
+                     user bubble so the regular edit/copy actions don't shift. */
+                  <div style={{
+                    display: 'flex', justifyContent: 'flex-end',
+                    marginBottom: '4px',
+                  }}>
+                    <span aria-live='polite' style={{
+                      fontSize: T.typography.sizeXs, fontWeight: T.typography.weightBold,
+                      color: C.yellow, background: C.yellowBg,
+                      border: `1px solid ${C.yellow}`, borderRadius: T.radii.sm,
+                      padding: `2px ${T.spacing.sm}`,
+                      textTransform: 'uppercase', letterSpacing: T.typography.trackingLoose,
+                    }}>Queued (offline)</span>
+                  </div>
                 )}
                 {msg.role === 'user' && (
                   <UserMessage
