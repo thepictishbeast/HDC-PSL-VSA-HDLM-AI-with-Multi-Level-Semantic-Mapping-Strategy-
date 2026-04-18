@@ -27,5 +27,10 @@ pub mod constant_time;
 pub mod encoder_protection;
 pub mod tier_weighted_bundle;
 pub mod tensor_train;
+pub mod role_binding;
 #[cfg(test)]
 mod proptest_vector;
+
+pub use role_binding::{
+    role_vector, concept_vector, bind_role, encode_tuple, unbind_role,
+};
