@@ -377,22 +377,34 @@ impl BrainDb {
             .join(" ");
         let mut results = Vec::new();
 
-        // FTS5 path — BM25 ranking weighted by quality_score.
-        // SUPERSOCIETY: Curated high-quality facts (0.95) surface above
-        // bulk web text (0.65). This is what makes RAG useful.
+        // FTS5 path — BM25 ranking weighted by quality_score, bounded via
+        // an inner candidate LIMIT so a common term like "water" (millions
+        // of matches) doesn't force a full sort across the match set.
+        //
+        // REGRESSION-GUARD: without the inner LIMIT, queries containing
+        // high-frequency tokens took 60-90s on the 59M-fact corpus because
+        // ORDER BY rank had to score every match before the outer LIMIT
+        // could kick in. Chat WS timed out and the UI went red.
+        //
+        // PERFORMANCE: the inner pool of 2000 candidates is sorted by
+        // BM25-rank / quality and the outer LIMIT (5 typical) truncates.
+        // On single-keyword common terms this is ~50-200ms instead of 60s+.
+        let inner_pool: i64 = 2000;
         let mut stmt = match conn.prepare(
-            "SELECT f.key, f.value, COALESCE(f.quality_score, f.confidence, 0.5) \
-             FROM facts f \
-             JOIN facts_fts ON f.rowid = facts_fts.rowid \
-             WHERE facts_fts MATCH ?1 \
-             ORDER BY rank / COALESCE(f.quality_score, f.confidence, 0.5) \
-             LIMIT ?2"
+            "WITH candidate AS ( \
+               SELECT f.key, f.value, \
+                      COALESCE(f.quality_score, f.confidence, 0.5) AS q, \
+                      bm25(facts_fts) AS r \
+               FROM facts f JOIN facts_fts ON f.rowid = facts_fts.rowid \
+               WHERE facts_fts MATCH ?1 LIMIT ?2 \
+             ) \
+             SELECT key, value, q FROM candidate ORDER BY r / q LIMIT ?3"
         ) {
             Ok(s) => s,
             Err(_) => return vec![],
         };
 
-        if let Ok(rows) = stmt.query_map(params![fts_query, limit as i64], |row| {
+        if let Ok(rows) = stmt.query_map(params![fts_query, inner_pool, limit as i64], |row| {
             Ok((
                 row.get::<_, String>(0)?,
                 row.get::<_, String>(1)?,
