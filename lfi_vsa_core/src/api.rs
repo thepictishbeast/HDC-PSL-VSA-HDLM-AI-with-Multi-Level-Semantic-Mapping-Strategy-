@@ -27,6 +27,7 @@ use serde_json::json;
 use serde::Deserialize;
 use tracing::{info, debug, warn};
 use tower_http::cors::CorsLayer;
+use tower_http::services::{ServeDir, ServeFile};
 use axum::http;
 
 use crate::agent::LfiAgent;
@@ -3338,6 +3339,17 @@ pub fn create_router() -> Result<Router, Box<dyn std::error::Error>> {
         .route("/api/presence", get(presence_handler))
         .route("/api/metrics/prometheus", get(prometheus_metrics_handler))
         .route("/api/csp-report", post(csp_report_handler))
+        // SPA fallback — serves the React dashboard for any non-/api path.
+        // Missing assets fall through to index.html so client-side routes work.
+        // UX: makes http://<host>:3000/ return the full UI from a single port,
+        // no CORS, no extra service. Override dist path with
+        // PLAUSIDEN_DASHBOARD_DIST=/abs/path if running outside the repo cwd.
+        .fallback_service({
+            let dist = std::env::var("PLAUSIDEN_DASHBOARD_DIST")
+                .unwrap_or_else(|_| "../lfi_dashboard/dist".to_string());
+            let index = format!("{}/index.html", dist);
+            ServeDir::new(&dist).fallback(ServeFile::new(index))
+        })
         .layer(cors)
         // OBSERVABILITY: Request logging — method, path, status, latency
         .layer(axum::middleware::from_fn(request_logging_middleware))
