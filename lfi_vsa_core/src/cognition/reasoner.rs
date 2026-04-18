@@ -19,7 +19,26 @@ use crate::hdc::error::HdcError;
 use crate::cognition::planner::{Plan, Planner};
 use crate::cognition::metacognitive::{MetaCognitiveProfiler, CognitiveDomain, PerformanceRecord};
 use crate::cognition::knowledge_compiler::KnowledgeCompiler;
+use crate::cognition::router::IntelligenceTier;
 use crate::reasoning_provenance::{TraceArena, TraceId, ConclusionId, InferenceSource};
+
+/// Default model name for each intelligence tier. Each can be overridden
+/// via env var so operators can swap models without a recompile.
+///
+/// SUPERSOCIETY: tiers were decorative until #324 — all three hit the same
+/// 7B model. This maps the governor's choice to an actual Ollama model
+/// name, so Pulse is actually fast and BigBrain actually uses the big one.
+pub fn model_for_tier(tier: IntelligenceTier) -> String {
+    match tier {
+        IntelligenceTier::Pulse => std::env::var("PLAUSIDEN_MODEL_PULSE")
+            .unwrap_or_else(|_| "qwen2.5:0.5b".into()),
+        IntelligenceTier::Bridge => std::env::var("PLAUSIDEN_MODEL_BRIDGE")
+            .unwrap_or_else(|_| "qwen2.5:3b".into()),
+        IntelligenceTier::BigBrain => std::env::var("PLAUSIDEN_MODEL_BIGBRAIN")
+            .or_else(|_| std::env::var("PLAUSIDEN_MODEL"))
+            .unwrap_or_else(|_| "qwen2.5-coder:7b".into()),
+    }
+}
 
 /// The active cognitive mode.
 #[derive(Debug, Clone, PartialEq)]
@@ -113,6 +132,9 @@ pub struct CognitiveCore {
     /// RAG context — relevant facts from brain.db injected by the API layer.
     /// SUPERSOCIETY: 51M+ facts ground every Ollama response.
     pub rag_context: Vec<(String, String, f64)>,
+    /// Active intelligence tier — set by the agent's governor before each
+    /// call to `respond`. Determines which Ollama model is used (#324).
+    pub active_tier: IntelligenceTier,
 }
 
 impl CognitiveCore {
@@ -130,6 +152,7 @@ impl CognitiveCore {
             profiler: MetaCognitiveProfiler::new(),
             compiler: KnowledgeCompiler::new(),
             rag_context: Vec::new(),
+            active_tier: IntelligenceTier::Pulse,
             recent_response_hashes: std::collections::VecDeque::with_capacity(50),
         };
         core.seed_intents()?;
@@ -1078,12 +1101,26 @@ impl CognitiveCore {
     /// BUG ASSUMPTION: Ollama may not be running. This must never block startup
     /// or cause a panic. Timeout is 60s to keep chat responsive.
     pub fn query_ollama(prompt: &str) -> Option<String> {
-        Self::query_ollama_with_context(prompt, &[])
+        // Default to BigBrain for standalone callers (tests, CLI utilities).
+        // The tiered path routes through query_ollama_with_context_tier.
+        Self::query_ollama_with_context_model(prompt, &[], &model_for_tier(IntelligenceTier::BigBrain))
     }
 
-    /// Query Ollama with RAG context — the facts are prepended to the prompt
-    /// so the model can reference them when generating the answer.
+    /// Backward-compat shim — callers that haven't been tier-plumbed yet
+    /// still pick BigBrain. Migrate them to `query_ollama_with_context_model`
+    /// (#324 follow-up in anywhere outside cognition::reasoner).
     pub fn query_ollama_with_context(prompt: &str, rag_facts: &[(String, String, f64)]) -> Option<String> {
+        Self::query_ollama_with_context_model(prompt, rag_facts, &model_for_tier(IntelligenceTier::BigBrain))
+    }
+
+    /// Query Ollama with RAG context and an explicit model name — the facts
+    /// are prepended to the prompt so the model can reference them.
+    ///
+    /// BUG ASSUMPTION: the caller has already selected the right model for
+    /// its tier via `model_for_tier`. We do no further gating here — the
+    /// model string is injected directly into the Ollama /api/generate
+    /// payload.
+    pub fn query_ollama_with_context_model(prompt: &str, rag_facts: &[(String, String, f64)], model: &str) -> Option<String> {
         // No manual escaping needed — serde_json handles all escaping properly.
         // AVP-PASS-3: Removed brittle manual string escaping.
 
@@ -1184,7 +1221,7 @@ impl CognitiveCore {
 
         // Build request body with proper JSON serialization — no manual escaping
         let request_body = serde_json::json!({
-            "model": std::env::var("PLAUSIDEN_MODEL").unwrap_or_else(|_| "qwen2.5-coder:7b".into()),
+            "model": model,
             "prompt": full_prompt,
             "stream": false,
             "options": {
@@ -1288,7 +1325,7 @@ impl CognitiveCore {
             }
             Some(Intent::Search { query }) => {
                 // Try Ollama for a real answer first
-                if let Some(answer) = Self::query_ollama_with_context(query, &self.rag_context) {
+                if let Some(answer) = Self::query_ollama_with_context_model(query, &self.rag_context, &model_for_tier(self.active_tier)) {
                     answer
                 } else {
                     let q = crate::truncate_str(query, 80);
@@ -1320,7 +1357,7 @@ impl CognitiveCore {
             Some(Intent::Analyze { target }) => {
                 // Try Ollama for substantive analysis
                 let prompt = format!("Analyze this topic thoroughly: {}", target);
-                if let Some(answer) = Self::query_ollama_with_context(&prompt, &self.rag_context) {
+                if let Some(answer) = Self::query_ollama_with_context_model(&prompt, &self.rag_context, &model_for_tier(self.active_tier)) {
                     answer
                 } else {
                     let t = crate::truncate_str(target, 80);
@@ -1601,7 +1638,7 @@ impl CognitiveCore {
                     let topic = input_lower_pre[prefix.len()..].trim_end_matches('?').trim();
                     if !topic.is_empty() && topic.len() < 100 {
                         // Try Ollama for a real, substantive answer
-                        if let Some(answer) = Self::query_ollama_with_context(input, &self.rag_context) {
+                        if let Some(answer) = Self::query_ollama_with_context_model(input, &self.rag_context, &model_for_tier(self.active_tier)) {
                             return answer;
                         }
                         // Fallback template if Ollama unavailable
@@ -1909,6 +1946,35 @@ mod tests {
             "Expected WriteCode/Rust, got {:?}", intent
         );
         Ok(())
+    }
+
+    #[test]
+    fn tier_model_map_defaults_differ() {
+        // #324: each tier must pick a distinct model by default — the whole
+        // point of tiers is picking different-size models. If the defaults
+        // ever collapse to the same string, the governor's tier decision is
+        // a no-op again.
+        // Clear any env overrides first so the test is deterministic.
+        std::env::remove_var("PLAUSIDEN_MODEL");
+        std::env::remove_var("PLAUSIDEN_MODEL_PULSE");
+        std::env::remove_var("PLAUSIDEN_MODEL_BRIDGE");
+        std::env::remove_var("PLAUSIDEN_MODEL_BIGBRAIN");
+
+        let pulse = model_for_tier(IntelligenceTier::Pulse);
+        let bridge = model_for_tier(IntelligenceTier::Bridge);
+        let bigbrain = model_for_tier(IntelligenceTier::BigBrain);
+
+        assert_ne!(pulse, bridge, "Pulse and Bridge defaults collapsed");
+        assert_ne!(bridge, bigbrain, "Bridge and BigBrain defaults collapsed");
+        assert_ne!(pulse, bigbrain, "Pulse and BigBrain defaults collapsed");
+    }
+
+    #[test]
+    fn tier_model_map_respects_env_override() {
+        // Set a per-tier override; it must win over the default.
+        std::env::set_var("PLAUSIDEN_MODEL_PULSE", "tinyllama:1b");
+        assert_eq!(model_for_tier(IntelligenceTier::Pulse), "tinyllama:1b");
+        std::env::remove_var("PLAUSIDEN_MODEL_PULSE");
     }
 
     #[test]

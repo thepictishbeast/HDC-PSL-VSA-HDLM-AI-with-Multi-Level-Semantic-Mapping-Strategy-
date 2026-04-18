@@ -251,7 +251,12 @@ impl LfiAgent {
 
     pub fn chat(&mut self, input: &str) -> Result<crate::cognition::reasoner::ConversationResponse, HdcError> {
         let input_hv = HyperMemory::from_string(input, DIM_PROLETARIAT);
-        let _active_tier = self.govern_substrate(&input_hv);
+        // #324: previously `let _active_tier = ...` — tier was computed and
+        // thrown away, so every tier hit the same 7B model. Now stash the
+        // chosen tier on the reasoner so query_ollama_with_context_model
+        // picks the right Ollama model (Pulse→0.5b, Bridge→3b, BigBrain→7b).
+        let active_tier = self.govern_substrate(&input_hv);
+        self.reasoner.active_tier = active_tier;
 
         // Set RAG context on the reasoner before responding
         // SUPERSOCIETY: This is how 51M+ facts ground every answer
