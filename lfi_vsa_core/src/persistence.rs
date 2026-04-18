@@ -193,6 +193,23 @@ impl BrainDb {
             CREATE INDEX IF NOT EXISTS idx_contradictions_unresolved
                 ON contradictions(fact_key) WHERE resolved_at IS NULL;
 
+            -- #337 FSRS fact review scheduler persistence.
+            -- Keyed by fact_key so every fact can be independently
+            -- scheduled. State fields match FsrsCard in
+            -- cognition/fsrs_scheduler.rs so round-tripping is lossless.
+            CREATE TABLE IF NOT EXISTS fsrs_cards (
+                fact_key TEXT PRIMARY KEY,
+                difficulty REAL NOT NULL DEFAULT 5.0,
+                stability REAL NOT NULL DEFAULT 0.4072,
+                last_review INTEGER NOT NULL DEFAULT 0,
+                review_count INTEGER NOT NULL DEFAULT 0,
+                lapses INTEGER NOT NULL DEFAULT 0,
+                state TEXT NOT NULL DEFAULT 'new',
+                updated_at TEXT DEFAULT (datetime('now'))
+            );
+            CREATE INDEX IF NOT EXISTS idx_fsrs_last_review ON fsrs_cards(last_review);
+            CREATE INDEX IF NOT EXISTS idx_fsrs_state ON fsrs_cards(state);
+
             CREATE TABLE IF NOT EXISTS audit_log (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 audit_type TEXT NOT NULL,
@@ -425,6 +442,101 @@ impl BrainDb {
             "SELECT COUNT(*) FROM contradictions WHERE resolved_at IS NULL",
             [], |r| r.get(0),
         ).unwrap_or(0)
+    }
+
+    // ---- FSRS card persistence (#337) ----
+    //
+    // Columns: fact_key, difficulty, stability, last_review (epoch secs),
+    //          review_count, lapses, state.
+    // The in-memory scheduler (cognition/fsrs_scheduler.rs) is stateless
+    // across process restarts — these methods give it a backing store.
+
+    /// Load or create the FSRS row for `fact_key`. Returns
+    /// (difficulty, stability, last_review, review_count, lapses, state).
+    pub fn fsrs_get_or_init(&self, fact_key: &str)
+        -> (f64, f64, i64, i64, i64, String)
+    {
+        let conn = self.conn.lock().unwrap_or_else(|e| e.into_inner());
+        if let Ok(row) = conn.query_row(
+            "SELECT difficulty, stability, last_review, review_count, lapses, state \
+             FROM fsrs_cards WHERE fact_key = ?1",
+            params![fact_key],
+            |r| Ok((r.get::<_, f64>(0)?, r.get::<_, f64>(1)?, r.get::<_, i64>(2)?,
+                    r.get::<_, i64>(3)?, r.get::<_, i64>(4)?, r.get::<_, String>(5)?)),
+        ) {
+            return row;
+        }
+        // Insert default row, then return defaults.
+        let _ = conn.execute(
+            "INSERT OR IGNORE INTO fsrs_cards (fact_key) VALUES (?1)",
+            params![fact_key],
+        );
+        (5.0, 0.4072, 0, 0, 0, "new".to_string())
+    }
+
+    /// Persist a card state update.
+    pub fn fsrs_upsert(&self, fact_key: &str,
+        difficulty: f64, stability: f64, last_review: i64,
+        review_count: i64, lapses: i64, state: &str)
+    {
+        let conn = self.conn.lock().unwrap_or_else(|e| e.into_inner());
+        let _ = conn.execute(
+            "INSERT INTO fsrs_cards \
+             (fact_key, difficulty, stability, last_review, review_count, lapses, state, updated_at) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, datetime('now')) \
+             ON CONFLICT(fact_key) DO UPDATE SET \
+             difficulty=?2, stability=?3, last_review=?4, review_count=?5, \
+             lapses=?6, state=?7, updated_at=datetime('now')",
+            params![fact_key, difficulty, stability, last_review,
+                    review_count, lapses, state],
+        );
+    }
+
+    /// Cards due for review. Uses the FSRS forgetting curve inline so the
+    /// DB answers without loading every card into memory.
+    ///
+    /// Retrievability R(t,S) = (1 + 19/81 * t/S)^(-1/0.5).
+    /// Target retention R → threshold days_due = S * (R^(-0.5) - 1) * 81/19.
+    ///
+    /// BUG ASSUMPTION: bundled SQLite has no POWER/pow function, so the
+    /// target-retention-dependent coefficient is precomputed in Rust and
+    /// passed in as a plain parameter.
+    pub fn fsrs_due(&self, now_secs: i64, target_r: f64, limit: i64)
+        -> Vec<(String, f64, f64, i64, i64, i64, String)>
+    {
+        let coeff = (target_r.powf(-0.5) - 1.0) * 81.0 / 19.0;
+        let conn = self.conn.lock().unwrap_or_else(|e| e.into_inner());
+        let mut stmt = match conn.prepare(
+            "SELECT fact_key, difficulty, stability, last_review, \
+                    review_count, lapses, state \
+             FROM fsrs_cards \
+             WHERE state = 'new' \
+                OR (CAST((?1 - last_review) AS REAL) / 86400.0) >= \
+                   stability * ?2 \
+             ORDER BY last_review ASC LIMIT ?3"
+        ) { Ok(s) => s, Err(_) => return Vec::new() };
+        stmt.query_map(params![now_secs, coeff, limit], |r| Ok((
+            r.get::<_, String>(0)?, r.get::<_, f64>(1)?, r.get::<_, f64>(2)?,
+            r.get::<_, i64>(3)?, r.get::<_, i64>(4)?, r.get::<_, i64>(5)?,
+            r.get::<_, String>(6)?,
+        ))).map(|i| i.filter_map(|r| r.ok()).collect()).unwrap_or_default()
+    }
+
+    /// Count total cards + due cards in one roundtrip.
+    pub fn fsrs_stats(&self, now_secs: i64, target_r: f64) -> (i64, i64) {
+        let coeff = (target_r.powf(-0.5) - 1.0) * 81.0 / 19.0;
+        let conn = self.conn.lock().unwrap_or_else(|e| e.into_inner());
+        let total: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM fsrs_cards", [], |r| r.get(0)
+        ).unwrap_or(0);
+        let due: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM fsrs_cards \
+             WHERE state = 'new' \
+                OR (CAST((?1 - last_review) AS REAL) / 86400.0) >= \
+                   stability * ?2",
+            params![now_secs, coeff], |r| r.get(0)
+        ).unwrap_or(0);
+        (total, due)
     }
 
     pub fn get_all_facts(&self) -> Vec<(String, String, String, f64)> {
@@ -1389,6 +1501,41 @@ mod tests {
         db.upsert_fact("k", "a", "src1", 0.95);
         db.upsert_fact("k", "b", "src2", 0.4);
         assert_eq!(db.contradiction_pending_count(), 0);
+    }
+
+    #[test]
+    fn fsrs_default_card_is_due() {
+        let db = temp_db();
+        let (d, s, lr, rc, _l, state) = db.fsrs_get_or_init("concept:volcano");
+        assert_eq!((d, lr, rc), (5.0, 0, 0));
+        assert!(s > 0.0);
+        assert_eq!(state, "new");
+        let due = db.fsrs_due(0, 0.9, 10);
+        assert_eq!(due.len(), 1);
+        assert_eq!(due[0].0, "concept:volcano");
+    }
+
+    #[test]
+    fn fsrs_good_review_raises_stability() {
+        let db = temp_db();
+        let (d, s0, _, rc, _l, _st) = db.fsrs_get_or_init("k");
+        // Rating 3 = Good → stability ×2.5
+        db.fsrs_upsert("k", d - 0.15, s0 * 2.5, 86400, rc + 1, 0, "review");
+        let (_, s1, _, _, _, _) = db.fsrs_get_or_init("k");
+        assert!((s1 - s0 * 2.5).abs() < 1e-9);
+    }
+
+    #[test]
+    fn fsrs_reviewed_card_not_immediately_due() {
+        // A card reviewed today with stability=10 should not be due
+        // against target_r=0.9 until ~15 days later.
+        let db = temp_db();
+        db.fsrs_upsert("k", 5.0, 10.0, 100_000, 1, 0, "review");
+        let due_now = db.fsrs_due(100_000, 0.9, 10);
+        assert_eq!(due_now.len(), 0, "fresh review should not be due");
+        // 30 days later it should be due.
+        let due_later = db.fsrs_due(100_000 + 30 * 86400, 0.9, 10);
+        assert_eq!(due_later.len(), 1);
     }
 
     #[test]

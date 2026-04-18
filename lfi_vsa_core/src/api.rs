@@ -3391,6 +3391,108 @@ pub fn create_router() -> Result<Router, Box<dyn std::error::Error>> {
         }))
     }
 
+    // ---- FSRS fact review scheduler (#337) ----
+
+    /// GET /api/fsrs/due?limit=N&target_r=0.9
+    async fn fsrs_due_handler(
+        State(state): State<Arc<AppState>>,
+        Query(params): Query<HashMap<String, String>>,
+    ) -> impl IntoResponse {
+        let limit: i64 = params.get("limit")
+            .and_then(|s| s.parse().ok()).unwrap_or(50).min(500);
+        let target_r: f64 = params.get("target_r")
+            .and_then(|s| s.parse::<f64>().ok())
+            .unwrap_or(0.9_f64).clamp(0.5_f64, 0.99_f64);
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs() as i64).unwrap_or(0);
+        let rows = state.db.fsrs_due(now, target_r, limit);
+        let items: Vec<serde_json::Value> = rows.into_iter().map(|(
+            key, diff, stab, last_rev, rev_count, lapses, state
+        )| {
+            let elapsed_days = if last_rev == 0 { 0.0 }
+                else { (now - last_rev) as f64 / 86400.0 };
+            let retrievability = if stab > 0.0 {
+                (1.0 + (19.0_f64 / 81.0) * elapsed_days / stab).powf(-1.0 / 0.5)
+            } else { 0.0 };
+            json!({
+                "fact_key": key,
+                "difficulty": diff,
+                "stability": stab,
+                "last_review": last_rev,
+                "review_count": rev_count,
+                "lapses": lapses,
+                "state": state,
+                "elapsed_days": (elapsed_days * 100.0).round() / 100.0,
+                "retrievability": (retrievability * 10000.0).round() / 10000.0,
+            })
+        }).collect();
+        let (total, due) = state.db.fsrs_stats(now, target_r);
+        axum::Json(json!({
+            "cards": items,
+            "count": items.len(),
+            "total_cards": total,
+            "due_cards": due,
+            "target_retention": target_r,
+        }))
+    }
+
+    /// POST /api/fsrs/review
+    /// Body: { "fact_key": "...", "rating": 1..=4 }
+    ///   1 = Again  (lapse → halve stability, state→Relearning)
+    ///   2 = Hard   (×1.2)
+    ///   3 = Good   (×2.5)
+    ///   4 = Easy   (×3.5)
+    async fn fsrs_review_handler(
+        State(state): State<Arc<AppState>>,
+        Json(body): Json<serde_json::Value>,
+    ) -> impl IntoResponse {
+        let fact_key = body.get("fact_key")
+            .and_then(|v| v.as_str()).unwrap_or("");
+        let rating = body.get("rating")
+            .and_then(|v| v.as_u64()).unwrap_or(0) as u8;
+        if fact_key.is_empty() || fact_key.len() > 256 {
+            return axum::Json(json!({"error": "fact_key must be 1..=256 chars"}));
+        }
+        if !(1..=4).contains(&rating) {
+            return axum::Json(json!({"error": "rating must be 1..=4"}));
+        }
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs() as i64).unwrap_or(0);
+
+        let (mut diff, mut stab, _, rev_count, mut lapses, _prev_state) =
+            state.db.fsrs_get_or_init(fact_key);
+
+        // Apply the FSRS state update. Same logic as FsrsScheduler::review
+        // so the rule lives in one place at the persistence boundary.
+        let new_state = if rating == 1 {
+            lapses += 1;
+            stab *= 0.5;
+            "relearning"
+        } else {
+            let mult = match rating { 2 => 1.2, 3 => 2.5, 4 => 3.5, _ => 1.0 };
+            stab *= mult;
+            "review"
+        };
+        let delta_d = match rating { 1 => 0.5, 2 => 0.15, 3 => -0.15, 4 => -0.5, _ => 0.0 };
+        diff = (diff + delta_d).clamp(1.0, 10.0);
+
+        state.db.fsrs_upsert(fact_key, diff, stab, now,
+                              rev_count + 1, lapses, new_state);
+
+        axum::Json(json!({
+            "fact_key": fact_key,
+            "rating": rating,
+            "difficulty": diff,
+            "stability": stab,
+            "lapses": lapses,
+            "state": new_state,
+            "review_count": rev_count + 1,
+            "reviewed_at": now,
+        }))
+    }
+
     // ---- Contradiction Ledger (#298) ----
 
     /// GET /api/contradictions/recent?limit=N&only_unresolved=true
@@ -4011,6 +4113,8 @@ pub fn create_router() -> Result<Router, Box<dyn std::error::Error>> {
         .route("/api/feedback/recent", get(feedback_recent_handler))
         .route("/api/contradictions/recent", get(contradictions_recent_handler))
         .route("/api/contradictions/:id/resolve", post(contradiction_resolve_handler))
+        .route("/api/fsrs/due", get(fsrs_due_handler))
+        .route("/api/fsrs/review", post(fsrs_review_handler))
         .route("/api/graph/stats", get(graph_stats_handler))
         .route("/api/graph/connections/:fact_key", get(graph_connections_handler))
         .route("/api/graph/traverse/:fact_key", get(graph_traverse_handler))
