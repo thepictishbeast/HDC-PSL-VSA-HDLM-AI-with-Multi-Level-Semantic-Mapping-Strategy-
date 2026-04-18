@@ -3750,7 +3750,15 @@ ${cmdList}
                   const nodes: React.ReactNode[] = [];
                   if (c.pinned && !hasEmittedPinnedHeader) {
                     nodes.push(
-                      <div key='dh-pinned' aria-hidden='true' style={{
+                      /* c2-384 / BIG #179: day-bucket + pinned headers are
+                         sticky so they stay visible while scrolling a long
+                         conversation history. role=heading + aria-level=3
+                         makes them navigable by SR users (previously
+                         aria-hidden). background matches sidebar so text
+                         below the header doesn't show through. */
+                      <div key='dh-pinned' role='heading' aria-level={3} style={{
+                        position: 'sticky', top: 0, zIndex: 1,
+                        background: C.bg,
                         padding: `${T.spacing.sm} ${T.spacing.sm} ${T.spacing.xs}`,
                         fontSize: '10px', fontWeight: T.typography.weightBold,
                         color: C.textDim, textTransform: 'uppercase',
@@ -3764,7 +3772,9 @@ ${cmdList}
                     const bucket = formatDayBucket(c.updatedAt);
                     if (bucket !== lastBucket) {
                       nodes.push(
-                        <div key={`dh-${bucket}-${c.id}`} aria-hidden='true' style={{
+                        <div key={`dh-${bucket}-${c.id}`} role='heading' aria-level={3} style={{
+                          position: 'sticky', top: 0, zIndex: 1,
+                          background: C.bg,
                           padding: `${T.spacing.sm} ${T.spacing.sm} ${T.spacing.xs}`,
                           fontSize: '10px', fontWeight: T.typography.weightBold,
                           color: C.textDim, textTransform: 'uppercase',
