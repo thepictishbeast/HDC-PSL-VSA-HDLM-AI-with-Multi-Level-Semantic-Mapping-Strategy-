@@ -31,25 +31,130 @@ use crate::reasoning_provenance::{TraceArena, TraceId, ConclusionId, InferenceSo
 /// If the retrieval is empty, we say so honestly — no "let me look into that"
 /// stalling phrases that pretend a generator is about to produce something.
 pub fn hdc_retrieval_response(query: &str, rag_context: &[(String, String, f64)]) -> String {
+    hdc_retrieval_response_shaped(query, rag_context, None)
+}
+
+/// Variant that uses the Layer-5 speech-act label to frame the lead
+/// sentence. When the classifier says Define/Explain/Why/HowTo/…, the
+/// response opens with wording appropriate to that act; otherwise the
+/// neutral "from the knowledge base" opener is used.
+pub fn hdc_retrieval_response_shaped(
+    query: &str,
+    rag_context: &[(String, String, f64)],
+    act: Option<crate::cognition::speech_act::SpeechAct>,
+) -> String {
+    use crate::cognition::speech_act::SpeechAct;
+
     if rag_context.is_empty() {
         return format!(
-            "No HDC match in the knowledge base for \"{}\". Ingest relevant sources \
-             or rephrase the query — I won't fabricate an answer.",
+            "No HDC match in the knowledge base for \"{}\". Ingest relevant \
+             sources or rephrase the query — I won't fabricate an answer.",
             crate::truncate_str(query, 80)
         );
     }
-    let lines: Vec<String> = rag_context.iter()
-        .take(5)
-        .map(|(k, v, score)| {
-            let trimmed = if v.len() > 400 {
-                let cut = &v[..400];
-                cut.rfind(' ').map(|i| &v[..i]).unwrap_or(cut)
-            } else { v.as_str() };
-            format!("[{} · match {:.0}%] {}", k, score * 100.0, trimmed)
+
+    // Dedupe near-identical hits so three versions of the same fact don't
+    // dominate. Key signature = first 120 chars lowered + stripped of
+    // non-alphanumerics. Preserves the highest-score instance.
+    let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let mut uniq: Vec<&(String, String, f64)> = rag_context.iter()
+        .filter(|(_k, v, _s)| {
+            let sig: String = v.chars().take(120)
+                .map(|c| c.to_ascii_lowercase())
+                .filter(|c| c.is_alphanumeric())
+                .collect();
+            if sig.is_empty() { return false; }
+            seen.insert(sig)
         })
         .collect();
-    format!("{} matches from the HDC-indexed knowledge base:\n\n{}",
-            rag_context.len().min(5), lines.join("\n\n"))
+    // Sort descending by score so the top match is first.
+    uniq.sort_by(|a, b| b.2.partial_cmp(&a.2).unwrap_or(std::cmp::Ordering::Equal));
+
+    let (top_key, top_val, top_score) = match uniq.first() {
+        Some(r) => r,
+        None => return format!(
+            "No distinguishable HDC match for \"{}\" — retrieval surfaced only \
+             near-duplicate rows.",
+            crate::truncate_str(query, 80)
+        ),
+    };
+
+    // Clean the top fact: strip the source tag if the value leads with the
+    // key text, word-boundary truncate at 600 chars.
+    let clean = strip_key_prefix(top_key, top_val);
+    let lead = word_truncate(&clean, 600);
+
+    // Shape the opener by speech act.
+    let opener = match act {
+        Some(SpeechAct::Define) => "Closest definition-style match from the knowledge base:",
+        Some(SpeechAct::Explain) => "Closest explanation-style match from the knowledge base:",
+        Some(SpeechAct::Why) => "Closest causal / reason match from the knowledge base:",
+        Some(SpeechAct::HowTo) => "Closest procedural / how-to match from the knowledge base:",
+        Some(SpeechAct::Compare) => "Closest comparison-related match from the knowledge base:",
+        Some(SpeechAct::Enumerate) => "Closest list-style match from the knowledge base:",
+        Some(SpeechAct::WhoQuestion) => "Closest person / entity match from the knowledge base:",
+        Some(SpeechAct::WhQuestion) => "Closest time / place match from the knowledge base:",
+        Some(SpeechAct::Summarize) => "Closest summary-style match from the knowledge base:",
+        Some(SpeechAct::Fix) => "Closest fix-related match from the knowledge base:",
+        Some(SpeechAct::Analyze) => "Closest analysis-style match from the knowledge base:",
+        _ => "Closest match from the knowledge base:",
+    };
+
+    let mut out = String::new();
+    out.push_str(opener);
+    out.push_str("\n\n");
+    out.push_str(&lead);
+    out.push_str(&format!(
+        "\n\n(source: {}, similarity {:.0}%)",
+        source_label(top_key), top_score * 100.0,
+    ));
+
+    // If additional distinct matches exist, list up to 3 as terse related.
+    let related: Vec<&&(String, String, f64)> = uniq.iter().skip(1).take(3).collect();
+    if !related.is_empty() {
+        out.push_str("\n\nRelated:\n");
+        for (k, v, _s) in related.iter().map(|r| *r) {
+            let cl = strip_key_prefix(k, v);
+            out.push_str("- ");
+            out.push_str(&word_truncate(&cl, 220));
+            out.push_str(&format!(" _(source: {})_\n", source_label(k)));
+        }
+    }
+    out
+}
+
+/// Reduce a fact key like "cn_d396104072" to "conceptnet", "piqa_train_14674"
+/// to "piqa", "mnli_002095" to "mnli", etc. — the human-readable corpus tag.
+fn source_label(key: &str) -> String {
+    if key.starts_with("cn_") { return "conceptnet".into(); }
+    let prefix: String = key.chars()
+        .take_while(|c| c.is_alphabetic() || *c == '_')
+        .collect();
+    let base: String = prefix.trim_end_matches('_').to_string();
+    if base.is_empty() { "unknown".into() } else { base.to_lowercase() }
+}
+
+/// Strip a leading copy of the key from the value (some ingesters prefix
+/// facts like "foo DerivedFrom bar" where 'foo' is the key).
+fn strip_key_prefix(key: &str, value: &str) -> String {
+    if let Some(rest) = value.strip_prefix(key) {
+        rest.trim_start_matches([':', ' ', '\t']).to_string()
+    } else {
+        value.to_string()
+    }
+}
+
+/// Truncate on a word boundary at or before `n` chars. Adds an ellipsis
+/// suffix when truncation actually happened.
+fn word_truncate(s: &str, n: usize) -> String {
+    if s.len() <= n {
+        return s.to_string();
+    }
+    let cut = &s[..n];
+    let boundary = cut.rfind(' ').unwrap_or(n);
+    let mut out = cut[..boundary].to_string();
+    out.push('…');
+    out
 }
 
 /// The active cognitive mode.
@@ -1164,7 +1269,7 @@ impl CognitiveCore {
             }
             Some(Intent::Search { query }) => {
                 // Try Ollama for a real answer first
-                hdc_retrieval_response(query, &self.rag_context)
+                hdc_retrieval_response_shaped(query, &self.rag_context, self.active_speech_act.map(|(a, _)| a))
             }
             Some(Intent::PlanTask { goal }) => {
                 let g = crate::truncate_str(goal, 80);
@@ -1185,7 +1290,7 @@ impl CognitiveCore {
                 }
             }
             Some(Intent::Analyze { target }) => {
-                hdc_retrieval_response(target, &self.rag_context)
+                hdc_retrieval_response_shaped(target, &self.rag_context, self.active_speech_act.map(|(a, _)| a))
             }
             Some(Intent::Improve { target }) => {
                 let t = crate::truncate_str(target, 80);
@@ -1206,7 +1311,7 @@ impl CognitiveCore {
                 // them; only fall back to "tell me more" when retrieval was
                 // empty (genuinely no grounding).
                 if !self.rag_context.is_empty() {
-                    return Ok(hdc_retrieval_response(raw, &self.rag_context));
+                    return Ok(hdc_retrieval_response_shaped(raw, &self.rag_context, self.active_speech_act.map(|(a, _)| a)));
                 }
 
                 // #345: Layer-5 speech-act classifier runs ahead of respond()
@@ -1525,7 +1630,7 @@ impl CognitiveCore {
                 if input_lower_pre.starts_with(prefix) {
                     let topic = input_lower_pre[prefix.len()..].trim_end_matches('?').trim();
                     if !topic.is_empty() && topic.len() < 100 {
-                        return hdc_retrieval_response(input, &self.rag_context);
+                        return hdc_retrieval_response_shaped(input, &self.rag_context, self.active_speech_act.map(|(a, _)| a));
                     }
                 }
             }
