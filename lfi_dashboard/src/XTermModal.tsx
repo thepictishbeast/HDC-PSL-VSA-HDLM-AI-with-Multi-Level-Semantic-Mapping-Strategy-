@@ -94,14 +94,63 @@ export const XTermModal: React.FC<XTermModalProps> = ({ C, onClose }) => {
     // Line editor -- collects keystrokes into `buf` and dispatches on Enter.
     // Exposed via the onData callback rather than DOM listeners so the
     // terminal owns its own input even under focus contention.
+    //
+    // c2-386 / BIG #182 (frontend slice): command history with up/down
+    // arrow recall and localStorage persistence. history is oldest-first;
+    // histIdx points into it while navigating. idx === history.length means
+    // "current in-progress buf" (so Down from the last recalled entry
+    // restores what the user was typing).
+    const HIST_KEY = 'lfi_xterm_history';
+    const HIST_CAP = 100;
+    const loadHistory = (): string[] => {
+      try {
+        const raw = localStorage.getItem(HIST_KEY);
+        return raw ? (JSON.parse(raw) as string[]).slice(-HIST_CAP) : [];
+      } catch { return []; }
+    };
+    const history: string[] = loadHistory();
+    let histIdx = history.length;      // cursor into history; length = "editing"
+    let draft = '';                    // saved partial buf while browsing history
     let buf = '';
+    const clearLine = () => {
+      // Replace the current line buffer on the terminal. Emit enough \b to
+      // wipe buf chars, then overwrite with spaces, then \b back to start.
+      while (buf.length > 0) {
+        term.write('\b \b');
+        buf = buf.slice(0, -1);
+      }
+    };
+    const writeBuf = (s: string) => { buf = s; term.write(s); };
     const disposer = term.onData((data) => {
+      // Arrow keys arrive as CSI escape sequences: \x1b [ A (up) / B (down).
+      // Detect them as whole tokens rather than iterating char-by-char.
+      if (data === '\x1b[A') {
+        if (history.length === 0) return;
+        if (histIdx === history.length) draft = buf;
+        if (histIdx > 0) histIdx -= 1;
+        clearLine();
+        writeBuf(history[histIdx]);
+        return;
+      }
+      if (data === '\x1b[B') {
+        if (histIdx >= history.length) return;
+        histIdx += 1;
+        clearLine();
+        writeBuf(histIdx === history.length ? draft : history[histIdx]);
+        return;
+      }
       for (const ch of data) {
         const code = ch.charCodeAt(0);
         if (code === 13) {               // Enter
           term.writeln('');
           const parts = buf.trim().split(/\s+/).filter(Boolean);
           if (parts.length > 0) {
+            const trimmed = buf.trim();
+            if (trimmed && (history.length === 0 || history[history.length - 1] !== trimmed)) {
+              history.push(trimmed);
+              if (history.length > HIST_CAP) history.shift();
+              try { localStorage.setItem(HIST_KEY, JSON.stringify(history)); } catch { /* quota */ }
+            }
             const [name, ...args] = parts;
             const c = COMMANDS[name];
             if (c) {
@@ -112,6 +161,8 @@ export const XTermModal: React.FC<XTermModalProps> = ({ C, onClose }) => {
             }
           }
           buf = '';
+          draft = '';
+          histIdx = history.length;
           term.write('> ');
         } else if (code === 127) {       // Backspace
           if (buf.length > 0) {
