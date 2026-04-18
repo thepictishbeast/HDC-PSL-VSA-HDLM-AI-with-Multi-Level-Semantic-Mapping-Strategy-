@@ -366,24 +366,66 @@ async fn handle_chat_socket(mut socket: WebSocket, state: Arc<AppState>) {
                     let causal_context = {
                         let act_opt = agent.reasoner.active_speech_act.map(|(a,_)| a);
                         use crate::cognition::speech_act::SpeechAct;
-                        let want_causal = matches!(act_opt,
+                        // Gate on classifier OR prefix-match — the classifier's
+                        // "statement" prototype absorbs a lot of question-ish
+                        // inputs ("explain fire" scored "statement 0.47"). Prefix
+                        // patterns are a cheap lexical fallback.
+                        let act_gate = matches!(act_opt,
                             Some(SpeechAct::Define) | Some(SpeechAct::Why) |
                             Some(SpeechAct::Explain) | Some(SpeechAct::HowTo) |
                             Some(SpeechAct::Compare));
+                        let lower_once = input.to_lowercase();
+                        let prefix_gate = [
+                            "what ", "why ", "how ", "explain ", "describe ",
+                            "tell me about ", "compare ",
+                        ].iter().any(|p| lower_once.starts_with(p));
+                        let want_causal = act_gate || prefix_gate;
                         if want_causal {
                             // Strip common question prefixes so "what is water"
-                            // becomes "water" for the concept-key lookup.
-                            let lower = input.to_lowercase();
+                            // becomes "water" for the concept-key lookup, then
+                            // also strip leading articles ("a dog" → "dog") and
+                            // try progressively narrower extractions so single-
+                            // word concepts still hit edges when the question
+                            // carried extra tokens ("why does anger happen" →
+                            // "anger happen" → "anger").
+                            let lower = lower_once;
                             let stripped = [
                                 "what is ", "what's ", "whats ", "what are ",
                                 "why does ", "why is ", "why are ", "why do ",
                                 "how do i ", "how to ", "how does ", "how can i ",
-                                "explain ", "describe ", "tell me about ", "compare ",
-                            ].iter().find_map(|p| lower.strip_prefix(p).map(str::to_string));
-                            let query_concept = stripped.as_deref()
-                                .unwrap_or(&lower)
-                                .trim_end_matches('?').trim();
-                            state.db.causal_summary(query_concept, 8)
+                                "explain ", "describe ", "tell me about ",
+                                "compare ", "what causes ", "what makes ",
+                            ].iter().find_map(|p| lower.strip_prefix(p).map(str::to_string))
+                                .unwrap_or_else(|| lower.clone());
+                            let cleaned = stripped
+                                .trim_end_matches('?').trim()
+                                .trim_start_matches("a ")
+                                .trim_start_matches("an ")
+                                .trim_start_matches("the ")
+                                .to_string();
+                            let trailing = [
+                                " happen", " happens", " occur", " occurs",
+                                " work", " works", " exist", " exists",
+                            ];
+                            let mut final_concept = cleaned.clone();
+                            for suffix in trailing {
+                                if final_concept.to_lowercase().ends_with(suffix) {
+                                    let n = final_concept.len() - suffix.len();
+                                    final_concept = final_concept[..n].trim().to_string();
+                                    break;
+                                }
+                            }
+                            // Try full cleaned phrase first; fall back to the
+                            // last token (heuristic head noun) when the full
+                            // phrase has no edges.
+                            let primary = state.db.causal_summary(&final_concept, 8);
+                            if primary.is_some() {
+                                primary
+                            } else {
+                                final_concept.rsplit_once(' ')
+                                    .map(|(_, last)| last.to_string())
+                                    .and_then(|last| state.db.causal_summary(&last, 8))
+                            }
                         } else { None }
                     };
 
