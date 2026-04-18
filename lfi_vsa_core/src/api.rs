@@ -474,11 +474,24 @@ async fn handle_chat_socket(mut socket: WebSocket, state: Arc<AppState>) {
                                 .calibrate(thought.confidence, domain_str.as_deref());
                             // Compose final content: structured causal context
                             // (when available) + the HDC retrieval / template.
+                            // Compose final content. When causal context is
+                            // present AND the cognition template looks like a
+                            // generic "give me more context" filler (detected
+                            // by length + absence of retrieval markers), drop
+                            // the template — the structured context already
+                            // answers the question on its own. Otherwise
+                            // prepend the context to the template.
+                            let template = response.text.clone();
+                            let looks_like_filler = template.len() < 150
+                                && !template.contains("knowledge base")
+                                && !template.contains("Closest match")
+                                && !template.contains("Related:")
+                                && !template.contains("\n- ");
                             let final_content = match &causal_context {
-                                Some(cc) if !response.text.is_empty() =>
-                                    format!("{}\n{}", cc, response.text),
-                                Some(cc) => cc.clone(),
-                                None => response.text.clone(),
+                                Some(cc) if template.is_empty() => cc.clone(),
+                                Some(cc) if looks_like_filler => cc.clone(),
+                                Some(cc) => format!("{}\n{}", cc, template),
+                                None => template,
                             };
                             let mut payload = json!({
                                 "type": "chat_response",
