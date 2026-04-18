@@ -874,7 +874,18 @@ async fn auth_handler(
     Json(req): Json<AuthRequest>,
 ) -> impl IntoResponse {
     let mut agent = state.agent.lock();
-    if agent.authenticate(&req.key) {
+    let ok = agent.authenticate(&req.key);
+    drop(agent); // release before taking DB lock for audit
+
+    // #305 Chain every auth attempt to the tamper-evident log.
+    // Detail carries the result, never the key material.
+    let (sev, action) = if ok { ("Info", "auth_success") } else { ("High", "auth_reject") };
+    let _ = state.db.audit_chain_append(
+        "authentication", sev, "rest_client",
+        action, "POST /api/auth",
+    );
+
+    if ok {
         info!("// AUDIT: Sovereign authentication VERIFIED via REST.");
         Json(json!({ "status": "authenticated", "tier": "Sovereign" }))
     } else {
@@ -3537,6 +3548,78 @@ pub fn create_router() -> Result<Router, Box<dyn std::error::Error>> {
         }))
     }
 
+    // ---- Merkle-chained security audit (#305) ----
+
+    /// POST /api/audit/chain/append
+    /// Body: { category, severity, actor, action, detail }
+    async fn audit_chain_append_handler(
+        State(state): State<Arc<AppState>>,
+        Json(body): Json<serde_json::Value>,
+    ) -> impl IntoResponse {
+        // Only authenticated clients can append — the audit chain is a
+        // tamper-evident record, not a public write surface.
+        {
+            let agent = state.agent.lock();
+            if !agent.authenticated {
+                return axum::Json(json!({"error": "authentication required"}));
+            }
+        }
+        let cat = body.get("category").and_then(|v| v.as_str()).unwrap_or("");
+        let sev = body.get("severity").and_then(|v| v.as_str()).unwrap_or("Info");
+        let actor = body.get("actor").and_then(|v| v.as_str()).unwrap_or("system");
+        let action = body.get("action").and_then(|v| v.as_str()).unwrap_or("");
+        let detail = body.get("detail").and_then(|v| v.as_str()).unwrap_or("");
+        if cat.is_empty() || cat.len() > 64 || action.is_empty() || action.len() > 128
+            || detail.len() > 4096 {
+            return axum::Json(json!({
+                "error": "invalid fields (category 1..=64, action 1..=128, detail 0..=4096)",
+            }));
+        }
+        match state.db.audit_chain_append(cat, sev, actor, action, detail) {
+            Some((idx, hash)) => axum::Json(json!({
+                "idx": idx,
+                "entry_hash": hash.iter().map(|b| format!("{:02x}", b)).collect::<String>(),
+            })),
+            None => axum::Json(json!({"error": "append failed"})),
+        }
+    }
+
+    /// GET /api/audit/chain/recent?limit=N
+    async fn audit_chain_recent_handler(
+        State(state): State<Arc<AppState>>,
+        Query(params): Query<HashMap<String, String>>,
+    ) -> impl IntoResponse {
+        let limit: i64 = params.get("limit")
+            .and_then(|s| s.parse().ok()).unwrap_or(50).min(500);
+        let rows = state.db.audit_chain_recent(limit);
+        let items: Vec<serde_json::Value> = rows.into_iter()
+            .map(|(idx, ts, cat, sev, actor, action, detail, hash)| json!({
+                "idx": idx,
+                "ts_ms": ts,
+                "category": cat,
+                "severity": sev,
+                "actor": actor,
+                "action": action,
+                "detail": detail,
+                "entry_hash": hash,
+            })).collect();
+        axum::Json(json!({"entries": items, "count": items.len()}))
+    }
+
+    /// GET /api/audit/chain/verify — walk the full chain.
+    async fn audit_chain_verify_handler(
+        State(state): State<Arc<AppState>>,
+    ) -> impl IntoResponse {
+        match state.db.audit_chain_verify() {
+            Ok(n) => axum::Json(json!({
+                "valid": true, "entries_verified": n,
+            })),
+            Err(bad_idx) => axum::Json(json!({
+                "valid": false, "broken_at_idx": bad_idx,
+            })),
+        }
+    }
+
     // ---- Drift monitor (#284) ----
 
     /// GET /api/drift/snapshot — current drift metrics for the fact base.
@@ -4398,6 +4481,9 @@ pub fn create_router() -> Result<Router, Box<dyn std::error::Error>> {
         .route("/api/hdc/cache/stats", get(hdc_cache_stats_handler))
         .route("/api/hdc/cache/encode", post(hdc_cache_encode_handler))
         .route("/api/drift/snapshot", get(drift_snapshot_handler))
+        .route("/api/audit/chain/append", post(audit_chain_append_handler))
+        .route("/api/audit/chain/recent", get(audit_chain_recent_handler))
+        .route("/api/audit/chain/verify", get(audit_chain_verify_handler))
         .route("/api/fsrs/due", get(fsrs_due_handler))
         .route("/api/fsrs/review", post(fsrs_review_handler))
         .route("/api/explain", post(explain_query_handler))

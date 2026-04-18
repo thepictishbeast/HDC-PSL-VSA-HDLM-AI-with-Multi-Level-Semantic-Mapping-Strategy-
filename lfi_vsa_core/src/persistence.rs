@@ -193,6 +193,33 @@ impl BrainDb {
             CREATE INDEX IF NOT EXISTS idx_contradictions_unresolved
                 ON contradictions(fact_key) WHERE resolved_at IS NULL;
 
+            -- #305 Merkle-chained security audit log. Each row binds to
+            -- the previous via SHA-256(index || ts || category || actor ||
+            -- action || detail || prev_hash). Any modification to an older
+            -- row breaks the chain; verify_chain() reports the first
+            -- broken index.
+            --
+            -- Distinct from `audit_log` (AVP audit-pass records) —
+            -- chain entries are security events: auth success/fail, tier
+            -- changes, fact deletions, policy flips, contradiction
+            -- resolutions, etc. Append-only from the Rust side; SQL
+            -- DELETE / UPDATE is detected by verify_chain even if
+            -- a malicious operator gets DB write access.
+            CREATE TABLE IF NOT EXISTS security_audit_chain (
+                idx INTEGER PRIMARY KEY AUTOINCREMENT,
+                ts_ms INTEGER NOT NULL,
+                category TEXT NOT NULL,
+                severity TEXT NOT NULL,
+                actor TEXT NOT NULL,
+                action TEXT NOT NULL,
+                detail TEXT NOT NULL,
+                prev_hash BLOB NOT NULL,
+                entry_hash BLOB NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_sac_ts ON security_audit_chain(ts_ms);
+            CREATE INDEX IF NOT EXISTS idx_sac_cat ON security_audit_chain(category);
+            CREATE INDEX IF NOT EXISTS idx_sac_actor ON security_audit_chain(actor);
+
             -- #293 Per-source trust weights used for cross-source fact
             -- reconciliation. 0.0 = adversarial/untrusted,
             -- 1.0 = fully trusted. Unknown sources default to 0.5 via
@@ -458,6 +485,131 @@ impl BrainDb {
              resolved_value = ?2 WHERE id = ?1",
             params![id, resolved_value],
         ).map(|n| n > 0).unwrap_or(false)
+    }
+
+    // ---- Merkle-chained security audit log (#305) ----
+    //
+    // entry_hash = SHA-256(idx_be || ts_be || cat || sev || actor ||
+    //                      action || detail || prev_hash)
+    // Fields separated by a 0x1F (unit separator) to eliminate field
+    // boundary ambiguity in concatenation. First row's prev_hash is
+    // all-zeros.
+
+    /// Append a security audit event. Hash-chains to the previous row.
+    /// Returns (idx, entry_hash) on success, None on DB failure.
+    pub fn audit_chain_append(
+        &self,
+        category: &str, severity: &str, actor: &str,
+        action: &str, detail: &str,
+    ) -> Option<(i64, Vec<u8>)> {
+        use sha2::{Sha256, Digest};
+        let conn = self.conn.lock().unwrap_or_else(|e| e.into_inner());
+        let ts_ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_millis() as i64).unwrap_or(0);
+
+        // Look up previous hash (or zeros for first row).
+        let (prev_idx, prev_hash): (i64, Vec<u8>) = conn.query_row(
+            "SELECT idx, entry_hash FROM security_audit_chain \
+             ORDER BY idx DESC LIMIT 1",
+            [],
+            |r| Ok((r.get::<_, i64>(0)?, r.get::<_, Vec<u8>>(1)?)),
+        ).unwrap_or((0, vec![0u8; 32]));
+        let new_idx = prev_idx + 1;
+
+        let mut hasher = Sha256::new();
+        hasher.update(new_idx.to_be_bytes());
+        hasher.update(&[0x1Fu8]);
+        hasher.update(ts_ms.to_be_bytes());
+        hasher.update(&[0x1Fu8]);
+        hasher.update(category.as_bytes());
+        hasher.update(&[0x1Fu8]);
+        hasher.update(severity.as_bytes());
+        hasher.update(&[0x1Fu8]);
+        hasher.update(actor.as_bytes());
+        hasher.update(&[0x1Fu8]);
+        hasher.update(action.as_bytes());
+        hasher.update(&[0x1Fu8]);
+        hasher.update(detail.as_bytes());
+        hasher.update(&[0x1Fu8]);
+        hasher.update(&prev_hash);
+        let entry_hash: Vec<u8> = hasher.finalize().to_vec();
+
+        let rows = conn.execute(
+            "INSERT INTO security_audit_chain \
+             (ts_ms, category, severity, actor, action, detail, prev_hash, entry_hash) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+            params![ts_ms, category, severity, actor, action, detail,
+                    prev_hash, &entry_hash],
+        ).ok()?;
+        if rows == 0 { return None; }
+        Some((conn.last_insert_rowid(), entry_hash))
+    }
+
+    /// Walk the chain and verify every link. Returns Ok(entry_count) on
+    /// a fully-valid chain or Err(first_bad_idx) when a link breaks.
+    pub fn audit_chain_verify(&self) -> Result<i64, i64> {
+        use sha2::{Sha256, Digest};
+        let conn = self.conn.lock().unwrap_or_else(|e| e.into_inner());
+        let mut stmt = match conn.prepare(
+            "SELECT idx, ts_ms, category, severity, actor, action, detail, \
+                    prev_hash, entry_hash \
+             FROM security_audit_chain ORDER BY idx ASC"
+        ) { Ok(s) => s, Err(_) => return Ok(0) };
+        let rows: Vec<_> = stmt.query_map([], |r| Ok((
+            r.get::<_, i64>(0)?, r.get::<_, i64>(1)?,
+            r.get::<_, String>(2)?, r.get::<_, String>(3)?,
+            r.get::<_, String>(4)?, r.get::<_, String>(5)?,
+            r.get::<_, String>(6)?,
+            r.get::<_, Vec<u8>>(7)?, r.get::<_, Vec<u8>>(8)?,
+        ))).map(|i| i.filter_map(|r| r.ok()).collect()).unwrap_or_default();
+
+        let mut expected_prev: Vec<u8> = vec![0u8; 32];
+        for (idx, ts_ms, cat, sev, actor, action, detail, prev, entry) in rows.iter() {
+            if prev != &expected_prev { return Err(*idx); }
+            let mut hasher = Sha256::new();
+            hasher.update(idx.to_be_bytes());
+            hasher.update(&[0x1Fu8]);
+            hasher.update(ts_ms.to_be_bytes());
+            hasher.update(&[0x1Fu8]);
+            hasher.update(cat.as_bytes());
+            hasher.update(&[0x1Fu8]);
+            hasher.update(sev.as_bytes());
+            hasher.update(&[0x1Fu8]);
+            hasher.update(actor.as_bytes());
+            hasher.update(&[0x1Fu8]);
+            hasher.update(action.as_bytes());
+            hasher.update(&[0x1Fu8]);
+            hasher.update(detail.as_bytes());
+            hasher.update(&[0x1Fu8]);
+            hasher.update(prev);
+            let computed: Vec<u8> = hasher.finalize().to_vec();
+            if &computed != entry { return Err(*idx); }
+            expected_prev = entry.clone();
+        }
+        Ok(rows.len() as i64)
+    }
+
+    /// Recent audit entries for UI display. Returns (idx, ts_ms,
+    /// category, severity, actor, action, detail, entry_hash_hex).
+    pub fn audit_chain_recent(&self, limit: i64)
+        -> Vec<(i64, i64, String, String, String, String, String, String)>
+    {
+        let conn = self.conn.lock().unwrap_or_else(|e| e.into_inner());
+        let mut stmt = match conn.prepare(
+            "SELECT idx, ts_ms, category, severity, actor, action, detail, entry_hash \
+             FROM security_audit_chain ORDER BY idx DESC LIMIT ?1"
+        ) { Ok(s) => s, Err(_) => return Vec::new() };
+        stmt.query_map(params![limit], |r| Ok((
+            r.get::<_, i64>(0)?, r.get::<_, i64>(1)?,
+            r.get::<_, String>(2)?, r.get::<_, String>(3)?,
+            r.get::<_, String>(4)?, r.get::<_, String>(5)?,
+            r.get::<_, String>(6)?,
+            {
+                let bytes: Vec<u8> = r.get(7)?;
+                bytes.iter().map(|b| format!("{:02x}", b)).collect::<String>()
+            },
+        ))).map(|i| i.filter_map(|r| r.ok()).collect()).unwrap_or_default()
     }
 
     // ---- Drift monitor (#284) ----
@@ -1791,6 +1943,46 @@ mod tests {
         db.upsert_fact("k", "a", "src1", 0.95);
         db.upsert_fact("k", "b", "src2", 0.4);
         assert_eq!(db.contradiction_pending_count(), 0);
+    }
+
+    #[test]
+    fn audit_chain_append_and_verify() {
+        let db = temp_db();
+        let (id1, h1) = db.audit_chain_append(
+            "auth", "Info", "tester", "auth_success", "first event"
+        ).unwrap();
+        let (id2, h2) = db.audit_chain_append(
+            "auth", "Info", "tester", "auth_success", "second event"
+        ).unwrap();
+        assert!(id2 > id1);
+        assert_ne!(h1, h2);
+        assert_eq!(db.audit_chain_verify(), Ok(2));
+        assert_eq!(db.audit_chain_recent(10).len(), 2);
+    }
+
+    #[test]
+    fn audit_chain_detects_tampering() {
+        // Write two rows, then mutate row 1's detail and expect verify to fail.
+        let db = temp_db();
+        db.audit_chain_append("cat", "Info", "a", "x", "row one").unwrap();
+        db.audit_chain_append("cat", "Info", "a", "x", "row two").unwrap();
+        {
+            let conn = db.conn.lock().unwrap_or_else(|e| e.into_inner());
+            conn.execute(
+                "UPDATE security_audit_chain SET detail='TAMPERED' WHERE idx = 1",
+                [],
+            ).unwrap();
+        }
+        match db.audit_chain_verify() {
+            Err(idx) => assert_eq!(idx, 1),
+            Ok(n) => panic!("tamper not detected, verified {} rows", n),
+        }
+    }
+
+    #[test]
+    fn audit_chain_empty_is_valid() {
+        let db = temp_db();
+        assert_eq!(db.audit_chain_verify(), Ok(0));
     }
 
     #[test]
