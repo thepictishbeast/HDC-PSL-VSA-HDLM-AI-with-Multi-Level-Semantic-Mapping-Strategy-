@@ -133,7 +133,7 @@ export const LibraryView: React.FC<LibraryViewProps> = ({ C, host, isDesktop }) 
         }}>Library</h1>
         <div style={{ flex: 1 }} />
         {lastUpdated != null && (
-          <span style={{ fontSize: T.typography.sizeXs, color: C.textDim, fontFamily: 'ui-monospace, monospace' }}>
+          <span style={{ fontSize: T.typography.sizeXs, color: C.textDim, fontFamily: T.typography.fontMono }}>
             Updated {formatRelative(lastUpdated)}
           </span>
         )}

@@ -120,7 +120,7 @@ export const AuditoriumView: React.FC<AuditoriumViewProps> = ({ C, host, isDeskt
         }}>AVP-2</span>
         <div style={{ flex: 1 }} />
         {lastUpdated != null && !err && (
-          <span style={{ fontSize: T.typography.sizeXs, color: C.textDim, fontFamily: 'ui-monospace, monospace' }}>
+          <span style={{ fontSize: T.typography.sizeXs, color: C.textDim, fontFamily: T.typography.fontMono }}>
             Updated {formatRelative(lastUpdated)}
           </span>
         )}

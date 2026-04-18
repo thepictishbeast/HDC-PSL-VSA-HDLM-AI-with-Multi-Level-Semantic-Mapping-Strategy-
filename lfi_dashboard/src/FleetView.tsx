@@ -93,7 +93,7 @@ export const FleetView: React.FC<FleetViewProps> = ({ C, host, isDesktop }) => {
         }}>Fleet</h1>
         <div style={{ flex: 1 }} />
         {lastUpdated != null && (
-          <span style={{ fontSize: T.typography.sizeXs, color: C.textDim, fontFamily: 'ui-monospace, monospace' }}>
+          <span style={{ fontSize: T.typography.sizeXs, color: C.textDim, fontFamily: T.typography.fontMono }}>
             Updated {formatRelative(lastUpdated)}
           </span>
         )}
@@ -258,13 +258,13 @@ const InstanceCard: React.FC<{ C: any; inst: FleetInstance }> = ({ C, inst }) =>
       {inst.current_task && (
         <div title={inst.current_task} style={{
           padding: '6px 8px', background: C.bgInput, borderRadius: T.radii.sm,
-          fontSize: '11px', color: C.textMuted, fontFamily: 'ui-monospace, monospace',
+          fontSize: '11px', color: C.textMuted, fontFamily: T.typography.fontMono,
           marginBottom: '6px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
         }}>
           {inst.current_task}
         </div>
       )}
-      <div style={{ display: 'flex', gap: T.spacing.md, fontSize: '11px', color: C.textMuted, fontFamily: 'ui-monospace, monospace' }}>
+      <div style={{ display: 'flex', gap: T.spacing.md, fontSize: '11px', color: C.textMuted, fontFamily: T.typography.fontMono }}>
         {typeof inst.tasks_completed === 'number' && <span>{'\u2713'} {inst.tasks_completed}</span>}
         {typeof inst.tasks_pending === 'number' && <span>{'\u29D6'} {inst.tasks_pending}</span>}
         {inst.last_seen && <span style={{ marginLeft: 'auto' }}>

@@ -96,13 +96,13 @@ export const AccuracyPanel: React.FC<AccuracyPanelProps> = ({ C, host }) => {
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: T.spacing.xs }}>
             <div style={metricCard}>
               <div style={metricCapLabel}>Pass rate</div>
-              <div style={{ fontSize: T.typography.sizeXl, fontWeight: T.typography.weightBlack, color: rateColor, fontFamily: 'ui-monospace, monospace', marginTop: '2px' }}>
+              <div style={{ fontSize: T.typography.sizeXl, fontWeight: T.typography.weightBlack, color: rateColor, fontFamily: T.typography.fontMono, marginTop: '2px' }}>
                 {rate}
               </div>
             </div>
             <div style={metricCard}>
               <div style={metricCapLabel}>Samples</div>
-              <div style={{ fontSize: T.typography.sizeXl, fontWeight: T.typography.weightBlack, color: C.text, fontFamily: 'ui-monospace, monospace', marginTop: '2px' }}>
+              <div style={{ fontSize: T.typography.sizeXl, fontWeight: T.typography.weightBlack, color: C.text, fontFamily: T.typography.fontMono, marginTop: '2px' }}>
                 {typeof data.samples === 'number' ? data.samples.toLocaleString() : '—'}
               </div>
             </div>
@@ -128,7 +128,7 @@ export const AccuracyPanel: React.FC<AccuracyPanelProps> = ({ C, host }) => {
                     borderBottom: `1px solid ${C.borderSubtle}`,
                   }}>
                     <span style={{ color: C.textSecondary }}>{dom}</span>
-                    <span style={{ color: C.text, fontFamily: 'ui-monospace, monospace' }}>{pct(v)}</span>
+                    <span style={{ color: C.text, fontFamily: T.typography.fontMono }}>{pct(v)}</span>
                   </div>
                 ))}
             </div>

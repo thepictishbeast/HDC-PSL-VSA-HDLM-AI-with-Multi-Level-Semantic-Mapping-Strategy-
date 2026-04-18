@@ -148,7 +148,7 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
                   <div style={{ display: 'flex', alignItems: 'center', gap: T.spacing.sm, marginLeft: '10px', flexShrink: 0 }}>
                     {it.shortcut && (
                       <kbd style={{
-                        fontFamily: 'ui-monospace, SFMono-Regular, monospace',
+                        fontFamily: T.typography.fontMono,
                         fontSize: '10.5px', color: picked ? C.accent : C.textMuted,
                         background: picked ? 'transparent' : C.bgInput,
                         border: `1px solid ${picked ? C.accentBorder : C.borderSubtle}`,

@@ -510,7 +510,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
         {/* c2-271: app version footer. Hardcoded from package.json — Vite
             define would be better but the extra config isn't worth it for a
             single string. Bump alongside package.json on release. */}
-        <div style={{ marginTop: '4px', fontSize: T.typography.sizeXs, fontFamily: 'ui-monospace, monospace', opacity: 0.7 }}>
+        <div style={{ marginTop: '4px', fontSize: T.typography.sizeXs, fontFamily: T.typography.fontMono, opacity: 0.7 }}>
           PlausiDen v1.0.0
         </div>
       </div>
