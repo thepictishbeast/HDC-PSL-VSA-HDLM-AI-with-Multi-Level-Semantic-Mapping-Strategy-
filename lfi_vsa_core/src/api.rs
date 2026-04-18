@@ -291,8 +291,16 @@ async fn handle_chat_socket(mut socket: WebSocket, state: Arc<AppState>) {
                     // available for the response generation.
                     let lower = input.to_lowercase();
                     let db_ref = state.db.clone();
+                    // #325 Scrub auto-extracted profile values before they
+                    // are persisted. The user may have pasted an API key
+                    // or SSN into a "my name is ..." utterance; the
+                    // scanner replaces any detected secret with a labelled
+                    // placeholder BEFORE the fact lands in either
+                    // conversation_facts, shared_knowledge, or brain.db.
+                    use crate::intelligence::secret_scanner::SecretScanner as _SS;
+                    let profile_scrubber = _SS::new();
                     let mut learn = |key: &str, val: &str, category: &str| {
-                        let v = val.trim().to_string();
+                        let v = profile_scrubber.redact(val.trim());
                         if v.is_empty() || v.len() > 200 { return; }
                         debuglog!("chat: auto-learned profile {}={} ({})", key, v, category);
                         agent.conversation_facts.insert(key.to_string(), v.clone());
@@ -1504,9 +1512,22 @@ async fn research_handler(
         }
     };
 
-    // Persist to brain.db as a research fact
+    // #325 Scrub before persist. Web research pulls from untrusted
+    // sources; the synthesis can contain API keys, SSNs, credit cards,
+    // or other PII scraped from indexed pages. SecretScanner.redact()
+    // replaces each match with a labelled placeholder before the row
+    // lands in brain.db so downstream queries can't surface the
+    // original token.
+    use crate::intelligence::secret_scanner::SecretScanner;
+    let scrubber = SecretScanner::new();
+    let truncated = crate::truncate_str(&synthesis, 500);
+    let scrubbed = scrubber.redact(&truncated);
+    if scrubbed != truncated {
+        info!("// SCRUBBER: redacted secrets from web-research synthesis for {:?}",
+              crate::truncate_str(&req.query, 40));
+    }
     let fact_key = format!("research_{}", req.query.chars().take(40).collect::<String>().replace(' ', "_"));
-    state.db.upsert_fact(&fact_key, &crate::truncate_str(&synthesis, 500), "web_research", avg_trust);
+    state.db.upsert_fact(&fact_key, &scrubbed, "web_research", avg_trust);
 
     Json(json!({
         "status": "ok",
