@@ -2148,6 +2148,133 @@ async fn provenance_explain_handler(
     }))
 }
 
+/// POST /api/explain — dry-run a query and surface the routing decisions (#300)
+///
+/// Input: { "query": "what is a volcano" }
+///
+/// Returns: classifier verdict, gate decisions, concept extraction path,
+/// RAG top hits, topic_stack snapshot, causal context preview — all the
+/// signals that WOULD fire if this were a real chat turn, but without
+/// mutating workspace / persisting anything.
+///
+/// Powers the AI activity bar (#316) in the frontend and a first-class
+/// "why did you answer that way?" debug mode.
+///
+/// SECURITY: read-only. Classifier loads are in Arc so the lock window
+/// is small. Returns top-5 RAG hits only — truncates value previews to
+/// 240 chars to cap response size.
+async fn explain_query_handler(
+    State(state): State<Arc<AppState>>,
+    Json(body): Json<serde_json::Value>,
+) -> impl IntoResponse {
+    let query = body.get("query")
+        .and_then(|v| v.as_str()).unwrap_or("").trim().to_string();
+    if query.is_empty() || query.len() > 4096 {
+        return Json(json!({
+            "error": "query must be 1..=4096 chars",
+        }));
+    }
+
+    let lower = query.to_lowercase();
+
+    // Mirror the live chat pipeline's gating logic.
+    let follow_up_triggers = [
+        " it", " that", " this", " these", " those",
+        " they", " them", " its", " their",
+        "what about", "tell me more", "and why", "and how",
+        "more details", "expand on",
+    ];
+    let looks_like_followup = query.split_whitespace().count() <= 6
+        && follow_up_triggers.iter()
+            .any(|p| lower.contains(p) || lower.starts_with(p.trim_start()));
+
+    let speech_pair = state.speech_act_classifier.classify(&query);
+    use crate::cognition::speech_act::SpeechAct;
+    let act_gate = matches!(speech_pair.0,
+        SpeechAct::Define | SpeechAct::Why | SpeechAct::Explain
+        | SpeechAct::HowTo | SpeechAct::Compare);
+    let prefix_gate = [
+        "what ", "why ", "how ", "explain ", "describe ",
+        "tell me ", "compare ",
+    ].iter().any(|p| lower.starts_with(p));
+    let want_causal = act_gate || prefix_gate || looks_like_followup;
+
+    // Concept extraction — mirrors the chat_handler strip chain.
+    let stripped = [
+        "what is ", "what's ", "whats ", "what are ",
+        "why does ", "why is ", "why are ", "why do ",
+        "how do i ", "how to ", "how does ", "how can i ",
+        "explain ", "describe ", "tell me about ",
+        "compare ", "what causes ", "what makes ",
+    ].iter().find_map(|p| lower.strip_prefix(p).map(str::to_string))
+        .unwrap_or_else(|| lower.clone());
+    let cleaned = stripped
+        .trim_end_matches('?').trim()
+        .trim_start_matches("a ").trim_start_matches("an ")
+        .trim_start_matches("the ").to_string();
+    let trailing = [" happen", " happens", " occur", " occurs",
+                    " work", " works", " exist", " exists"];
+    let mut concept = cleaned.clone();
+    for sfx in trailing {
+        if concept.to_lowercase().ends_with(sfx) {
+            concept = concept[..concept.len() - sfx.len()].trim().to_string();
+            break;
+        }
+    }
+
+    // RAG preview — top-5 only.
+    let rag_facts = state.db.search_facts(&query, 5);
+    let rag_items: Vec<serde_json::Value> = rag_facts.iter().map(|(k, v, score)| {
+        let preview: String = v.chars().take(240).collect();
+        json!({
+            "key": k,
+            "value_preview": preview,
+            "score": score,
+        })
+    }).collect();
+
+    // Causal preview (only if the pipeline would actually call it).
+    let (causal_summary_preview, causal_entries) = if want_causal && !concept.is_empty() {
+        let full = state.db.causal_summary(&concept, 8);
+        let entries = full.as_ref().map(|s| {
+            s.lines().skip(1)
+                .filter_map(|ln| ln.strip_prefix("- "))
+                .map(|tail| tail.split_once(": ")
+                    .map(|(_, xs)| xs.split(',').count())
+                    .unwrap_or(0))
+                .sum::<usize>()
+        }).unwrap_or(0);
+        let preview = full.map(|s| s.chars().take(600).collect::<String>());
+        (preview, entries)
+    } else { (None, 0) };
+
+    // Topic stack snapshot.
+    let topic_stack: Vec<String> = {
+        let agent = state.agent.lock();
+        agent.topic_stack.iter().cloned().collect()
+    };
+
+    Json(json!({
+        "query": query,
+        "speech_act": {
+            "label": speech_pair.0.as_label(),
+            "score": (speech_pair.1 * 10000.0).round() / 10000.0,
+        },
+        "classifier_gate": act_gate,
+        "prefix_gate": prefix_gate,
+        "looks_like_followup": looks_like_followup,
+        "want_causal": want_causal,
+        "extracted_concept": concept,
+        "concept_path": [query.clone(), stripped, cleaned],
+        "rag_top_facts": rag_items,
+        "rag_hit_count": rag_facts.len(),
+        "causal_entries": causal_entries,
+        "causal_preview": causal_summary_preview,
+        "topic_stack": topic_stack,
+        "topic_stack_depth": topic_stack.len(),
+    }))
+}
+
 /// GET /api/provenance/export — the entire arena as JSON (audit download).
 /// SECURITY: requires the agent to be authenticated — provenance can contain
 /// derivation details an attacker could use to reverse-engineer reasoning.
@@ -4115,6 +4242,7 @@ pub fn create_router() -> Result<Router, Box<dyn std::error::Error>> {
         .route("/api/contradictions/:id/resolve", post(contradiction_resolve_handler))
         .route("/api/fsrs/due", get(fsrs_due_handler))
         .route("/api/fsrs/review", post(fsrs_review_handler))
+        .route("/api/explain", post(explain_query_handler))
         .route("/api/graph/stats", get(graph_stats_handler))
         .route("/api/graph/connections/:fact_key", get(graph_connections_handler))
         .route("/api/graph/traverse/:fact_key", get(graph_traverse_handler))
