@@ -1,0 +1,28 @@
+{
+  "name": "PlausiDen AI",
+  "short_name": "PlausiDen",
+  "description": "Sovereign neurosymbolic AI dashboard — chat, research, reasoning traces, live training telemetry.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#0C0C14",
+  "theme_color": "#0C0C14",
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "/icon-maskable.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "maskable"
+    }
+  ],
+  "categories": ["productivity", "developer"],
+  "lang": "en",
+  "dir": "ltr"
+}

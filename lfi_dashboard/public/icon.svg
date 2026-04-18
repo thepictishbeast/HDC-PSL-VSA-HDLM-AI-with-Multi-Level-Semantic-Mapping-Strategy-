@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128">
+  <!-- PlausiDen app icon. Monogram P over an accent-blue rounded square.
+       Deliberately flat + monochrome so the dark/light theme_color in the
+       manifest carries the visual identity rather than the icon itself. -->
+  <rect x="0" y="0" width="128" height="128" rx="22" fill="#3b82f6"/>
+  <text x="64" y="90" font-family="system-ui, -apple-system, sans-serif"
+        font-size="82" font-weight="800" fill="#ffffff"
+        text-anchor="middle">P</text>
+</svg>
