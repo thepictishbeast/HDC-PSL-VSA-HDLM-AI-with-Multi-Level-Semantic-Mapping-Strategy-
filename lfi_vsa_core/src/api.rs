@@ -2022,6 +2022,29 @@ async fn provenance_chain_handler(
 // Router Construction
 // ============================================================
 
+/// Half-life decay of fact confidence.
+///
+/// Given a stored confidence in [0,1], how old the fact is, and its
+/// configured half-life, returns the effective confidence today.
+/// `half_life_days <= 0` or non-finite → treated as no-decay. Negative
+/// ages (clock skew) clamp to zero.
+///
+/// Formula: `effective = confidence * 0.5 ^ (age / half_life)` — standard
+/// exponential half-life. Verified: (0.5)^(365/180) ≈ 0.2445.
+///
+/// AVP-PASS-1: no NaN/inf escape; output always in [0, 1].
+pub fn compute_effective_confidence(confidence: f64, age_days: f64, half_life_days: f64) -> f64 {
+    let age = age_days.max(0.0);
+    let hl = if half_life_days > 0.0 && half_life_days.is_finite() {
+        half_life_days
+    } else {
+        999_999.0
+    };
+    let decay = 0.5_f64.powf(age / hl);
+    let raw = confidence * decay;
+    if raw.is_finite() { raw.clamp(0.0, 1.0) } else { 0.0 }
+}
+
 pub fn create_router() -> Result<Router, Box<dyn std::error::Error>> {
     let (tx, _) = broadcast::channel(100);
 
@@ -2760,6 +2783,84 @@ pub fn create_router() -> Result<Router, Box<dyn std::error::Error>> {
         }))
     }
 
+    /// GET /api/library/fact/:key — single fact detail with time-decayed confidence.
+    ///
+    /// BUG ASSUMPTION: facts age — a year-old scrape is less trustworthy than a
+    /// fresh one. Callers need both the raw confidence (what we originally
+    /// believed) and the effective confidence (what we believe *today*). Aging
+    /// is configurable per-fact via half_life_days; unset or <=0 means no decay.
+    ///
+    /// SECURITY: Path<String> is URL-decoded by axum. The SQL uses a bound
+    /// parameter, so arbitrary characters in the key are safe.
+    ///
+    /// AVP-PASS-1: Tier 1 — 404-style response on missing, no panic on lock
+    /// poison, numeric NaN/inf guarded via .filter(is_finite).
+    async fn library_fact_handler(
+        State(state): State<Arc<AppState>>,
+        axum::extract::Path(key): axum::extract::Path<String>,
+    ) -> impl IntoResponse {
+        let conn = match state.db.conn.lock() {
+            Ok(c) => c,
+            Err(_) => return axum::Json(json!({"error": "db lock"})),
+        };
+
+        let row = conn.query_row(
+            "SELECT key, value, source, confidence, created_at, updated_at, \
+                    domain, quality_score, COALESCE(vetted,0), \
+                    COALESCE(half_life_days, 999999.0), \
+                    COALESCE(minted_at, created_at) as mint, \
+                    julianday('now') - julianday(COALESCE(minted_at, created_at)) as age_days \
+             FROM facts WHERE key = ?1",
+            rusqlite::params![key],
+            |r| {
+                Ok((
+                    r.get::<_, String>(0)?,             // key
+                    r.get::<_, String>(1)?,             // value
+                    r.get::<_, String>(2)?,             // source
+                    r.get::<_, f64>(3)?,                // confidence
+                    r.get::<_, String>(4)?,             // created_at
+                    r.get::<_, String>(5)?,             // updated_at
+                    r.get::<_, Option<String>>(6)?,     // domain
+                    r.get::<_, Option<f64>>(7)?,        // quality_score
+                    r.get::<_, i64>(8)?,                // vetted
+                    r.get::<_, f64>(9)?,                // half_life_days
+                    r.get::<_, String>(10)?,            // minted_at (effective)
+                    r.get::<_, f64>(11)?,               // age_days
+                ))
+            },
+        );
+
+        let (k, value, source, confidence, created_at, updated_at,
+             domain, quality_score, vetted, half_life, minted, age_days) = match row {
+            Ok(r) => r,
+            Err(rusqlite::Error::QueryReturnedNoRows) => {
+                return axum::Json(json!({"error": "not found", "key": key}));
+            }
+            Err(e) => {
+                warn!("// LIBRARY: fact lookup failed for {}: {}", key, e);
+                return axum::Json(json!({"error": "query failed"}));
+            }
+        };
+
+        let effective_confidence = compute_effective_confidence(confidence, age_days, half_life);
+
+        axum::Json(json!({
+            "key": k,
+            "value": value,
+            "source": source,
+            "confidence": confidence,
+            "effective_confidence": (effective_confidence * 10000.0).round() / 10000.0,
+            "age_days": (age_days * 100.0).round() / 100.0,
+            "half_life_days": half_life,
+            "minted_at": minted,
+            "created_at": created_at,
+            "updated_at": updated_at,
+            "domain": domain,
+            "quality_score": quality_score,
+            "vetted": vetted == 1,
+        }))
+    }
+
     // ---- Knowledge Graph Endpoints ----
 
     /// GET /api/graph/stats — knowledge graph overview
@@ -3318,6 +3419,7 @@ pub fn create_router() -> Result<Router, Box<dyn std::error::Error>> {
         .route("/api/library/sources", get(library_sources_handler))
         .route("/api/library/vet", post(library_vet_handler))
         .route("/api/library/trust", get(library_trust_handler))
+        .route("/api/library/fact/:key", get(library_fact_handler))
         .route("/api/graph/stats", get(graph_stats_handler))
         .route("/api/graph/connections/:fact_key", get(graph_connections_handler))
         .route("/api/graph/traverse/:fact_key", get(graph_traverse_handler))
@@ -3496,4 +3598,73 @@ async fn security_headers_middleware(
     }
 
     response
+}
+
+#[cfg(test)]
+mod tests {
+    use super::compute_effective_confidence;
+
+    fn approx(a: f64, b: f64, tol: f64) -> bool { (a - b).abs() < tol }
+
+    #[test]
+    fn decay_fresh_fact_unchanged() {
+        // Zero age → no decay.
+        let e = compute_effective_confidence(0.9, 0.0, 180.0);
+        assert!(approx(e, 0.9, 1e-9), "expected 0.9, got {}", e);
+    }
+
+    #[test]
+    fn decay_one_half_life() {
+        // Age == half_life → exactly half.
+        let e = compute_effective_confidence(0.8, 180.0, 180.0);
+        assert!(approx(e, 0.4, 1e-9), "expected 0.4, got {}", e);
+    }
+
+    #[test]
+    fn decay_year_half_life_180() {
+        // Task spec: 365d age + 180d half-life ≈ 0.25 on confidence=1.0
+        let e = compute_effective_confidence(1.0, 365.0, 180.0);
+        assert!(approx(e, 0.2445, 1e-3), "expected ≈0.25, got {}", e);
+    }
+
+    #[test]
+    fn decay_default_half_life_effectively_none() {
+        // Default 999999 days → essentially zero decay at human timescales.
+        let e = compute_effective_confidence(0.5, 365.0, 999_999.0);
+        assert!(approx(e, 0.5, 1e-3), "expected ≈0.5, got {}", e);
+    }
+
+    #[test]
+    fn decay_clock_skew_negative_age() {
+        // Negative age (clock skew) clamps to zero → no decay.
+        let e = compute_effective_confidence(0.7, -10.0, 180.0);
+        assert!(approx(e, 0.7, 1e-9), "expected 0.7, got {}", e);
+    }
+
+    #[test]
+    fn decay_zero_or_negative_half_life_treated_as_none() {
+        // Zero or negative half_life is a config bug — treat as no-decay
+        // rather than dividing by zero / returning NaN.
+        let z = compute_effective_confidence(0.9, 100.0, 0.0);
+        assert!(z.is_finite() && z > 0.0, "zero half-life produced {}", z);
+        let n = compute_effective_confidence(0.9, 100.0, -5.0);
+        assert!(n.is_finite() && n > 0.0, "negative half-life produced {}", n);
+    }
+
+    #[test]
+    fn decay_output_always_bounded() {
+        // Extreme inputs must not produce NaN/inf/out-of-range.
+        let cases = [
+            (1.0, 1e9, 1.0),       // very old
+            (1.0, 0.0, 1e-9),      // tiny half-life
+            (f64::NAN, 100.0, 180.0),
+            (1.0, f64::INFINITY, 180.0),
+            (1.0, 100.0, f64::NAN),
+        ];
+        for (c, a, h) in cases {
+            let e = compute_effective_confidence(c, a, h);
+            assert!(e.is_finite(), "non-finite result for ({},{},{}) = {}", c, a, h, e);
+            assert!((0.0..=1.0).contains(&e), "out-of-range result for ({},{},{}) = {}", c, a, h, e);
+        }
+    }
 }
