@@ -1206,6 +1206,41 @@ export const AdminModal: React.FC<AdminModalProps> = ({
                             cursor: filtered.length === 0 ? 'not-allowed' : 'pointer',
                             fontFamily: 'inherit', textTransform: 'uppercase',
                           }}>Export JSON</button>
+                        {/* c2-385 / BIG #183: CSV export alongside the JSON
+                            one. Spreadsheet-friendly format: t (ISO), kind,
+                            data (JSON-stringified, double-quote-escaped per
+                            RFC 4180). Useful for quick pivot-table triage
+                            of a session's client events. */}
+                        <button onClick={() => {
+                          const escape = (v: string) => `"${v.replace(/"/g, '""')}"`;
+                          const header = 'timestamp,kind,data\n';
+                          const body = filtered.map(e => [
+                            escape(new Date(e.t).toISOString()),
+                            escape(e.kind),
+                            escape(e.data ? JSON.stringify(e.data) : ''),
+                          ].join(',')).join('\n');
+                          const blob = new Blob([header + body + '\n'], { type: 'text/csv;charset=utf-8' });
+                          const url = URL.createObjectURL(blob);
+                          const a = document.createElement('a');
+                          a.href = url;
+                          const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-');
+                          a.download = `plausiden-events-${stamp}.csv`;
+                          document.body.appendChild(a); a.click(); a.remove();
+                          URL.revokeObjectURL(url);
+                        }}
+                          aria-label='Export client events as CSV'
+                          title={filtered.length === 0 ? 'No events to export' : 'Export filtered events as CSV'}
+                          disabled={filtered.length === 0}
+                          style={{
+                            marginLeft: T.spacing.xs,
+                            padding: '6px 12px', fontSize: T.typography.sizeXs, fontWeight: T.typography.weightBold,
+                            background: filtered.length === 0 ? C.bgInput : C.accentBg,
+                            border: `1px solid ${filtered.length === 0 ? C.borderSubtle : C.accentBorder}`,
+                            color: filtered.length === 0 ? C.textMuted : C.accent,
+                            borderRadius: T.radii.sm,
+                            cursor: filtered.length === 0 ? 'not-allowed' : 'pointer',
+                            fontFamily: 'inherit', textTransform: 'uppercase',
+                          }}>Export CSV</button>
                       </div>
                     </div>
                     {/* Kind-frequency pills — scannable summary. Click to
