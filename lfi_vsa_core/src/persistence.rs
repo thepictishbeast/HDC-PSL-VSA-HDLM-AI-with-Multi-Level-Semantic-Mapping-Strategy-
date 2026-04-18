@@ -166,6 +166,23 @@ impl BrainDb {
 
             CREATE INDEX IF NOT EXISTS idx_audit_type ON audit_log(audit_type);
             CREATE INDEX IF NOT EXISTS idx_audit_tier ON audit_log(tier);
+
+            CREATE TABLE IF NOT EXISTS training_provenance (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                run_id TEXT NOT NULL,
+                source_file TEXT,
+                domain TEXT,
+                pairs_used INTEGER DEFAULT 0,
+                accuracy_before REAL,
+                accuracy_after REAL,
+                accuracy_delta REAL,
+                model TEXT,
+                notes TEXT,
+                created_at TEXT DEFAULT (datetime('now'))
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_prov_run ON training_provenance(run_id);
+            CREATE INDEX IF NOT EXISTS idx_prov_domain ON training_provenance(domain);
         ")?;
         info!("// PERSISTENCE: Schema migrated");
         Ok(())
@@ -737,6 +754,50 @@ impl BrainDb {
                 row.get::<_, f64>(3)?,
             ))
         }).unwrap_or_else(|_| panic!("query_map failed")).filter_map(|r| r.ok()).collect()
+    }
+
+    // ---- Training Provenance ----
+
+    /// Log a training run's provenance — which data was used and what changed.
+    pub fn log_training_provenance(&self, run_id: &str, source: Option<&str>, domain: Option<&str>,
+                                    pairs: i32, before: Option<f64>, after: Option<f64>,
+                                    model: Option<&str>, notes: Option<&str>) {
+        let conn = self.conn.lock().unwrap_or_else(|e| e.into_inner());
+        let delta = match (before, after) {
+            (Some(b), Some(a)) => Some(a - b),
+            _ => None,
+        };
+        if let Err(e) = conn.execute(
+            "INSERT INTO training_provenance (run_id, source_file, domain, pairs_used, \
+             accuracy_before, accuracy_after, accuracy_delta, model, notes) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+            params![run_id, source, domain, pairs, before, after, delta, model, notes],
+        ) {
+            warn!("// PERSISTENCE: log_training_provenance failed: {}", e);
+        }
+    }
+
+    /// Get training provenance history.
+    pub fn get_training_provenance(&self, limit: usize) -> Vec<(String, Option<String>, Option<String>, i32, Option<f64>, Option<f64>, String)> {
+        let conn = self.conn.lock().unwrap_or_else(|e| e.into_inner());
+        let mut stmt = match conn.prepare(
+            "SELECT run_id, source_file, domain, pairs_used, accuracy_before, accuracy_after, created_at \
+             FROM training_provenance ORDER BY id DESC LIMIT ?1"
+        ) {
+            Ok(s) => s,
+            Err(_) => return vec![],
+        };
+        stmt.query_map(params![limit as i64], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, Option<String>>(1)?,
+                row.get::<_, Option<String>>(2)?,
+                row.get::<_, i32>(3)?,
+                row.get::<_, Option<f64>>(4)?,
+                row.get::<_, Option<f64>>(5)?,
+                row.get::<_, String>(6)?,
+            ))
+        }).unwrap_or_else(|_| panic!("query_map")).filter_map(|r| r.ok()).collect()
     }
 
     /// Get all cross-references for a domain.
