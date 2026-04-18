@@ -361,6 +361,42 @@ async fn handle_chat_socket(mut socket: WebSocket, state: Arc<AppState>) {
                     match agent.chat_traced(input) {
                         Ok((response, conclusion_id)) => {
                             let thought = &response.thought;
+
+                            // #341: Global Workspace — submit the user input and
+                            // the LFI reply as workspace entries. Salience: user
+                            // input starts at 1.0 (fresh signal), reply at 0.8.
+                            // Decay + competition handles eviction. The workspace
+                            // bundle (<=8 × 10kbit = 10KB) is the multi-turn
+                            // conversation state, replacing an LLM context window.
+                            use crate::cognition::global_workspace::WorkspaceEntry;
+                            use crate::hdc::role_binding::concept_vector;
+                            let user_hv = concept_vector(input);
+                            let reply_hv = concept_vector(&response.text);
+                            let submissions = vec![
+                                WorkspaceEntry {
+                                    content: user_hv,
+                                    source_module: "dialogue_user".into(),
+                                    salience: 1.0,
+                                    label: crate::truncate_str(input, 60).to_string(),
+                                    age: 0,
+                                },
+                                WorkspaceEntry {
+                                    content: reply_hv,
+                                    source_module: "dialogue_lfi".into(),
+                                    salience: 0.8,
+                                    label: crate::truncate_str(&response.text, 60).to_string(),
+                                    age: 0,
+                                },
+                            ];
+                            agent.workspace.compete(submissions);
+                            let workspace_state: Vec<serde_json::Value> =
+                                agent.workspace.broadcast().iter().map(|e| json!({
+                                    "source": &e.source_module,
+                                    "label": &e.label,
+                                    "salience": e.salience,
+                                    "age": e.age,
+                                })).collect();
+
                             // CALIBRATION: Apply Platt scaling to make confidence trustworthy
                             let domain_str = thought.intent.as_ref().map(|i| format!("{:?}", i));
                             let (calibrated_conf, conf_reliable) = state.calibration.lock()
@@ -392,6 +428,16 @@ async fn handle_chat_socket(mut socket: WebSocket, state: Arc<AppState>) {
                                     "value_preview": v.chars().take(200).collect::<String>(),
                                     "score": score,
                                 })).collect::<Vec<_>>(),
+                                // #341 Global Workspace state — current salient
+                                // turns across the conversation (eviction-managed).
+                                "workspace": workspace_state,
+                                // #345 detected speech act (Layer-5 classifier)
+                                "speech_act": {
+                                    "label": agent.reasoner.active_speech_act
+                                        .map(|(a, _)| a.as_label()).unwrap_or("unknown"),
+                                    "score": agent.reasoner.active_speech_act
+                                        .map(|(_, s)| s).unwrap_or(0.0),
+                                },
                             });
                             // Persist every turn for later review + training data
                             // sourcing. Skip when incognito — per Bible §4.5.
