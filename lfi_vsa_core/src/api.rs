@@ -1063,6 +1063,49 @@ async fn tier_handler(
 /// GET /api/chat-log?limit=N — return recent chat turns logged to
 /// /var/log/lfi/chat.jsonl. Lets the operator (and the AI itself) review
 /// conversation behavior without cross-device sync. Default limit 50.
+// ============================================================
+// Egress scanner (#348) — module-level so any handler can call it.
+//
+// scrub_json_value walks every string leaf in a JSON response and runs
+// SecretScanner.redact(). Used to wrap endpoint outputs that read from
+// persisted stores (chat-log, fact values, research rows) where a pre-
+// scrubbing pass might have missed something or where historical data
+// pre-dates the scrubber being in place.
+//
+// Strings ≤ 8 bytes are skipped — the scanner's shortest match (3 chars)
+// can't practically hide a leak in a short string and skipping them
+// cuts recursion cost on JSON payloads with many tiny strings.
+// ============================================================
+
+fn scrub_json_value(v: &mut serde_json::Value,
+                     scanner: &crate::intelligence::secret_scanner::SecretScanner) {
+    match v {
+        serde_json::Value::String(s) => {
+            if s.len() > 8 {
+                let redacted = scanner.redact(s);
+                if redacted != *s { *s = redacted; }
+            }
+        }
+        serde_json::Value::Array(arr) => {
+            for item in arr.iter_mut() { scrub_json_value(item, scanner); }
+        }
+        serde_json::Value::Object(map) => {
+            for (_k, val) in map.iter_mut() { scrub_json_value(val, scanner); }
+        }
+        _ => {}
+    }
+}
+
+/// Public helper for endpoint handlers that return untrusted persisted
+/// content. Constructs a fresh scanner and scrubs the JSON tree in place.
+pub fn egress_safe(v: serde_json::Value) -> serde_json::Value {
+    use crate::intelligence::secret_scanner::SecretScanner;
+    let scanner = SecretScanner::new();
+    let mut value = v;
+    scrub_json_value(&mut value, &scanner);
+    value
+}
+
 async fn chat_log_handler(
     State(state): State<Arc<AppState>>,
     axum::extract::Query(q): axum::extract::Query<std::collections::HashMap<String, String>>,
@@ -1093,10 +1136,13 @@ async fn chat_log_handler(
         lines.reverse();
     }
     // SECURITY: Don't leak filesystem paths in response.
-    Json(json!({
+    // #348 Egress scrub: chat.jsonl predates the #349 scrubber, so
+    // historical lines may still contain secrets. Double-scrub the
+    // outbound JSON tree so no persisted-earlier leak survives.
+    Json(egress_safe(json!({
         "count": lines.len(),
         "entries": lines,
-    }))
+    })))
 }
 
 /// POST /api/stop — cooperative cancel for any in-flight generation.
