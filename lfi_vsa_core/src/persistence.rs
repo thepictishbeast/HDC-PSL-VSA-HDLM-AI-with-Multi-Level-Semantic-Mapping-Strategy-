@@ -355,6 +355,12 @@ impl BrainDb {
         // would re-take the writer lock and hang on a 58M-row table.
         let _ = conn.execute("ALTER TABLE facts ADD COLUMN hdc_vector BLOB", []);
 
+        // #321 quality_score was added to prod via an external ALTER
+        // (not in the base CREATE TABLE), so fresh DBs never have it and
+        // search_facts's "COALESCE(quality_score, ...)" fails to prepare.
+        // Idempotent add here ensures parity. Same O(1) SQLite 3.35+ guarantee.
+        let _ = conn.execute("ALTER TABLE facts ADD COLUMN quality_score REAL", []);
+
         info!("// PERSISTENCE: Schema migrated");
         Ok(())
     }
@@ -1964,8 +1970,11 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "BUG: search_facts JOIN+rank query returns 0 even when FTS5 MATCH finds the row (diag: master=1 rows=1 match=1). Prod DB unaffected — prod query path must differ. See task #294 follow-up."]
     fn search_expanded_falls_back_when_nothing_to_expand() {
+        // #321: previously failed because migrate() didn't expose
+        // quality_score, so COALESCE(f.quality_score, ...) broke the
+        // prepared statement on fresh DBs. Idempotent ALTER in migrate()
+        // fixes the column parity with prod.
         let db = temp_db();
         db.upsert_fact("k1", "unique phrase xylophone", "test", 0.9);
         let baseline = db.search_facts("xylophone", 10);
