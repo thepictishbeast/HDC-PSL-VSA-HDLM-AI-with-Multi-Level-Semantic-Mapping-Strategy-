@@ -220,6 +220,28 @@ impl BrainDb {
             CREATE INDEX IF NOT EXISTS idx_sac_cat ON security_audit_chain(category);
             CREATE INDEX IF NOT EXISTS idx_sac_actor ON security_audit_chain(actor);
 
+            -- #303 Capability tokens: bearer credentials granting a
+            -- named capability (ingest, admin_read, chain_append, etc).
+            -- Distinct from the sovereign passphrase: tokens can be
+            -- rotated, scoped, and revoked without changing root auth.
+            -- Token value is stored as SHA-256 hash so a DB leak does
+            -- not hand over live tokens.
+            CREATE TABLE IF NOT EXISTS capability_tokens (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                token_hash BLOB NOT NULL UNIQUE,
+                capability TEXT NOT NULL,
+                label TEXT,
+                issued_at TEXT DEFAULT (datetime('now')),
+                expires_at TEXT,
+                revoked_at TEXT,
+                last_used_at TEXT,
+                use_count INTEGER DEFAULT 0
+            );
+            CREATE INDEX IF NOT EXISTS idx_capability_tokens_hash
+                ON capability_tokens(token_hash);
+            CREATE INDEX IF NOT EXISTS idx_capability_tokens_cap
+                ON capability_tokens(capability);
+
             -- #326 Ingestion batch control surface — tracks active +
             -- historical ingest runs so the UI can show progress, start
             -- new batches, and stop in-flight ones. Decoupled from the
@@ -632,6 +654,130 @@ impl BrainDb {
                 let bytes: Vec<u8> = r.get(7)?;
                 bytes.iter().map(|b| format!("{:02x}", b)).collect::<String>()
             },
+        ))).map(|i| i.filter_map(|r| r.ok()).collect()).unwrap_or_default()
+    }
+
+    // ---- Capability tokens (#303) ----
+    //
+    // Tokens are bearer credentials granting a single named capability.
+    // The raw token value is returned ONCE at issue time (caller must
+    // store it); the DB only ever sees SHA-256(token). Verifying
+    // consists of hashing the presented token and looking up the row.
+
+    /// Issue a new capability token. Returns the raw token string
+    /// (caller must persist it — it cannot be retrieved again) and the
+    /// row id. `capability` and `label` are plaintext; `expires_at` is
+    /// an optional ISO 8601 string. A cryptographically random 32-byte
+    /// token (hex-encoded) is generated per call.
+    pub fn issue_capability_token(
+        &self,
+        capability: &str,
+        label: Option<&str>,
+        expires_at: Option<&str>,
+    ) -> Option<(String, i64)> {
+        use sha2::{Sha256, Digest};
+        use rand::RngCore;
+        if capability.is_empty() || capability.len() > 64 { return None; }
+
+        // 32 random bytes as hex (64 chars, no ambiguity with base64 +
+        // no dependency on the base64 crate).
+        let mut raw = [0u8; 32];
+        rand::thread_rng().fill_bytes(&mut raw);
+        let token: String = raw.iter().map(|b| format!("{:02x}", b)).collect();
+        let hash: Vec<u8> = Sha256::digest(token.as_bytes()).to_vec();
+
+        let conn = self.conn.lock().unwrap_or_else(|e| e.into_inner());
+        let res = conn.execute(
+            "INSERT INTO capability_tokens \
+             (token_hash, capability, label, expires_at) \
+             VALUES (?1, ?2, ?3, ?4)",
+            params![hash, capability, label, expires_at],
+        ).ok()?;
+        if res == 0 { return None; }
+        Some((token, conn.last_insert_rowid()))
+    }
+
+    /// Look up a token by its raw value. Returns the capability name on
+    /// success, None if the token is unknown, revoked, or expired.
+    /// Updates last_used_at + use_count atomically with the lookup.
+    pub fn verify_capability_token(&self, token: &str) -> Option<String> {
+        use sha2::{Sha256, Digest};
+        use subtle::ConstantTimeEq;
+        if token.is_empty() || token.len() > 128 { return None; }
+
+        let presented: Vec<u8> = Sha256::digest(token.as_bytes()).to_vec();
+        let conn = self.conn.lock().unwrap_or_else(|e| e.into_inner());
+
+        // Fetch ALL non-revoked rows and constant-time compare against each.
+        // O(N) in active tokens but N is bounded (hundreds at most) and
+        // the CT comparison defeats timing oracles against a direct SQL
+        // WHERE token_hash = ?.
+        let mut stmt = conn.prepare(
+            "SELECT id, token_hash, capability, expires_at \
+             FROM capability_tokens \
+             WHERE revoked_at IS NULL"
+        ).ok()?;
+        let rows: Vec<(i64, Vec<u8>, String, Option<String>)> =
+            stmt.query_map([], |r| Ok((
+                r.get::<_, i64>(0)?,
+                r.get::<_, Vec<u8>>(1)?,
+                r.get::<_, String>(2)?,
+                r.get::<_, Option<String>>(3)?,
+            ))).map(|i| i.filter_map(|r| r.ok()).collect()).unwrap_or_default();
+        drop(stmt);
+
+        for (id, stored, capability, expires) in rows {
+            if stored.len() != presented.len() { continue; }
+            if stored.ct_eq(&presented).unwrap_u8() == 1 {
+                // Check expiration (string compare works on ISO 8601).
+                if let Some(exp) = expires.as_deref() {
+                    let now: String = conn.query_row(
+                        "SELECT datetime('now')", [],
+                        |r| r.get(0),
+                    ).unwrap_or_default();
+                    if now.as_str() > exp { return None; }
+                }
+                // Bump usage counters.
+                let _ = conn.execute(
+                    "UPDATE capability_tokens \
+                     SET last_used_at = datetime('now'), use_count = use_count + 1 \
+                     WHERE id = ?1",
+                    params![id],
+                );
+                return Some(capability);
+            }
+        }
+        None
+    }
+
+    /// Revoke a token by its row id. Returns true if a row was updated.
+    pub fn revoke_capability_token(&self, id: i64) -> bool {
+        let conn = self.conn.lock().unwrap_or_else(|e| e.into_inner());
+        conn.execute(
+            "UPDATE capability_tokens \
+             SET revoked_at = datetime('now') WHERE id = ?1 AND revoked_at IS NULL",
+            params![id],
+        ).map(|n| n > 0).unwrap_or(false)
+    }
+
+    /// List active (non-revoked) tokens for display. Never returns the
+    /// raw token or its hash — callers can only see metadata.
+    pub fn list_capability_tokens(&self)
+        -> Vec<(i64, String, Option<String>, String, Option<String>,
+                Option<String>, i64)>
+    {
+        let conn = self.conn.lock().unwrap_or_else(|e| e.into_inner());
+        let mut stmt = match conn.prepare(
+            "SELECT id, capability, label, issued_at, expires_at, \
+                    last_used_at, use_count \
+             FROM capability_tokens WHERE revoked_at IS NULL \
+             ORDER BY issued_at DESC"
+        ) { Ok(s) => s, Err(_) => return Vec::new() };
+        stmt.query_map([], |r| Ok((
+            r.get::<_, i64>(0)?, r.get::<_, String>(1)?,
+            r.get::<_, Option<String>>(2)?, r.get::<_, String>(3)?,
+            r.get::<_, Option<String>>(4)?, r.get::<_, Option<String>>(5)?,
+            r.get::<_, i64>(6)?,
         ))).map(|i| i.filter_map(|r| r.ok()).collect()).unwrap_or_default()
     }
 
@@ -2031,6 +2177,52 @@ mod tests {
         db.upsert_fact("k", "a", "src1", 0.95);
         db.upsert_fact("k", "b", "src2", 0.4);
         assert_eq!(db.contradiction_pending_count(), 0);
+    }
+
+    #[test]
+    fn capability_token_issue_and_verify() {
+        let db = temp_db();
+        let (token, id) = db.issue_capability_token("ingest", Some("python_script"), None)
+            .expect("issue failed");
+        assert!(!token.is_empty());
+        assert!(id > 0);
+        assert_eq!(db.verify_capability_token(&token), Some("ingest".to_string()));
+    }
+
+    #[test]
+    fn capability_token_unknown_rejected() {
+        let db = temp_db();
+        assert_eq!(db.verify_capability_token("totally-made-up-token"), None);
+    }
+
+    #[test]
+    fn capability_token_revoke_blocks_verification() {
+        let db = temp_db();
+        let (token, id) = db.issue_capability_token("admin", None, None).unwrap();
+        assert_eq!(db.verify_capability_token(&token), Some("admin".to_string()));
+        assert!(db.revoke_capability_token(id));
+        assert_eq!(db.verify_capability_token(&token), None);
+    }
+
+    #[test]
+    fn capability_token_expired_rejected() {
+        let db = temp_db();
+        let (token, _id) = db.issue_capability_token(
+            "scope", None, Some("2020-01-01 00:00:00")
+        ).unwrap();
+        assert_eq!(db.verify_capability_token(&token), None);
+    }
+
+    #[test]
+    fn capability_token_list_hides_hashes() {
+        let db = temp_db();
+        let (_, _) = db.issue_capability_token("ingest", Some("lbl1"), None).unwrap();
+        let (_, _) = db.issue_capability_token("ingest", Some("lbl2"), None).unwrap();
+        let rows = db.list_capability_tokens();
+        assert_eq!(rows.len(), 2);
+        // Fields: (id, cap, label, issued, expires, last_used, uses).
+        // Note there is no hash or raw token in the tuple.
+        assert!(rows.iter().all(|r| r.1 == "ingest"));
     }
 
     #[test]

@@ -3666,6 +3666,94 @@ pub fn create_router() -> Result<Router, Box<dyn std::error::Error>> {
         }))
     }
 
+    // ---- Capability tokens (#303) ----
+
+    /// POST /api/capability/tokens (authenticated-only)
+    /// Body: { capability, label?, expires_at? (ISO 8601) }
+    /// Returns the raw token ONCE. Caller must persist it.
+    async fn capability_token_issue_handler(
+        State(state): State<Arc<AppState>>,
+        Json(body): Json<serde_json::Value>,
+    ) -> impl IntoResponse {
+        {
+            let agent = state.agent.lock();
+            if !agent.authenticated {
+                return axum::Json(json!({"error": "authentication required"}));
+            }
+        }
+        let capability = body.get("capability")
+            .and_then(|v| v.as_str()).unwrap_or("");
+        let label = body.get("label").and_then(|v| v.as_str());
+        let expires = body.get("expires_at").and_then(|v| v.as_str());
+        if capability.is_empty() || capability.len() > 64 {
+            return axum::Json(json!({"error": "capability must be 1..=64 chars"}));
+        }
+        match state.db.issue_capability_token(capability, label, expires) {
+            Some((token, id)) => {
+                // Chain the issuance to the audit log so rotation is
+                // observable + tamper-evident.
+                let _ = state.db.audit_chain_append(
+                    "capability", "Info", "authenticated",
+                    "token_issued",
+                    &format!("cap={} id={}", capability, id),
+                );
+                axum::Json(json!({
+                    "token": token,
+                    "id": id,
+                    "capability": capability,
+                    "note": "token is shown ONCE; store it now",
+                }))
+            }
+            None => axum::Json(json!({"error": "issue failed"})),
+        }
+    }
+
+    /// GET /api/capability/tokens — list active (non-revoked) tokens.
+    /// Never returns the raw token or hash — metadata only.
+    async fn capability_token_list_handler(
+        State(state): State<Arc<AppState>>,
+    ) -> impl IntoResponse {
+        {
+            let agent = state.agent.lock();
+            if !agent.authenticated {
+                return axum::Json(json!({"error": "authentication required"}));
+            }
+        }
+        let rows = state.db.list_capability_tokens();
+        let items: Vec<serde_json::Value> = rows.into_iter()
+            .map(|(id, cap, label, issued, expires, last_used, uses)| json!({
+                "id": id,
+                "capability": cap,
+                "label": label,
+                "issued_at": issued,
+                "expires_at": expires,
+                "last_used_at": last_used,
+                "use_count": uses,
+            })).collect();
+        axum::Json(json!({"tokens": items, "count": items.len()}))
+    }
+
+    /// POST /api/capability/tokens/:id/revoke — revoke by row id.
+    async fn capability_token_revoke_handler(
+        State(state): State<Arc<AppState>>,
+        Path(id): Path<i64>,
+    ) -> impl IntoResponse {
+        {
+            let agent = state.agent.lock();
+            if !agent.authenticated {
+                return axum::Json(json!({"error": "authentication required"}));
+            }
+        }
+        let ok = state.db.revoke_capability_token(id);
+        if ok {
+            let _ = state.db.audit_chain_append(
+                "capability", "Info", "authenticated",
+                "token_revoked", &format!("id={}", id),
+            );
+        }
+        axum::Json(json!({"revoked": ok, "id": id}))
+    }
+
     // ---- Ingest batch control surface (#326) ----
 
     /// POST /api/ingest/start
@@ -4927,6 +5015,11 @@ pub fn create_router() -> Result<Router, Box<dyn std::error::Error>> {
         .route("/api/ingest/progress", post(ingest_progress_handler))
         .route("/api/ingest/finish", post(ingest_finish_handler))
         .route("/api/ingest/list", get(ingest_list_handler))
+        .route("/api/capability/tokens",
+               get(capability_token_list_handler)
+               .post(capability_token_issue_handler))
+        .route("/api/capability/tokens/:id/revoke",
+               post(capability_token_revoke_handler))
         .route("/api/fsrs/due", get(fsrs_due_handler))
         .route("/api/fsrs/review", post(fsrs_review_handler))
         .route("/api/explain", post(explain_query_handler))
