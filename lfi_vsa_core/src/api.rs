@@ -3267,6 +3267,130 @@ pub fn create_router() -> Result<Router, Box<dyn std::error::Error>> {
         axum::Json(json!({"feedback": items, "count": items.len()}))
     }
 
+    /// GET /api/library/fact/:key/ancestry — fact derivation chain (#299)
+    ///
+    /// Returns everything we can stitch together about the fact's history:
+    ///   - version history (fact_versions)
+    ///   - contradictions involving this key (contradictions)
+    ///   - causal edges if key starts with "concept:" (fact_edges
+    ///     outbound + inbound)
+    /// The raw fact itself is still at /api/library/fact/:key — this is
+    /// ADDITIVE context for the provenance popover (#317).
+    ///
+    /// BUG ASSUMPTION: the three sub-queries are independent — if any
+    /// fails we return the partial result rather than erroring the whole
+    /// endpoint. Surfacing some history is better than none.
+    async fn library_fact_ancestry_handler(
+        State(state): State<Arc<AppState>>,
+        axum::extract::Path(key): axum::extract::Path<String>,
+        Query(params): Query<HashMap<String, String>>,
+    ) -> impl IntoResponse {
+        let version_limit: i64 = params.get("versions")
+            .and_then(|s| s.parse().ok()).unwrap_or(20).min(200);
+        let edge_limit: i64 = params.get("edges")
+            .and_then(|s| s.parse().ok()).unwrap_or(40).min(500);
+
+        let conn = match state.db.conn.lock() {
+            Ok(c) => c,
+            Err(_) => return axum::Json(json!({"error": "db lock"})),
+        };
+
+        // Version history: most recent first.
+        let versions: Vec<serde_json::Value> = match conn.prepare(
+            "SELECT id, old_value, new_value, old_quality, new_quality, \
+                    change_type, COALESCE(changed_by,''), COALESCE(reason,''), created_at \
+             FROM fact_versions WHERE fact_key = ?1 \
+             ORDER BY created_at DESC LIMIT ?2"
+        ) {
+            Ok(mut stmt) => stmt.query_map(
+                rusqlite::params![&key, version_limit],
+                |r| Ok(json!({
+                    "id": r.get::<_, i64>(0)?,
+                    "old_value": r.get::<_, Option<String>>(1)?,
+                    "new_value": r.get::<_, String>(2)?,
+                    "old_confidence": r.get::<_, Option<f64>>(3)?,
+                    "new_confidence": r.get::<_, Option<f64>>(4)?,
+                    "change_type": r.get::<_, String>(5)?,
+                    "changed_by": r.get::<_, String>(6)?,
+                    "reason": r.get::<_, String>(7)?,
+                    "created_at": r.get::<_, String>(8)?,
+                })),
+            ).map(|iter| iter.filter_map(|r| r.ok()).collect()).unwrap_or_default(),
+            Err(_) => Vec::new(),
+        };
+
+        // Contradictions involving this key.
+        let contradictions: Vec<serde_json::Value> = match conn.prepare(
+            "SELECT id, existing_value, incoming_value, existing_confidence, \
+                    incoming_confidence, existing_source, incoming_source, \
+                    detected_at, resolved_at, resolved_value \
+             FROM contradictions WHERE fact_key = ?1 \
+             ORDER BY detected_at DESC LIMIT 50"
+        ) {
+            Ok(mut stmt) => stmt.query_map(
+                rusqlite::params![&key],
+                |r| Ok(json!({
+                    "id": r.get::<_, i64>(0)?,
+                    "existing_value": r.get::<_, String>(1)?,
+                    "incoming_value": r.get::<_, String>(2)?,
+                    "existing_confidence": r.get::<_, f64>(3)?,
+                    "incoming_confidence": r.get::<_, f64>(4)?,
+                    "existing_source": r.get::<_, Option<String>>(5)?,
+                    "incoming_source": r.get::<_, Option<String>>(6)?,
+                    "detected_at": r.get::<_, String>(7)?,
+                    "resolved_at": r.get::<_, Option<String>>(8)?,
+                    "resolved_value": r.get::<_, Option<String>>(9)?,
+                })),
+            ).map(|iter| iter.filter_map(|r| r.ok()).collect()).unwrap_or_default(),
+            Err(_) => Vec::new(),
+        };
+
+        // Causal edges — only for concept: keys. Outbound + inbound.
+        let (outbound, inbound): (Vec<serde_json::Value>, Vec<serde_json::Value>) =
+            if key.starts_with("concept:") {
+                let out_v: Vec<serde_json::Value> = match conn.prepare(
+                    "SELECT edge_type, target_key, strength FROM fact_edges \
+                     WHERE source_key = ?1 ORDER BY strength DESC LIMIT ?2"
+                ) {
+                    Ok(mut stmt) => stmt.query_map(
+                        rusqlite::params![&key, edge_limit],
+                        |r| Ok(json!({
+                            "edge_type": r.get::<_, String>(0)?,
+                            "target": r.get::<_, String>(1)?,
+                            "strength": r.get::<_, f64>(2)?,
+                        })),
+                    ).map(|i| i.filter_map(|r| r.ok()).collect()).unwrap_or_default(),
+                    Err(_) => Vec::new(),
+                };
+                let in_v: Vec<serde_json::Value> = match conn.prepare(
+                    "SELECT edge_type, source_key, strength FROM fact_edges \
+                     WHERE target_key = ?1 ORDER BY strength DESC LIMIT ?2"
+                ) {
+                    Ok(mut stmt) => stmt.query_map(
+                        rusqlite::params![&key, edge_limit],
+                        |r| Ok(json!({
+                            "edge_type": r.get::<_, String>(0)?,
+                            "source": r.get::<_, String>(1)?,
+                            "strength": r.get::<_, f64>(2)?,
+                        })),
+                    ).map(|i| i.filter_map(|r| r.ok()).collect()).unwrap_or_default(),
+                    Err(_) => Vec::new(),
+                };
+                (out_v, in_v)
+            } else { (Vec::new(), Vec::new()) };
+
+        axum::Json(json!({
+            "key": key,
+            "versions": versions,
+            "version_count": versions.len(),
+            "contradictions": contradictions,
+            "contradiction_count": contradictions.len(),
+            "outbound_edges": outbound,
+            "inbound_edges": inbound,
+            "edge_count": outbound.len() + inbound.len(),
+        }))
+    }
+
     // ---- Contradiction Ledger (#298) ----
 
     /// GET /api/contradictions/recent?limit=N&only_unresolved=true
@@ -3882,6 +4006,7 @@ pub fn create_router() -> Result<Router, Box<dyn std::error::Error>> {
         .route("/api/library/vet", post(library_vet_handler))
         .route("/api/library/trust", get(library_trust_handler))
         .route("/api/library/fact/:key", get(library_fact_handler))
+        .route("/api/library/fact/:key/ancestry", get(library_fact_ancestry_handler))
         .route("/api/feedback", post(feedback_handler))
         .route("/api/feedback/recent", get(feedback_recent_handler))
         .route("/api/contradictions/recent", get(contradictions_recent_handler))
