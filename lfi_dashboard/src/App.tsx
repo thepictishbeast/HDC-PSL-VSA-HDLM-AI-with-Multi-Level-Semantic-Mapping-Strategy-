@@ -218,6 +218,10 @@ const SovereignCommandConsole: React.FC = () => {
   // into message content (data URLs would blow out localStorage). Backend
   // upload is tracked separately; for now we log the paste and summarize.
   const [pastedImages, setPastedImages] = useState<{ id: string; dataUrl: string; size: number; type: string }[]>([]);
+  // #187: URL-paste title preview. Fires a background /api/unfurl fetch on
+  // URL paste; chip above input renders domain → title when resolved.
+  // null when no URL pasted or user dismissed.
+  const [urlPreview, setUrlPreview] = useState<{ url: string; title: string | null; loading: boolean; error: string | null } | null>(null);
   // c2-370 / task 84: drag-and-drop file upload overlay state. True while a
   // drag is in progress over the chat pane; drives the dashed-border hint.
   const [isDraggingFile, setIsDraggingFile] = useState(false);
@@ -3003,6 +3007,8 @@ ${cmdList}
       logEvent('paste_image_sent', { count: pastedImages.length, totalBytes: total });
       setPastedImages([]);
     }
+    // #187: clear URL-paste preview after send so next paste starts fresh.
+    if (urlPreview) setUrlPreview(null);
     // c2-410 / task 206 / c2-433 task 243: wire the previously-dead
     // clearInputWithBackup helper so the prompt we just sent stays
     // recoverable for the next ~30s. The "↶ Restore" affordance below
@@ -7789,6 +7795,58 @@ ${cmdList}
                     </div>
                   );
                 })()}
+              {/* #187: URL-paste title preview chip. Shown above the textarea
+                  when a URL was pasted into an empty input. Click × to
+                  dismiss, click chip to open the URL in a new tab. */}
+              {urlPreview && (
+                <div style={{
+                  display: 'flex', alignItems: 'center', gap: T.spacing.sm,
+                  padding: '8px 14px 0', flexWrap: 'wrap',
+                }}>
+                  <a href={urlPreview.url} target='_blank' rel='noopener noreferrer'
+                    title={urlPreview.url}
+                    style={{
+                      display: 'flex', alignItems: 'center', gap: '6px',
+                      padding: '4px 10px', borderRadius: T.radii.sm,
+                      background: C.bgInput, color: C.text,
+                      border: `1px solid ${C.borderSubtle}`,
+                      fontSize: T.typography.sizeXs, textDecoration: 'none',
+                      maxWidth: '100%', minWidth: 0,
+                    }}>
+                    <span aria-hidden style={{ color: C.textMuted }}>🔗</span>
+                    <span style={{
+                      fontWeight: T.typography.weightBold,
+                      color: urlPreview.loading ? C.textDim : C.text,
+                      overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                      maxWidth: '420px',
+                    }}>
+                      {urlPreview.loading
+                        ? 'Fetching title…'
+                        : urlPreview.title || (() => {
+                            try { return new URL(urlPreview.url).hostname; }
+                            catch { return urlPreview.url; }
+                          })()}
+                    </span>
+                    {urlPreview.error && !urlPreview.loading && (
+                      <span title={urlPreview.error}
+                        style={{ fontSize: '10px', color: C.textDim, fontStyle: 'italic' }}>
+                        (no title)
+                      </span>
+                    )}
+                  </a>
+                  <button onClick={() => setUrlPreview(null)}
+                    aria-label='Dismiss URL preview'
+                    title='Dismiss'
+                    style={{
+                      width: '22px', height: '22px', borderRadius: '50%',
+                      background: 'transparent', color: C.textMuted,
+                      border: `1px solid ${C.borderSubtle}`,
+                      fontSize: T.typography.sizeXs, lineHeight: 1, padding: 0,
+                      cursor: 'pointer',
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    }}>{'\u2715'}</button>
+                </div>
+              )}
               {/* c2-230 / #71: paste-image preview strip. Rendered above the
                   textarea inside the input container so the thumbnails share
                   the input's focus ring. Empty state collapses to nothing. */}
@@ -7855,7 +7913,41 @@ ${cmdList}
                   // Text-only pastes fall through to the default handler.
                   const items = Array.from(e.clipboardData?.items ?? []);
                   const imageItems = items.filter(it => it.kind === 'file' && it.type.startsWith('image/'));
-                  if (imageItems.length === 0) return;
+                  // #187: URL-paste title preview. When the clipboard holds a
+                  // single URL and input was empty, kick a background unfurl
+                  // so the user sees what the link is before sending.
+                  if (imageItems.length === 0) {
+                    const text = e.clipboardData?.getData('text') || '';
+                    const trimmed = text.trim();
+                    const urlOnly = /^(https?:\/\/[^\s]+)$/i.test(trimmed);
+                    if (urlOnly && input.trim() === '') {
+                      const url = trimmed;
+                      setUrlPreview({ url, title: null, loading: true, error: null });
+                      (async () => {
+                        // Try backend unfurl endpoints in order. Graceful 404.
+                        const candidates = [
+                          `/api/unfurl?url=${encodeURIComponent(url)}`,
+                          `/api/fetch_title?url=${encodeURIComponent(url)}`,
+                        ];
+                        for (const path of candidates) {
+                          try {
+                            const r = await fetch(`http://${getHost()}:3000${path}`);
+                            if (!r.ok) continue;
+                            const d: any = await r.json().catch(() => null);
+                            const title = d?.title || d?.og_title || d?.meta_title || null;
+                            setUrlPreview(prev => prev && prev.url === url
+                              ? { url, title, loading: false, error: title ? null : 'no title in response' }
+                              : prev);
+                            return;
+                          } catch { /* try next */ }
+                        }
+                        setUrlPreview(prev => prev && prev.url === url
+                          ? { url, title: null, loading: false, error: 'unfurl endpoint not available' }
+                          : prev);
+                      })();
+                    }
+                    return;
+                  }
                   e.preventDefault();
                   const MAX_BYTES = 5 * 1024 * 1024; // 5 MB per image
                   for (const it of imageItems) {
