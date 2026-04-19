@@ -6450,6 +6450,41 @@ ${cmdList}
                 }
                 const groupCounts = groups.map(g => g.items.length);
                 const flatItems: FlatItem[] = groups.flatMap(g => g.items);
+                diag.debug('sidebar', 'virtuoso inputs', {
+                  groups: groups.length,
+                  groupCounts,
+                  flatItems: flatItems.length,
+                  filtered: filtered.length,
+                  branchedPlaced: placedBranchIds.size,
+                });
+                // Guard: GroupedVirtuoso crashes internally when groupCounts
+                // is empty (bug seen in v4.18: indexes an item before
+                // bounds-checking). Early-return an empty-state card when
+                // there are no conversations to render.
+                if (flatItems.length === 0) {
+                  diag.info('sidebar', 'empty state (no conversations)');
+                  return (
+                    <div style={{
+                      padding: `${T.spacing.xl} ${T.spacing.md}`, textAlign: 'center',
+                      color: C.textMuted, fontSize: T.typography.sizeSm, lineHeight: T.typography.lineNormal,
+                    }}>
+                      {deferredConvoSearch.trim()
+                        ? <>No matches for <strong style={{ color: C.text }}>"{convoSearch.length > 30 ? convoSearch.slice(0, 30) + '\u2026' : convoSearch}"</strong></>
+                        : <>No conversations yet. Start a new one with <kbd style={{ padding: '1px 5px', background: C.bgInput, border: `1px solid ${C.borderSubtle}`, borderRadius: 3, fontFamily: T.typography.fontMono, fontSize: '10px' }}>⌘N</kbd>.</>}
+                      {deferredConvoSearch.trim() && (
+                        <div style={{ marginTop: T.spacing.sm }}>
+                          <button onClick={() => setConvoSearch('')}
+                            style={{
+                              padding: `${T.spacing.xs} ${T.spacing.md}`,
+                              background: 'transparent', border: `1px solid ${C.borderSubtle}`,
+                              color: C.textSecondary, borderRadius: T.radii.sm,
+                              fontSize: T.typography.sizeXs, cursor: 'pointer', fontFamily: 'inherit',
+                            }}>Clear search</button>
+                        </div>
+                      )}
+                    </div>
+                  );
+                }
                 if (filtered.length === 0 && deferredConvoSearch.trim()) {
                   return (
                     <div style={{
