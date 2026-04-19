@@ -206,3 +206,97 @@ export const diag = {
 if (typeof window !== 'undefined') {
   (window as unknown as { diag: typeof diag }).diag = diag;
 }
+
+// ---- Auto-report + manual report ----
+// The user shouldn't have to copy-paste diag logs for every bug. Two paths:
+//
+//   1. sendDiagReport(opts): POST the current buffer to the backend.
+//      Tries /api/diag/report first, then /api/csp-report (looser schema
+//      but at least a structured sink), then a last-resort /api/audit
+//      POST with the JSON inlined. 3s AbortController per attempt.
+//
+//   2. Auto-triggered when ≥5 errors land in a 30s window and the user
+//      hasn't already sent a report this session. Throttle flag lives
+//      in sessionStorage.
+
+interface SendReportOpts {
+  label?: string;          // which boundary / surface caught
+  context?: string;        // free-form extra note
+  host?: string;           // backend host override (defaults to window.location.hostname)
+}
+
+const REPORT_PATHS = ['/api/diag/report', '/api/audit', '/api/csp-report'];
+const REPORT_THROTTLE_KEY = 'lfi_diag_reported_ts';
+
+async function postWithTimeout(url: string, body: string, ms = 3000): Promise<boolean> {
+  const ctrl = new AbortController();
+  const tid = setTimeout(() => ctrl.abort(), ms);
+  try {
+    const r = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body,
+      signal: ctrl.signal,
+    });
+    clearTimeout(tid);
+    return r.ok;
+  } catch {
+    clearTimeout(tid);
+    return false;
+  }
+}
+
+export async function sendDiagReport(opts: SendReportOpts = {}): Promise<boolean> {
+  if (typeof window === 'undefined') return false;
+  const host = opts.host || window.location.hostname || 'localhost';
+  const payload = JSON.stringify({
+    label: opts.label || 'manual',
+    context: opts.context || '',
+    exported_at: new Date().toISOString(),
+    href: window.location.href,
+    user_agent: navigator.userAgent,
+    viewport: { w: window.innerWidth, h: window.innerHeight },
+    buffer: JSON.parse(diag.export()),
+  });
+  for (const path of REPORT_PATHS) {
+    const url = `http://${host}:3000${path}`;
+    if (await postWithTimeout(url, payload, 3000)) {
+      diag.info('diag-report', `sent to ${path}`, { bytes: payload.length });
+      try { sessionStorage.setItem(REPORT_THROTTLE_KEY, String(Date.now())); } catch { /* silent */ }
+      return true;
+    }
+  }
+  diag.warn('diag-report', 'all endpoints unreachable or returned non-2xx', { tried: REPORT_PATHS });
+  return false;
+}
+
+// Auto-report hook: when errors cross a threshold, fire a one-shot
+// background report. Gated by a sessionStorage throttle so one bad
+// session doesn't spam the backend.
+let autoReportScheduled: number | null = null;
+const AUTO_REPORT_THRESHOLD = 5;   // errors
+const AUTO_REPORT_WINDOW_MS = 30_000;
+const AUTO_REPORT_DEBOUNCE_MS = 1500;
+const AUTO_REPORT_COOLDOWN_MS = 5 * 60_000; // don't re-report more than once per 5 min
+
+if (typeof window !== 'undefined') {
+  diag.subscribe((e) => {
+    if (e.level !== 'error') return;
+    try {
+      const lastStr = sessionStorage.getItem(REPORT_THROTTLE_KEY);
+      if (lastStr) {
+        const last = Number(lastStr);
+        if (isFinite(last) && Date.now() - last < AUTO_REPORT_COOLDOWN_MS) return;
+      }
+    } catch { /* silent */ }
+    // Count recent errors in the ring.
+    const cutoff = Date.now() - AUTO_REPORT_WINDOW_MS;
+    const recent = diag.snapshot().filter(x => x.level === 'error' && x.ts >= cutoff).length;
+    if (recent < AUTO_REPORT_THRESHOLD) return;
+    if (autoReportScheduled != null) return;
+    autoReportScheduled = window.setTimeout(async () => {
+      autoReportScheduled = null;
+      await sendDiagReport({ label: 'auto-threshold', context: `${recent} errors in last ${AUTO_REPORT_WINDOW_MS / 1000}s` });
+    }, AUTO_REPORT_DEBOUNCE_MS);
+  });
+}

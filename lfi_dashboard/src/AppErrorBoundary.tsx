@@ -1,7 +1,43 @@
 import React from 'react';
 import { T } from './tokens';
-import { diag } from './diag';
+import { diag, sendDiagReport } from './diag';
 import { clearChunkReloadFlag } from './lazyWithRetry';
+
+// Lighten the fg color for success-state button label (avoids pink-on-
+// green contrast). Returns a safe-ish green, falls back to fg.
+const C_ok_fg = (fg: string): string => '#34d399';
+
+// Robust clipboard copy with fallback. navigator.clipboard requires a
+// secure context (HTTPS or localhost); on http://10.99.0.3:3000 over
+// WireGuard it's undefined → silent no-op. Fallback creates a hidden
+// textarea and invokes document.execCommand('copy'). Returns true on
+// success.
+const robustCopy = async (text: string): Promise<boolean> => {
+  try {
+    if (navigator.clipboard && window.isSecureContext) {
+      await navigator.clipboard.writeText(text);
+      return true;
+    }
+  } catch { /* fall through */ }
+  try {
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.setAttribute('readonly', '');
+    ta.style.position = 'fixed';
+    ta.style.top = '0';
+    ta.style.left = '0';
+    ta.style.opacity = '0';
+    ta.style.pointerEvents = 'none';
+    document.body.appendChild(ta);
+    ta.focus();
+    ta.select();
+    const ok = document.execCommand('copy');
+    document.body.removeChild(ta);
+    return ok;
+  } catch {
+    return false;
+  }
+};
 
 // Class component because React 18 still requires class for error boundaries.
 // Shows a helpful recovery surface instead of a blank page when any child throws
@@ -20,9 +56,9 @@ export class AppErrorBoundary extends React.Component<
     label?: string;
     onReset?: () => void;
   },
-  { error: Error | null; componentStack: string | null; retryCount: number }
+  { error: Error | null; componentStack: string | null; retryCount: number; copyStatus: 'idle' | 'ok' | 'fail'; reportStatus: 'idle' | 'sending' | 'ok' | 'fail' }
 > {
-  state = { error: null as Error | null, componentStack: null as string | null, retryCount: 0 };
+  state = { error: null as Error | null, componentStack: null as string | null, retryCount: 0, copyStatus: 'idle' as const, reportStatus: 'idle' as const };
   static getDerivedStateFromError(error: Error) { return { error, componentStack: null }; }
   componentDidCatch(error: Error, info: React.ErrorInfo) {
     const label = this.props.label || (this.props.inlineMode ? 'inline' : 'root');
@@ -127,15 +163,37 @@ export class AppErrorBoundary extends React.Component<
               ...btnBase, color: fg, background: 'transparent',
               border: '1px solid rgba(255,255,255,0.12)',
             }}>Reload page</button>
-            <button onClick={() => {
-              try {
-                const blob = diag.export();
-                navigator.clipboard?.writeText(blob);
-              } catch { /* silent */ }
+            <button onClick={async () => {
+              const blob = diag.export();
+              const ok = await robustCopy(blob);
+              this.setState({ copyStatus: ok ? 'ok' : 'fail' });
+              window.setTimeout(() => this.setState({ copyStatus: 'idle' }), 2000);
             }} style={{
-              ...btnBase, color: fg, background: 'transparent',
-              border: '1px solid rgba(255,255,255,0.12)',
-            }}>Copy diag log</button>
+              ...btnBase,
+              color: this.state.copyStatus === 'ok' ? C_ok_fg(fg) : fg,
+              background: this.state.copyStatus === 'ok' ? 'rgba(34,197,94,0.15)' : 'transparent',
+              border: `1px solid ${this.state.copyStatus === 'ok' ? 'rgba(34,197,94,0.5)' : this.state.copyStatus === 'fail' ? 'rgba(239,68,68,0.5)' : 'rgba(255,255,255,0.12)'}`,
+            }}>
+              {this.state.copyStatus === 'ok' ? 'Copied ✓'
+                : this.state.copyStatus === 'fail' ? 'Copy blocked — select the pre above'
+                : 'Copy diag log'}
+            </button>
+            <button onClick={async () => {
+              this.setState({ reportStatus: 'sending' });
+              const ok = await sendDiagReport({ label: this.props.label || 'root' });
+              this.setState({ reportStatus: ok ? 'ok' : 'fail' });
+              window.setTimeout(() => this.setState({ reportStatus: 'idle' }), 3000);
+            }} style={{
+              ...btnBase,
+              color: this.state.reportStatus === 'ok' ? C_ok_fg(fg) : fg,
+              background: this.state.reportStatus === 'ok' ? 'rgba(34,197,94,0.15)' : 'transparent',
+              border: `1px solid ${this.state.reportStatus === 'ok' ? 'rgba(34,197,94,0.5)' : this.state.reportStatus === 'fail' ? 'rgba(239,68,68,0.5)' : 'rgba(255,255,255,0.12)'}`,
+            }}>
+              {this.state.reportStatus === 'sending' ? 'Sending…'
+                : this.state.reportStatus === 'ok' ? 'Report sent ✓'
+                : this.state.reportStatus === 'fail' ? 'Endpoint unavailable'
+                : 'Send report'}
+            </button>
           </div>
           {this.state.componentStack && (
             <details style={{ marginTop: T.spacing.md, fontSize: T.typography.sizeXs, opacity: 0.6 }}>
