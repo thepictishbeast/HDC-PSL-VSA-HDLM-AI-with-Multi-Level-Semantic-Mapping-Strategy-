@@ -886,15 +886,20 @@ ${cmdList}
   // auto-trigger once, but existing users don't get interrupted.
   const [showTour, setShowTour] = useState<boolean>(false);
   useEffect(() => {
-    // Delay 1.5s to let the first-paint settle before introducing the
-    // overlay — otherwise the spotlight lands on an element that's still
-    // mounting + jumping. Only fires once per device via localStorage.
+    // Don't fire while login screen is up — the tour targets main-app
+    // surfaces. Also private-mode browsers return '' from localStorage
+    // (not '1'), so without isAuthenticated gating the tour would auto-
+    // launch every session.
+    if (!isAuthenticated) return;
     let seen = '1';
     try { seen = localStorage.getItem('lfi_tour_seen_v1') || ''; } catch { /* silent */ }
     if (seen === '1') return;
+    // Delay 1.5s to let the first-paint settle before introducing the
+    // overlay — otherwise the spotlight lands on an element that's still
+    // mounting + jumping.
     const id = window.setTimeout(() => setShowTour(true), 1500);
     return () => window.clearTimeout(id);
-  }, []);
+  }, [isAuthenticated]);
   const [teachText, setTeachText] = useState('');
   const [teachSending, setTeachSending] = useState(false);
   const teachDialogRef = useRef<HTMLDivElement>(null);
@@ -3747,8 +3752,15 @@ ${cmdList}
                 });
                 fetch(`http://${getHost()}:3000/api/feedback`, {
                   method: 'POST', headers: { 'Content-Type': 'application/json' }, body,
-                }).then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); })
-                  .catch((e) => {
+                }).then(async r => {
+                  if (!r.ok) throw new Error(`HTTP ${r.status}`);
+                  // #377: surface training-actions count when present.
+                  try {
+                    const d: any = await r.json();
+                    const n = typeof d?.training_actions_applied === 'number' ? d.training_actions_applied : 0;
+                    if (n > 0) showToast(`Feedback applied → ${n} action${n === 1 ? '' : 's'}`);
+                  } catch { /* no body — silent */ }
+                }).catch((e) => {
                     console.warn('feedback (negative) POST failed', e);
                     showToast('Feedback didn\u2019t reach the server');
                   });
@@ -4540,7 +4552,14 @@ ${cmdList}
                             }),
                           });
                           if (!r.ok) throw new Error(`HTTP ${r.status}`);
-                          showToast(`Dismissed ${key}`);
+                          // #377: show action count when applicable.
+                          let suffix = '';
+                          try {
+                            const d: any = await r.json();
+                            const n = typeof d?.training_actions_applied === 'number' ? d.training_actions_applied : 0;
+                            if (n > 0) suffix = ` → ${n} action${n === 1 ? '' : 's'}`;
+                          } catch { /* silent */ }
+                          showToast(`Dismissed ${key}${suffix}`);
                           logEvent('fact_dismissed', { fact_key: key });
                           setFactPopover(null);
                         } catch (e: any) {
