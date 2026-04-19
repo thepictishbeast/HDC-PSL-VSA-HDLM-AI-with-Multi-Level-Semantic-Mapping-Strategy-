@@ -401,21 +401,28 @@ export const AssistantMessage: React.FC<AssistantMessageProps> = ({
   const [expanded, setExpanded] = React.useState(false);
   const needsCollapse = msg.content.length > COLLAPSE_AT && !expanded;
   const bodyText = needsCollapse ? msg.content.slice(0, COLLAPSE_PREVIEW) : msg.content;
-  // c2-433 / #359 forward-compat: refusal detection. A short assistant
-  // response that starts with a known refusal opener (with or without
-  // "because <reason>") gets a subtle left-border treatment + an ⚠
-  // icon so users see at a glance that the system refused rather than
-  // answered. Conservative: only single-paragraph responses trigger
-  // (avoids false-positives where a long answer happens to start with
-  // "I cannot"). When backend adds a structured refusal marker we can
-  // replace this heuristic with exact matching.
+  // c2-433 / #359 + claude-0 #400 ship: refusal detection. After backend
+  // de-hardcoded the conversational response pools, Pulse responses now
+  // emit an explicit refusal string when retrieval doesn't clear
+  // threshold: "No HDC match in knowledge base for X — I won't fabricate".
+  // That + the legacy heuristics (I don't know / I can't answer) all flip
+  // the yellow left-border + REFUSAL pill. Conservative: single-paragraph
+  // only so a long answer that happens to contain "cannot" isn't flagged.
   const refusalMatch = (() => {
-    const first = msg.content.trim().slice(0, 300);
+    const first = msg.content.trim().slice(0, 400);
     const multiline = first.split('\n').filter(l => l.trim()).length > 3;
     if (multiline) return null;
-    const m = first.match(/^(?:i\s+don'?t\s+know|i\s+(?:can'?t|cannot|am\s+unable\s+to)\s+(?:answer|say|confirm|verify)|refusing\s+to\s+answer)(?:\s+because\s+(.+?)[.!?]?$|[.!?]?$)/i);
-    if (!m) return null;
-    return { reason: m[1]?.trim() || null };
+    // Claude-0's explicit refusal from #400: "No HDC match in knowledge base
+    // for <subject> — I won't fabricate". Capture the subject as the reason.
+    const hdc = first.match(/^no\s+hdc\s+match(?:\s+in\s+(?:knowledge\s+base|kb))?(?:\s+for\s+(.+?))?\s*[-—–:]?\s*(?:i\s+won'?t\s+fabricate)?\s*[.!?]?$/i);
+    if (hdc) {
+      const subject = hdc[1]?.trim().replace(/[.!?]+$/, '');
+      return { reason: subject ? `no substrate match for "${subject}"` : "won't fabricate" };
+    }
+    // Legacy heuristics: explicit I-don't-know openers.
+    const generic = first.match(/^(?:i\s+don'?t\s+know|i\s+(?:can'?t|cannot|am\s+unable\s+to)\s+(?:answer|say|confirm|verify)|refusing\s+to\s+answer)(?:\s+because\s+(.+?)[.!?]?$|[.!?]?$)/i);
+    if (generic) return { reason: generic[1]?.trim() || null };
+    return null;
   })();
   // Follow-up chips — simple keyword extraction, only on last assistant message
   // when the body is long enough to have meaningful topics.
@@ -478,6 +485,38 @@ export const AssistantMessage: React.FC<AssistantMessageProps> = ({
             </div>
           )}
           {renderBody(bodyText)}
+          {refusalMatch && isLast && onFeedbackCorrect && (
+            // claude-0 #400 ship: refusals now mean "no substrate match" —
+            // so the right next action for the user is TEACHING LFI the
+            // answer. Inline CTA chip makes the improvement loop
+            // one click away instead of hidden in the hover action bar.
+            <div style={{
+              marginTop: T.spacing.md,
+              padding: '10px 12px',
+              background: `${C.yellow}10`,
+              border: `1px dashed ${C.yellow}60`,
+              borderRadius: T.radii.md,
+              fontSize: T.typography.sizeSm,
+              color: C.text,
+              display: 'flex', alignItems: 'center', gap: T.spacing.sm, flexWrap: 'wrap',
+            }}>
+              <span style={{ flex: 1, minWidth: '180px', lineHeight: 1.5, color: C.textMuted }}>
+                LFI doesn't know the answer. Teach it so it does next time.
+              </span>
+              <button onClick={onFeedbackCorrect}
+                style={{
+                  padding: '6px 14px',
+                  background: C.yellow, color: C.bg,
+                  border: 'none', borderRadius: T.radii.sm,
+                  fontSize: T.typography.sizeSm,
+                  fontWeight: T.typography.weightBold,
+                  cursor: 'pointer', fontFamily: 'inherit',
+                  whiteSpace: 'nowrap',
+                }}>
+                Teach LFI
+              </button>
+            </div>
+          )}
           {msg.content.length > COLLAPSE_AT && (
             <button onClick={() => setExpanded(v => !v)}
               style={{
