@@ -37,6 +37,7 @@ import { compactNum, formatRam, formatTime, copyToClipboard, diskPressure, smart
 // c2-433: diagnostic logger with auto-capture of console.warn/error + window
 // error events. Installed once on mount. Exposed on window.diag for devtools.
 import { diag } from './diag';
+import { markSend, markFirstFrame, markResponse, markRendered, type TurnTrace } from './turnTrace';
 import { useToastQueue } from './useToastQueue';
 import { useFeedbackModals } from './useFeedbackModals';
 import { useChatSearch } from './useChatSearch';
@@ -1075,6 +1076,9 @@ ${cmdList}
 
   const chatWsRef = useRef<WebSocket | null>(null);
   const telemetryWsRef = useRef<WebSocket | null>(null);
+  // Active per-turn latency trace. Set on WS send, cleared on response.
+  // turnTrace.ts logs each phase to diag for the Diag tab to surface.
+  const currentTurnRef = useRef<TurnTrace | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   // Ref-based send lock. Closes a race where rapid Enter presses can call
@@ -1595,6 +1599,9 @@ ${cmdList}
         try {
           const msg = JSON.parse(event.data);
           console.debug("// SCC: Chat msg:", msg.type);
+          // turn-trace: mark the first frame after a send arrives. Subsequent
+          // chunks are no-ops (turnTrace.ts dedupes on firstFrameAt).
+          markFirstFrame(currentTurnRef.current, String(msg.type || 'unknown'));
 
           // Helper: apply a messages reducer to the conversation that owns this
           // in-flight WS exchange (captured at handleSend time). When that
@@ -1711,6 +1718,13 @@ ${cmdList}
           } else if (msg.type === 'chat_response') {
             setIsThinking(false);
             setThinkingStart(null);
+            markResponse(currentTurnRef.current, { contentLen: (msg.content || '').length });
+            // After commit, mark the render phase. requestAnimationFrame fires
+            // after React paints, so the t3 timestamp captures user-visible
+            // latency, not just state-set latency.
+            const t = currentTurnRef.current;
+            requestAnimationFrame(() => { markRendered(t); });
+            currentTurnRef.current = null;
             applyToStreamingConvo(prev => [...prev, {
               id: msgId(), role: 'assistant',
               content: msg.content || '',
@@ -1734,6 +1748,8 @@ ${cmdList}
           } else if (msg.type === 'chat_error') {
             console.debug("// SCC: Chat error:", msg.error);
             setIsThinking(false);
+            markResponse(currentTurnRef.current, { error: String(msg.error || 'unknown') });
+            currentTurnRef.current = null;
             // c2-372: error also ends the stream -- clear the timing chip.
             cstr.end();
             applyToStreamingConvo(prev => {
@@ -1769,6 +1785,11 @@ ${cmdList}
         console.debug("// SCC: Chat WS CLOSED:", ev.code, 'reconnect in', reconnectDelayMs, 'ms');
         setIsConnected(false);
         hasDisconnected = true;
+        // turn-trace: socket died mid-turn — terminal frame for this turn.
+        if (currentTurnRef.current) {
+          markResponse(currentTurnRef.current, { error: `ws_close code=${ev.code}` });
+          currentTurnRef.current = null;
+        }
         // c2-433 / task 258 + 259: clear in-flight thinking + streaming
         // state when WS dies. Without this, a backend restart mid-stream
         // leaves the user staring at "Thinking…" forever (no chunks will
@@ -3159,6 +3180,7 @@ ${cmdList}
       // Capture the originating conversation BEFORE the WS write so chunks
       // can be routed back even if the user switches conversations mid-stream.
       streamingConvoIdRef.current = currentConversationId;
+      currentTurnRef.current = markSend(trimmed.length);
       chatWsRef.current!.send(JSON.stringify({
         content: trimmed,
         incognito: isCurrentIncognito || false,
