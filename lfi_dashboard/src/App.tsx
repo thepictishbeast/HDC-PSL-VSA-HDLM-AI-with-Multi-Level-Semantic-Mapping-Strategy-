@@ -4951,6 +4951,7 @@ ${cmdList}
           onPreviewTheme={setPreviewTheme}
           onClose={() => { setPreviewTheme(null); setShowSettings(false); }}
           currentTier={currentTier}
+          host={getHost()}
           onTierSelect={(tier) => { setCurrentTier(tier); handleTierSwitch(tier); }}
           onExportEvents={() => { exportEvents(); logEvent('export_events', {}); }}
           onExportConversations={() => {

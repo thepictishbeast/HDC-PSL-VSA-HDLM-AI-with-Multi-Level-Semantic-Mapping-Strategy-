@@ -34,6 +34,10 @@ export interface SettingsModalProps {
   onTabChange: (t: SettingsTab) => void;
   onClose: () => void;
   currentTier: string;
+  // c2-433 / #398: backend host for the workspace-capacity slider +
+  // any future backend-state controls. Defaults to '127.0.0.1' when
+  // not supplied — keeps older call sites backward-compat.
+  host?: string;
   onTierSelect: (tier: string) => void;
   onExportEvents: () => void;
   onExportConversations: () => void;
@@ -52,10 +56,20 @@ export interface SettingsModalProps {
 
 export const SettingsModal: React.FC<SettingsModalProps> = ({
   C, isMobile, settings, setSettings, tab, onTabChange, onClose,
-  currentTier, onTierSelect,
+  currentTier, onTierSelect, host,
   onExportEvents, onExportConversations, onExportAllJson, onImportBackup, onPreviewTheme, onClearHistory, onResetSettings, onDeleteAccount,
   conversationCount, messageCount,
 }) => {
+  // c2-433 / #398: workspace capacity state. Fetched from
+  // GET /api/settings/workspace when the Behavior tab mounts; PUT with
+  // {max_mb} commits a change. Silent-fail when endpoint not live so
+  // the rest of the tab still renders.
+  const wsHost = host || '127.0.0.1';
+  const [wsData, setWsData] = useState<null | { capacity: number; footprint_bytes: number; footprint_mb: number; per_slot_bytes: number; max_mb?: number }>(null);
+  const [wsLoading, setWsLoading] = useState<boolean>(false);
+  const [wsErr, setWsErr] = useState<string | null>(null);
+  const [wsSaving, setWsSaving] = useState<boolean>(false);
+  const [wsMaxMb, setWsMaxMb] = useState<number>(512);
   const dialogRef = useRef<HTMLDivElement>(null);
   useModalFocus(true, dialogRef);
   return (
@@ -434,6 +448,16 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             </label>
           ))}
 
+          {/* c2-433 / #398: Workspace capacity. Slider with preset stops
+              (64/128/256/512/1024/2048 MB). GET on tab open, PUT on
+              slider commit. Hidden when the endpoint is unreachable. */}
+          <WorkspaceControl C={C} wsHost={wsHost}
+            wsData={wsData} setWsData={setWsData}
+            wsLoading={wsLoading} setWsLoading={setWsLoading}
+            wsErr={wsErr} setWsErr={setWsErr}
+            wsSaving={wsSaving} setWsSaving={setWsSaving}
+            wsMaxMb={wsMaxMb} setWsMaxMb={setWsMaxMb} />
+
           <div style={{ marginTop: '18px', paddingTop: '16px', borderTop: `1px solid ${C.borderSubtle}` }}>
             <label style={{ fontSize: T.typography.sizeXs, fontWeight: 700, color: C.textMuted, textTransform: 'uppercase', letterSpacing: '0.08em' }}>Default Model</label>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: T.spacing.sm, marginTop: '8px' }}>
@@ -677,6 +701,150 @@ const StorageUsage: React.FC<{ C: any }> = ({ C }) => {
           </strong></span>
         )}
       </div>
+    </div>
+  );
+};
+
+// c2-433 / #398: workspace capacity control. Slider with preset stops
+// at 64 / 128 / 256 / 512 / 1024 / 2048 MB. GETs on mount, PUTs on
+// commit, surfaces slots + active footprint + cap. Hidden when the
+// endpoint never responds.
+const WS_STOPS = [64, 128, 256, 512, 1024, 2048];
+const WorkspaceControl: React.FC<{
+  C: any; wsHost: string;
+  wsData: null | { capacity: number; footprint_bytes: number; footprint_mb: number; per_slot_bytes: number; max_mb?: number };
+  setWsData: React.Dispatch<React.SetStateAction<any>>;
+  wsLoading: boolean; setWsLoading: React.Dispatch<React.SetStateAction<boolean>>;
+  wsErr: string | null; setWsErr: React.Dispatch<React.SetStateAction<string | null>>;
+  wsSaving: boolean; setWsSaving: React.Dispatch<React.SetStateAction<boolean>>;
+  wsMaxMb: number; setWsMaxMb: React.Dispatch<React.SetStateAction<number>>;
+}> = ({ C, wsHost, wsData, setWsData, wsLoading, setWsLoading, wsErr, setWsErr, wsSaving, setWsSaving, wsMaxMb, setWsMaxMb }) => {
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      setWsLoading(true);
+      setWsErr(null);
+      try {
+        const r = await fetch(`http://${wsHost}:3000/api/settings/workspace`);
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        const data = await r.json();
+        if (cancelled) return;
+        setWsData(data);
+        const mb = typeof data?.max_mb === 'number' ? data.max_mb
+          : typeof data?.footprint_mb === 'number' ? data.footprint_mb
+          : 512;
+        // Snap to the nearest preset stop for the slider's initial position.
+        const snapped = WS_STOPS.reduce((best, s) => Math.abs(s - mb) < Math.abs(best - mb) ? s : best, WS_STOPS[0]);
+        setWsMaxMb(snapped);
+      } catch (e: any) {
+        if (!cancelled) setWsErr(String(e?.message || e || 'fetch failed'));
+      } finally {
+        if (!cancelled) setWsLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [wsHost]);
+
+  // Hide entirely when endpoint is unreachable — keeps Settings tab clean
+  // on older deployments without #398.
+  if (wsErr && !wsData) return null;
+
+  const commit = async (mb: number) => {
+    setWsSaving(true);
+    setWsErr(null);
+    try {
+      const r = await fetch(`http://${wsHost}:3000/api/settings/workspace`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ max_mb: mb }),
+      });
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      const data = await r.json();
+      setWsData(data);
+    } catch (e: any) {
+      setWsErr(String(e?.message || e || 'save failed'));
+    } finally {
+      setWsSaving(false);
+    }
+  };
+
+  const fmtSlots = (n: number): string => {
+    if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
+    if (n >= 1_000) return `${(n / 1_000).toFixed(n >= 10_000 ? 0 : 1)}k`;
+    return String(n);
+  };
+
+  const capacity = wsData?.capacity ?? 0;
+  const activeMb = wsData?.footprint_mb ?? 0;
+  const perSlot = wsData?.per_slot_bytes ?? 0;
+
+  return (
+    <div style={{ marginTop: '18px', paddingTop: '16px', borderTop: `1px solid ${C.borderSubtle}` }}>
+      <label style={{
+        fontSize: T.typography.sizeXs, fontWeight: 700, color: C.textMuted,
+        textTransform: 'uppercase', letterSpacing: '0.08em',
+      }}>Workspace capacity</label>
+      <div style={{ fontSize: T.typography.sizeXs, color: C.textDim, marginTop: '4px', lineHeight: 1.5 }}>
+        Global Workspace holds the active hypervector slots for chat + reasoning.
+        Higher caps let longer conversations retain context at the cost of RAM.
+      </div>
+      {wsLoading && !wsData ? (
+        <div style={{ padding: '8px 0', fontSize: T.typography.sizeXs, color: C.textMuted, fontStyle: 'italic' }}>
+          Loading workspace state…
+        </div>
+      ) : (
+        <div style={{ marginTop: '10px' }}>
+          <div style={{
+            display: 'flex', alignItems: 'baseline', gap: T.spacing.sm,
+            fontFamily: T.typography.fontMono, fontSize: T.typography.sizeSm,
+            color: C.text, marginBottom: '8px',
+          }}>
+            <span style={{ color: C.accent, fontWeight: 700 }}>{fmtSlots(capacity)} slots</span>
+            <span style={{ color: C.textMuted }}>
+              · {activeMb.toFixed(activeMb < 10 ? 1 : 0)} MB active · {wsMaxMb} MB cap
+            </span>
+            {perSlot > 0 && (
+              <span style={{ color: C.textDim, fontSize: '10px', marginLeft: 'auto' }}>
+                {(perSlot / 1024).toFixed(1)}KB/slot
+              </span>
+            )}
+          </div>
+          <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
+            {WS_STOPS.map(mb => {
+              const active = wsMaxMb === mb;
+              return (
+                <button key={mb} type='button'
+                  onClick={() => { setWsMaxMb(mb); commit(mb); }}
+                  disabled={wsSaving}
+                  title={`${mb} MB cap (${fmtSlots(Math.floor((mb * 1024 * 1024) / Math.max(perSlot, 1)))} slots at current per-slot size)`}
+                  style={{
+                    padding: '3px 10px', fontSize: '10px',
+                    fontWeight: T.typography.weightBold,
+                    background: active ? C.accentBg : 'transparent',
+                    border: `1px solid ${active ? C.accentBorder : C.borderSubtle}`,
+                    color: active ? C.accent : C.textMuted,
+                    borderRadius: T.radii.sm,
+                    cursor: wsSaving ? 'wait' : 'pointer',
+                    fontFamily: T.typography.fontMono,
+                    letterSpacing: '0.04em',
+                  }}>
+                  {mb < 1024 ? `${mb} MB` : `${mb / 1024} GB`}
+                </button>
+              );
+            })}
+          </div>
+          {wsSaving && (
+            <div style={{ fontSize: '10px', color: C.textMuted, marginTop: '6px', fontStyle: 'italic' }}>
+              Saving…
+            </div>
+          )}
+          {wsErr && (
+            <div style={{ fontSize: '10px', color: C.red, marginTop: '6px', fontFamily: T.typography.fontMono }}>
+              {wsErr}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 };
