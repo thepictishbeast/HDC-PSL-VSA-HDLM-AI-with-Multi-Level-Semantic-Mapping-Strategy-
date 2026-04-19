@@ -3628,17 +3628,123 @@ pub fn create_router() -> Result<Router, Box<dyn std::error::Error>> {
                     correction.map(|s| s.to_string())
                 } else { None };
                 let conversation_id_owned = conv.map(|s| s.to_string());
-                state.experience.lock().capture(LearningSignal {
-                    signal_type,
-                    user_input,
-                    system_response,
-                    correction: correction_text,
-                    conversation_id: conversation_id_owned,
-                    timestamp: std::time::SystemTime::now()
-                        .duration_since(std::time::UNIX_EPOCH)
-                        .map(|d| d.as_secs()).unwrap_or(0),
-                });
-                axum::Json(json!({"stored": true, "id": id, "rows": n}))
+                let now = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map(|d| d.as_secs()).unwrap_or(0);
+
+                // #377 Capture + apply training actions in one shot so the
+                // correction actually changes the fact base, not just the
+                // audit log. ExperienceLearner::process_pending() returns
+                // typed actions; we map each to the appropriate BrainDb
+                // mutation below.
+                let actions = {
+                    let mut learner = state.experience.lock();
+                    learner.capture(LearningSignal {
+                        signal_type,
+                        user_input: user_input.clone(),
+                        system_response: system_response.clone(),
+                        correction: correction_text.clone(),
+                        conversation_id: conversation_id_owned,
+                        timestamp: now,
+                    });
+                    learner.process_pending()
+                };
+
+                let mut applied: usize = 0;
+                let mut applied_kinds: Vec<&'static str> = Vec::new();
+                use crate::intelligence::experience_learning::TrainingAction;
+                for action in actions {
+                    match action {
+                        TrainingAction::CreateFact { key, value, source, confidence, .. } => {
+                            // User corrections land as high-confidence facts
+                            // tagged 'user_correction' so they can be audited
+                            // + override low-trust conflicting rows.
+                            state.db.upsert_fact(&key, &value, &source, confidence);
+                            let _ = state.db.audit_chain_append(
+                                "training", "Info", "user_feedback",
+                                "correction_fact_created",
+                                &format!("key={} source={} conf={:.2}", key, source, confidence),
+                            );
+                            applied += 1;
+                            applied_kinds.push("CreateFact");
+                        }
+                        TrainingAction::DowngradeQuality { content_fragment, new_quality } => {
+                            // UPDATE facts SET quality_score = new_quality where
+                            // the value matches a fragment of the corrected reply.
+                            // Bounded: fragment ≥ 16 chars to avoid mass-downgrade
+                            // on common tokens. Single-row-by-LIKE; cheap on the
+                            // indexed facts table.
+                            if content_fragment.len() >= 16 {
+                                if let Ok(conn) = state.db.conn.lock() {
+                                    let like = format!("%{}%", content_fragment);
+                                    let _ = conn.execute(
+                                        "UPDATE facts SET quality_score = ?1 WHERE value LIKE ?2",
+                                        rusqlite::params![new_quality, like],
+                                    );
+                                }
+                                applied += 1;
+                                applied_kinds.push("DowngradeQuality");
+                            }
+                        }
+                        TrainingAction::CreateAdversarial { claim, label, explanation } => {
+                            // Persist as a low-confidence fact tagged 'adversarial'
+                            // — the search_facts path de-prioritizes these via
+                            // per-source trust. Keeps negative examples around
+                            // for future contrastive training.
+                            let adv_key = format!("adv_{}", now);
+                            let body = format!("{} :: {} :: {}",
+                                crate::truncate_str(&claim, 600),
+                                label,
+                                crate::truncate_str(&explanation, 600));
+                            state.db.upsert_fact(&adv_key, &body, "adversarial", 0.1);
+                            applied += 1;
+                            applied_kinds.push("CreateAdversarial");
+                        }
+                        TrainingAction::FlagForIngestion { query, reason }
+                        | TrainingAction::FlagForDepth { topic: query, reason } => {
+                            // Audit-chain only — the classroom curriculum
+                            // UI reads these to surface "topics we need".
+                            let _ = state.db.audit_chain_append(
+                                "training", "Info", "user_feedback",
+                                "flag_for_depth",
+                                &format!("q={} reason={}",
+                                    crate::truncate_str(&query, 120),
+                                    crate::truncate_str(&reason, 160)),
+                            );
+                            applied += 1;
+                            applied_kinds.push("FlagForDepth");
+                        }
+                        TrainingAction::Reinforce { query: _, response } => {
+                            // Boost quality of the facts that composed the
+                            // response. Bounded: only when the response is
+                            // long enough to uniquely identify contributing
+                            // facts.
+                            if response.len() >= 32 {
+                                if let Ok(conn) = state.db.conn.lock() {
+                                    let like = format!("%{}%", crate::truncate_str(&response, 160));
+                                    let _ = conn.execute(
+                                        "UPDATE facts SET quality_score = \
+                                         MIN(1.0, COALESCE(quality_score, 0.5) + 0.05) \
+                                         WHERE value LIKE ?1",
+                                        rusqlite::params![like],
+                                    );
+                                }
+                                applied += 1;
+                                applied_kinds.push("Reinforce");
+                            }
+                        }
+                    }
+                }
+
+                info!("// FEEDBACK: applied {} training action(s): {:?}",
+                    applied, applied_kinds);
+                axum::Json(json!({
+                    "stored": true,
+                    "id": id,
+                    "rows": n,
+                    "training_actions_applied": applied,
+                    "kinds": applied_kinds,
+                }))
             }
             Err(e) => {
                 warn!("// FEEDBACK: insert failed: {}", e);
