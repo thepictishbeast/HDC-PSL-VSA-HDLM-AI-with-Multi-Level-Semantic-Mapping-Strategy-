@@ -46,6 +46,21 @@ pub fn hdc_retrieval_response_shaped(
     use crate::cognition::speech_act::SpeechAct;
 
     if rag_context.is_empty() {
+        // #378 Active-question branch. When the query shape names an
+        // obvious subject (what-is/tell-me-about/how-does/etc.) turn
+        // the bare refusal into a teaching prompt — the user types the
+        // answer, the #376 auto-ingest persists it, the next query
+        // grounds. Fallback to the static refusal when no subject
+        // is extractable.
+        let lower = query.to_lowercase();
+        if let Some(subj) = extract_query_subject(&lower) {
+            return format!(
+                "I don't have grounded facts about \"{}\".\n\n\
+                 Teach me: say \"remember that {} is …\" and I'll ingest \
+                 it at 0.80 confidence. Or ingest a corpus that covers it.",
+                subj, subj,
+            );
+        }
         return format!(
             "No HDC match in the knowledge base for \"{}\". Ingest relevant \
              sources or rephrase the query — I won't fabricate an answer.",
