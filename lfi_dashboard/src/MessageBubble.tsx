@@ -401,6 +401,22 @@ export const AssistantMessage: React.FC<AssistantMessageProps> = ({
   const [expanded, setExpanded] = React.useState(false);
   const needsCollapse = msg.content.length > COLLAPSE_AT && !expanded;
   const bodyText = needsCollapse ? msg.content.slice(0, COLLAPSE_PREVIEW) : msg.content;
+  // c2-433 / #359 forward-compat: refusal detection. A short assistant
+  // response that starts with a known refusal opener (with or without
+  // "because <reason>") gets a subtle left-border treatment + an ⚠
+  // icon so users see at a glance that the system refused rather than
+  // answered. Conservative: only single-paragraph responses trigger
+  // (avoids false-positives where a long answer happens to start with
+  // "I cannot"). When backend adds a structured refusal marker we can
+  // replace this heuristic with exact matching.
+  const refusalMatch = (() => {
+    const first = msg.content.trim().slice(0, 300);
+    const multiline = first.split('\n').filter(l => l.trim()).length > 3;
+    if (multiline) return null;
+    const m = first.match(/^(?:i\s+don'?t\s+know|i\s+(?:can'?t|cannot|am\s+unable\s+to)\s+(?:answer|say|confirm|verify)|refusing\s+to\s+answer)(?:\s+because\s+(.+?)[.!?]?$|[.!?]?$)/i);
+    if (!m) return null;
+    return { reason: m[1]?.trim() || null };
+  })();
   // Follow-up chips — simple keyword extraction, only on last assistant message
   // when the body is long enough to have meaningful topics.
   // c2-433 / task 223: same long-press shim as UserMessage so phone users can
@@ -433,11 +449,34 @@ export const AssistantMessage: React.FC<AssistantMessageProps> = ({
           padding: '14px 18px',
           background: C.bgCard,
           border: `1px solid ${C.border}`,
+          borderLeft: refusalMatch ? `3px solid ${C.yellow}` : `1px solid ${C.border}`,
           borderRadius: `${T.radii.xs} ${T.radii.lg} ${T.radii.lg} ${T.radii.lg}`,
           fontSize: '14px', lineHeight: '1.7',
           color: C.text,
           whiteSpace: 'pre-wrap', wordBreak: 'break-word',
         }}>
+          {refusalMatch && (
+            <div style={{
+              display: 'inline-flex', alignItems: 'center', gap: '6px',
+              marginRight: '8px', marginBottom: '4px',
+              padding: '2px 8px', borderRadius: T.radii.sm,
+              background: `${C.yellow}18`, color: C.yellow,
+              fontSize: '10px', fontWeight: 800,
+              fontFamily: T.typography.fontMono,
+              letterSpacing: '0.04em', textTransform: 'uppercase',
+              verticalAlign: 'middle',
+            }}
+              title={refusalMatch.reason
+                ? `Refusal — reason: ${refusalMatch.reason}`
+                : 'Refusal — the system declined to answer'}>
+              <svg width='10' height='10' viewBox='0 0 24 24' fill='none' stroke='currentColor' strokeWidth='2.4' strokeLinecap='round' strokeLinejoin='round' aria-hidden='true'>
+                <path d='M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z' />
+                <line x1='12' y1='9' x2='12' y2='13' />
+                <line x1='12' y1='17' x2='12.01' y2='17' />
+              </svg>
+              <span>refusal</span>
+            </div>
+          )}
           {renderBody(bodyText)}
           {msg.content.length > COLLAPSE_AT && (
             <button onClick={() => setExpanded(v => !v)}
