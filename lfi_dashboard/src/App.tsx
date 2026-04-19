@@ -34,6 +34,9 @@ import 'highlight.js/styles/github-dark.css';
 // groups, which gives us native sticky headers for free.
 import { GroupedVirtuoso } from 'react-virtuoso';
 import { compactNum, formatRam, formatTime, copyToClipboard, diskPressure, smartTitle, exportConversationMd, exportConversationPdf, exportConversationTxt, exportAllAsJson, formatRelative, formatDayBucket, mod, modKey, stripMarkdown, hapticTick, flashMessageById } from './util';
+// c2-433: diagnostic logger with auto-capture of console.warn/error + window
+// error events. Installed once on mount. Exposed on window.diag for devtools.
+import { diag } from './diag';
 import { useToastQueue } from './useToastQueue';
 import { useFeedbackModals } from './useFeedbackModals';
 import { useChatSearch } from './useChatSearch';
@@ -1244,6 +1247,12 @@ ${cmdList}
     console.debug("// SCC: Persisting auth:", isAuthenticated);
     localStorage.setItem('lfi_auth', isAuthenticated.toString());
   }, [isAuthenticated]);
+
+  // c2-433: install the diag logger ONCE on mount. After this runs,
+  // window.diag is available for devtools console (diag.snapshot() /
+  // diag.export() / diag.clear()) and console.warn + console.error
+  // calls are mirrored into the ring buffer automatically.
+  useEffect(() => { diag.install(); }, []);
 
   // c2-433 / #316 / #300: pre-send pipeline dry-run. When the user is
   // composing a query (not-empty, >= 6 chars, connected, not currently
@@ -4698,6 +4707,32 @@ ${cmdList}
             onRun: () => { setAdminInitialTab('tokens'); setShowAdmin(true); } },
           { id: 'open-admin-proof', label: 'Open Admin → Proof', hint: 'Lean4 verdict distribution across facts', group: 'Navigate',
             onRun: () => { setAdminInitialTab('proof'); setShowAdmin(true); } },
+          // c2-433: diag export — copy the runtime ring buffer (last 500
+          // entries, includes auto-captured console warn/error + window
+          // errors) to clipboard. Useful when filing an issue.
+          { id: 'export-diag-logs', label: 'Export diagnostic logs', hint: 'Copy last 500 log entries + error captures to clipboard', group: 'Navigate',
+            onRun: async () => {
+              try {
+                const payload = diag.export();
+                await navigator.clipboard.writeText(payload);
+                const snap = diag.snapshot();
+                const counts = {
+                  error: snap.filter(e => e.level === 'error').length,
+                  warn: snap.filter(e => e.level === 'warn').length,
+                };
+                showToast(`Diag copied — ${snap.length} entries (${counts.error} err · ${counts.warn} warn)`);
+              } catch (e: any) {
+                showToast(`Diag copy failed: ${String(e?.message || e || 'unknown')}`);
+              }
+            },
+          },
+          { id: 'clear-diag-logs', label: 'Clear diagnostic logs', hint: 'Zero the local ring buffer + localStorage mirror', group: 'Navigate',
+            onRun: () => {
+              if (!window.confirm('Clear diagnostic log buffer? Not recoverable.')) return;
+              diag.clear();
+              showToast('Diag logs cleared');
+            },
+          },
           // c2-433 / #354: verify-fact-by-key palette entry. Fast path
           // for operators with a fact_key in clipboard — skips the
           // click-open-popover-click-Verify dance. Toasts the verdict
