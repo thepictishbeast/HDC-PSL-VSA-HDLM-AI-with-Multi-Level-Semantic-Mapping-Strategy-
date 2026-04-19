@@ -208,17 +208,31 @@ export const renderInlineMd = (raw: string, baseKey: string, ctx: MarkdownCtx): 
           } else if (lp) {
             // Fact-key chips: split on `[fact:KEY]` / `[k:KEY]` runs.
             const factParts = lp.split(/(\[(?:fact|k):[A-Za-z0-9_-]{1,64}\])/g);
+            // c2-433 / #357: inline citations ship as `[fact:KEY] (source:
+            // X, similarity N%)`. After a chip, sniff the next text segment
+            // and strip+render the metadata as a muted annotation. The
+            // regex tolerates a leading space and `similarity N%` as an
+            // integer percent. Backend may emit both `(source: ..., ...)`
+            // and `[source ..., ...]` variants — we match either bracket.
+            const citationMeta = /^\s*[\(\[]source:\s*([^,\)\]]+),\s*similarity\s+(\d+)%[\)\]]\s*/;
+            let skipNext = false;
             factParts.forEach((fp, m) => {
+              if (skipNext) { skipNext = false; return; }
               const factMatch = fp.match(/^\[(?:fact|k):([A-Za-z0-9_-]{1,64})\]$/);
               if (factMatch && ctx.onFactKey) {
                 const key = factMatch[1];
+                // Peek ahead for citation metadata.
+                const nextFp = factParts[m + 1] || '';
+                const metaMatch = nextFp.match(citationMeta);
+                const metaSource = metaMatch ? metaMatch[1].trim() : null;
+                const metaSimilarity = metaMatch ? Number(metaMatch[2]) : null;
                 out.push(
                   <button key={`${baseKey}-f${i}-${j}-${k}-${m}`}
                     onClick={(e) => {
                       const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
                       ctx.onFactKey!(key, rect);
                     }}
-                    title={`Inspect fact ${key}`}
+                    title={metaMatch ? `Inspect fact ${key} · source: ${metaSource} · similarity ${metaSimilarity}%` : `Inspect fact ${key}`}
                     style={{
                       display: 'inline-block', padding: '0 5px',
                       margin: '0 2px',
@@ -231,6 +245,28 @@ export const renderInlineMd = (raw: string, baseKey: string, ctx: MarkdownCtx): 
                       lineHeight: '1.2',
                     }}>{key}</button>
                 );
+                if (metaMatch) {
+                  // Tint similarity: 80+ accent, 50+ muted, below textDim.
+                  const simColor = metaSimilarity != null
+                    ? (metaSimilarity >= 80 ? C.accent : metaSimilarity >= 50 ? (C.textMuted || C.textSecondary) : C.textDim)
+                    : C.textDim;
+                  out.push(
+                    <span key={`${baseKey}-fm${i}-${j}-${k}-${m}`} style={{
+                      color: C.textDim || '#888', fontSize: '0.78em',
+                      fontFamily: C.font || 'monospace', marginRight: '2px',
+                      opacity: 0.85,
+                    }} title={`similarity ${metaSimilarity}%`}>
+                      <span style={{ color: simColor }}>{metaSource}</span>
+                      {metaSimilarity != null && <span style={{ marginLeft: '4px' }}>{metaSimilarity}%</span>}
+                    </span>
+                  );
+                  // Render any trailing text AFTER the metadata.
+                  const remainder = nextFp.replace(citationMeta, '');
+                  if (remainder) {
+                    out.push(<span key={`${baseKey}-fr${i}-${j}-${k}-${m}`}>{wrapHighlight(remainder, ctx.highlight, `${baseKey}-fr${i}-${j}-${k}-${m}`)}</span>);
+                  }
+                  skipNext = true; // already handled nextFp
+                }
               } else if (factMatch) {
                 // No callback — render the literal token so the syntax
                 // is still readable.
