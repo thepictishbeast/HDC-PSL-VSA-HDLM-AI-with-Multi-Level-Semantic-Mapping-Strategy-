@@ -628,19 +628,30 @@ const SovereignCommandConsole: React.FC = () => {
   // initialization'.
   const settingsRef = useRef(settings);
   useEffect(() => { settingsRef.current = settings; }, [settings]);
-  // c0-011 #9: sync theme to backend on change so preferences persist across
-  // devices. Fires once per distinct theme value (dedup via ref), including
-  // the initial hydrated value — that one-shot keeps backend in sync with
-  // localStorage if the two diverged (e.g., settings reset on another device).
-  const lastSyncedThemeRef = useRef<string | null>(null);
+  // c0-011 #9 + claude-0 11:15 fix: sync persistable prefs to backend via
+  // POST /api/settings {key, value}. Debounced 500ms so multi-setting
+  // changes batch. Last-synced ref per key prevents redundant writes.
+  // Whitelist of server-persistable settings only — free-text like
+  // displayName stays client-side.
+  const lastSyncedRef = useRef<Partial<Record<keyof Settings, any>>>({});
   useEffect(() => {
-    if (lastSyncedThemeRef.current === settings.theme) return;
-    lastSyncedThemeRef.current = settings.theme;
-    fetch(`http://${getHost()}:3000/api/settings`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ key: 'theme', value: settings.theme }),
-    }).catch(() => { /* non-fatal */ });
-  }, [settings.theme]);
+    const persist: Array<keyof Settings> = ['theme', 'fontSize', 'sendOnEnter', 'showReasoning',
+      'erudaMode', 'developerMode', 'defaultTier', 'compactMode', 'autoTheme', 'notifyOnReply'];
+    const id = window.setTimeout(() => {
+      for (const key of persist) {
+        const value = settings[key];
+        if (lastSyncedRef.current[key] === value) continue;
+        lastSyncedRef.current[key] = value;
+        fetch(`http://${getHost()}:3000/api/settings`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ key, value }),
+        }).catch(() => { /* non-fatal — settings stay in localStorage either way */ });
+      }
+    }, 500);
+    return () => window.clearTimeout(id);
+  }, [settings.theme, settings.fontSize, settings.sendOnEnter, settings.showReasoning,
+      settings.erudaMode, settings.developerMode, settings.defaultTier, settings.compactMode,
+      settings.autoTheme, settings.notifyOnReply]);
 
   useEffect(() => {
     try { localStorage.setItem('lfi_settings', JSON.stringify(settings)); } catch {}
