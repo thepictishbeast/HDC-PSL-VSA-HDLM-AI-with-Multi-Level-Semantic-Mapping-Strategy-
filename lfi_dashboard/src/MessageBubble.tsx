@@ -409,16 +409,32 @@ export const AssistantMessage: React.FC<AssistantMessageProps> = ({
   // the yellow left-border + REFUSAL pill. Conservative: single-paragraph
   // only so a long answer that happens to contain "cannot" isn't flagged.
   const refusalMatch = (() => {
-    const first = msg.content.trim().slice(0, 400);
-    const multiline = first.split('\n').filter(l => l.trim()).length > 3;
+    const trimmed = msg.content.trim();
+    const first = trimmed.slice(0, 600);
+    // Allow up to 5 non-empty lines so claude-0's multi-sentence
+    // coaching reply (post-LLM preamble + threshold + Try: suggestions)
+    // still classifies as a refusal.
+    const multiline = first.split('\n').filter(l => l.trim()).length > 5;
     if (multiline) return null;
     // Claude-0's explicit refusal from #400: "No HDC match in knowledge base
     // for <subject> — I won't fabricate". Capture the subject as the reason.
-    const hdc = first.match(/^no\s+hdc\s+match(?:\s+in\s+(?:knowledge\s+base|kb))?(?:\s+for\s+(.+?))?\s*[-—–:]?\s*(?:i\s+won'?t\s+fabricate)?\s*[.!?]?$/i);
+    const hdc = first.match(/^no\s+hdc\s+match(?:\s+in\s+(?:knowledge\s+base|kb))?(?:\s+for\s+(.+?))?\s*[-—–:]?\s*(?:i\s+won'?t\s+fabricate)?\s*[.!?]?/i);
     if (hdc) {
       const subject = hdc[1]?.trim().replace(/[.!?]+$/, '');
       return { reason: subject ? `no substrate match for "${subject}"` : "won't fabricate" };
     }
+    // Claude-0 13:50 grounded-coach shape: "I'm post-LLM, grounded in
+    // ingested fact base — nothing clears 0.70 trust threshold for <subj>.
+    // Try: ..." Captures the subject after "threshold for". Matches either
+    // the full opener or just the threshold phrase (defensive — backend
+    // wording may evolve).
+    const coach = first.match(/nothing\s+clears\s+(?:\d+(?:\.\d+)?\s+)?(?:trust\s+)?threshold(?:\s+for\s+(.+?))?[\s.!?—–-]/i);
+    if (coach) {
+      const subject = coach[1]?.trim().replace(/[.!?]+$/, '');
+      return { reason: subject ? `below trust threshold for "${subject}"` : 'below trust threshold' };
+    }
+    const postLlm = first.match(/^i'?m\s+post[- ]?llm.{0,120}?(?:grounded|ingested|substrate)/i);
+    if (postLlm) return { reason: 'no match clears threshold' };
     // Legacy heuristics: explicit I-don't-know openers.
     const generic = first.match(/^(?:i\s+don'?t\s+know|i\s+(?:can'?t|cannot|am\s+unable\s+to)\s+(?:answer|say|confirm|verify)|refusing\s+to\s+answer)(?:\s+because\s+(.+?)[.!?]?$|[.!?]?$)/i);
     if (generic) return { reason: generic[1]?.trim() || null };
