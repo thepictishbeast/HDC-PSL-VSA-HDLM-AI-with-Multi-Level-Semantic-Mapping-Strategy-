@@ -6213,31 +6213,68 @@ ${cmdList}
                 // Pinned first, then Starred (c2-409 / task 208), then each
                 // day-bucket. flatItems is the full list in render order so
                 // itemContent can index straight into it.
-                type Group = { label: string; convos: Conversation[] };
+                //
+                // #184 branch tree: child branches (conversations whose
+                // branchedFrom.convoId points at a parent in the list) are
+                // rendered inline directly underneath their parent with
+                // depth=1, in the SAME group as the parent — even if the
+                // child's updatedAt lands in a different day-bucket. This
+                // keeps the fork visually adjacent to its source.
+                type FlatItem = { convo: Conversation; depth: number };
+                type Group = { label: string; items: FlatItem[] };
+                // Build parent → children map once. Only count children that
+                // are themselves in `filtered` so search filtering stays
+                // honest.
+                const filteredIds = new Set(filtered.map(c => c.id));
+                const childrenMap = new Map<string, Conversation[]>();
+                for (const c of filtered) {
+                  const parent = c.branchedFrom?.convoId;
+                  if (!parent || !filteredIds.has(parent)) continue;
+                  const arr = childrenMap.get(parent) || [];
+                  arr.push(c);
+                  childrenMap.set(parent, arr);
+                }
+                // Recursive push so a branch-of-a-branch also shows up.
+                const pushWithBranches = (c: Conversation, depth: number, group: Group, seen: Set<string>) => {
+                  if (seen.has(c.id)) return;
+                  seen.add(c.id);
+                  group.items.push({ convo: c, depth });
+                  const kids = childrenMap.get(c.id);
+                  if (!kids || kids.length === 0) return;
+                  kids.sort((a, b) => a.createdAt - b.createdAt);
+                  for (const k of kids) pushWithBranches(k, depth + 1, group, seen);
+                };
+                const placedBranchIds = new Set<string>();
                 const groups: Group[] = [];
                 const pinned = filtered.filter(c => c.pinned);
-                if (pinned.length > 0) groups.push({ label: 'Pinned', convos: pinned });
-                // c2-409 / task 208: Starred group sits above the day
-                // buckets. Pinned + starred both true → stays in Pinned
-                // (pinned is a stronger promotion).
-                const starred = filtered.filter(c => !c.pinned && c.starred);
+                if (pinned.length > 0) {
+                  const g: Group = { label: 'Pinned', items: [] };
+                  for (const c of pinned) pushWithBranches(c, 0, g, placedBranchIds);
+                  groups.push(g);
+                }
+                const starred = filtered.filter(c => !c.pinned && c.starred && !placedBranchIds.has(c.id));
                 if (starred.length > 0) {
-                  // Sort starred by updatedAt desc (pinOrder doesn't apply).
                   starred.sort((a, b) => b.updatedAt - a.updatedAt);
-                  groups.push({ label: 'Starred', convos: starred });
+                  const g: Group = { label: 'Starred', items: [] };
+                  for (const c of starred) pushWithBranches(c, 0, g, placedBranchIds);
+                  groups.push(g);
                 }
                 for (const c of filtered) {
                   if (c.pinned || c.starred) continue;
+                  // A conversation that's already been placed as a branch child
+                  // under its parent must NOT appear again in its own day bucket.
+                  if (placedBranchIds.has(c.id)) continue;
                   const bucket = formatDayBucket(c.updatedAt);
                   const last = groups[groups.length - 1];
-                  if (last && last.label === bucket) {
-                    last.convos.push(c);
-                  } else {
-                    groups.push({ label: bucket, convos: [c] });
-                  }
+                  const group = last && last.label === bucket ? last : (() => {
+                    const g: Group = { label: bucket, items: [] };
+                    groups.push(g);
+                    return g;
+                  })();
+                  pushWithBranches(c, 0, group, placedBranchIds);
                 }
-                const groupCounts = groups.map(g => g.convos.length);
-                const flatItems = groups.flatMap(g => g.convos);
+                const groupCounts = groups.map(g => g.items.length);
+                const flatItems: FlatItem[] = groups.flatMap(g => g.items);
                 if (filtered.length === 0 && deferredConvoSearch.trim()) {
                   return (
                     <div style={{
@@ -6275,7 +6312,10 @@ ${cmdList}
                 // c2-388: row render extracted so GroupedVirtuoso's
                 // itemContent can map flatItems[index] → JSX without
                 // inlining 150+ lines of handlers in the Virtuoso prop.
-                const renderConvoRow = (c: Conversation) => {
+                // #184: depth param nests branch rows 14px per level with a
+                // thin accent rule on the left so the fork structure is
+                // visible at a glance.
+                const renderConvoRow = (c: Conversation, depth: number = 0) => {
                   const isActive = c.id === currentConversationId;
                   return (
                     <div key={c.id}
@@ -6327,6 +6367,11 @@ ${cmdList}
                         marginBottom: '4px', display: 'flex',
                         alignItems: 'center', justifyContent: 'space-between', gap: '4px',
                         opacity: draggedConvoId === c.id ? 0.4 : 1,
+                        // #184 tree: branch rows nest 16px per depth level with
+                        // a thin accent rule along the left edge so the parent-
+                        // child relationship reads at a glance.
+                        marginLeft: depth > 0 ? `${depth * 16}px` : undefined,
+                        borderLeft: depth > 0 ? `2px solid ${C.accent}55` : (`1px solid ${isActive ? C.accentBorder : 'transparent'}`),
                         // Insert-line hint on the drop target — 2px accent top border via
                         // inset box-shadow so it doesn't shift layout.
                         boxShadow: dragOverConvoId === c.id && draggedConvoId && draggedConvoId !== c.id
@@ -6564,13 +6609,13 @@ ${cmdList}
                       groupCounts={groupCounts}
                       groupContent={renderGroupHeader}
                       itemContent={(index) => {
-                        const c = flatItems[index];
-                        if (!c) return null;
-                        return renderConvoRow(c);
+                        const item = flatItems[index];
+                        if (!item) return null;
+                        return renderConvoRow(item.convo, item.depth);
                       }}
                       // Stable keys so re-renders don't remount the drag
                       // source mid-drop. group${i} and ${id} never collide.
-                      computeItemKey={(index) => flatItems[index]?.id ?? `i-${index}`}
+                      computeItemKey={(index) => flatItems[index]?.convo.id ?? `i-${index}`}
                       increaseViewportBy={{ top: 200, bottom: 200 }}
                     />
                   </div>
