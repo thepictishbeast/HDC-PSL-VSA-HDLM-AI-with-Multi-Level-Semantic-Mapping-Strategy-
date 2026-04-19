@@ -2897,7 +2897,10 @@ pub fn create_router() -> Result<Router, Box<dyn std::error::Error>> {
 
     let stats_cache = Arc::new(crate::stats_cache::StatsCache::new());
     // Seed the cache synchronously so the first poll is already fast.
-    stats_cache.refresh_blocking(&db);
+    // Don't block startup on the 72M-row GROUP BY. spawn_refresher already
+    // schedules an initial refresh after a 2s delay, so library_sources
+    // will serve {status:"warming"} for the first few seconds after boot
+    // and hot data thereafter.
     stats_cache.spawn_refresher(db.clone());
 
     let state = Arc::new(AppState {
