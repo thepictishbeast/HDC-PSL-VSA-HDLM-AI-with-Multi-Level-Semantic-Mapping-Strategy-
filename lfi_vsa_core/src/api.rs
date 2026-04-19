@@ -3682,6 +3682,96 @@ pub fn create_router() -> Result<Router, Box<dyn std::error::Error>> {
         }))
     }
 
+    // ---- Proof-carrying inference (#354) ----
+
+    /// POST /api/proof/verify
+    /// Body: { fact_key, lean_code, verifier_url? }
+    /// Sends `lean_code` to the Lean4 server, records the verdict
+    /// against `fact_key`, returns the verdict to the caller.
+    ///
+    /// `verifier_url` defaults to http://127.0.0.1:8090 (Kimina dev
+    /// default). Most LFI installs will NOT have a verifier running
+    /// — the response's `verdict` field is `"unreachable"` in that
+    /// case and no DB mutation happens (unknown ≠ false).
+    async fn proof_verify_handler(
+        State(state): State<Arc<AppState>>,
+        Json(body): Json<serde_json::Value>,
+    ) -> impl IntoResponse {
+        let fact_key = body.get("fact_key")
+            .and_then(|v| v.as_str()).unwrap_or("").trim();
+        let lean_code = body.get("lean_code")
+            .and_then(|v| v.as_str()).unwrap_or("");
+        let verifier_url = body.get("verifier_url")
+            .and_then(|v| v.as_str())
+            .unwrap_or("http://127.0.0.1:8090");
+        if fact_key.is_empty() || fact_key.len() > 256 {
+            return axum::Json(json!({"error": "fact_key 1..=256 chars"}));
+        }
+        if lean_code.is_empty() || lean_code.len() > 65_536 {
+            return axum::Json(json!({"error": "lean_code 1..=65536 chars"}));
+        }
+
+        use crate::formal::{Lean4Client, VerifyVerdict};
+        let client = Lean4Client::new(verifier_url).with_timeout(5_000);
+        let verdict = client.classify(lean_code);
+
+        match &verdict {
+            VerifyVerdict::Proved { proof_hash } => {
+                state.db.mark_fact_proved(fact_key, proof_hash);
+            }
+            VerifyVerdict::Rejected { .. } => {
+                state.db.mark_fact_rejected(fact_key);
+            }
+            // Unreachable / Error: do not mutate the DB.
+            _ => {}
+        }
+
+        let verdict_json = match verdict {
+            VerifyVerdict::Proved { proof_hash } =>
+                json!({"verdict": "proved", "proof_hash": proof_hash}),
+            VerifyVerdict::Rejected { errors } =>
+                json!({"verdict": "rejected", "errors": errors}),
+            VerifyVerdict::Unreachable { detail } =>
+                json!({"verdict": "unreachable", "detail": detail}),
+            VerifyVerdict::Error { detail } =>
+                json!({"verdict": "error", "detail": detail}),
+        };
+        axum::Json(json!({
+            "fact_key": fact_key,
+            "verdict": verdict_json,
+        }))
+    }
+
+    /// GET /api/proof/status/:key — report proof status for one fact.
+    async fn proof_status_handler(
+        State(state): State<Arc<AppState>>,
+        Path(key): Path<String>,
+    ) -> impl IntoResponse {
+        match state.db.fact_proof_status(&key) {
+            Some((status, hash, at)) => axum::Json(json!({
+                "fact_key": key,
+                "status": status,
+                "proof_hash": hash,
+                "checked_at": at,
+            })),
+            None => axum::Json(json!({"error": "fact not found"})),
+        }
+    }
+
+    /// GET /api/proof/stats — counts for a UI badge.
+    async fn proof_stats_handler(
+        State(state): State<Arc<AppState>>,
+    ) -> impl IntoResponse {
+        let (proved, rejected, pending) = state.db.proof_stats();
+        axum::Json(json!({
+            "proved": proved,
+            "rejected": rejected,
+            "pending_sample": pending,
+            "sample_size": 50_000,
+            "note": "pending counted over a 50k-row sample to stay fast",
+        }))
+    }
+
     // ---- HDLM HTTP surfaces (#343 parser + #344 renderer) ----
 
     /// POST /api/parse/english
@@ -5256,6 +5346,9 @@ pub fn create_router() -> Result<Router, Box<dyn std::error::Error>> {
         .route("/api/tuples/count", get(tuples_count_handler))
         .route("/api/parse/english", post(parse_english_handler))
         .route("/api/hdlm/render", post(hdlm_render_handler))
+        .route("/api/proof/verify", post(proof_verify_handler))
+        .route("/api/proof/status/:key", get(proof_status_handler))
+        .route("/api/proof/stats", get(proof_stats_handler))
         .route("/api/capability/tokens",
                get(capability_token_list_handler)
                .post(capability_token_issue_handler))

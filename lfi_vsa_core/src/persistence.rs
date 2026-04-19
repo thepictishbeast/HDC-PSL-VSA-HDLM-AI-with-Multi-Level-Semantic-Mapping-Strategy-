@@ -512,6 +512,22 @@ impl BrainDb {
         // Idempotent add here ensures parity. Same O(1) SQLite 3.35+ guarantee.
         let _ = conn.execute("ALTER TABLE facts ADD COLUMN quality_score REAL", []);
 
+        // #354 Proof-carrying inference. NULL = never verified,
+        // "proved" = Lean4 returned Verified with this proof_hash,
+        // "rejected" = Lean4 found errors. Unreachable verifier is
+        // never recorded — unknown is the same as never-verified.
+        let _ = conn.execute("ALTER TABLE facts ADD COLUMN proof_status TEXT", []);
+        let _ = conn.execute("ALTER TABLE facts ADD COLUMN proof_hash TEXT", []);
+        let _ = conn.execute("ALTER TABLE facts ADD COLUMN proof_checked_at TEXT", []);
+        // Partial index: only indexes the (small) set of rows with a
+        // proof verdict. On a 58M-row facts table the unrestricted
+        // COUNT otherwise takes a minute+ full scan.
+        let _ = conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_facts_proof_status \
+             ON facts(proof_status) WHERE proof_status IS NOT NULL",
+            [],
+        );
+
         info!("// PERSISTENCE: Schema migrated");
         Ok(())
     }
@@ -769,6 +785,81 @@ impl BrainDb {
              PRAGMA mmap_size=8589934592;"
         )?;
         Ok(conn)
+    }
+
+    // ---- Proof-carrying inference (#354) ----
+    //
+    // Records the Lean4 verdict against a fact. Integration flow:
+    //   1. Caller formulates a proof_obligation in Lean4 syntax.
+    //   2. Sends it to a running Kimina / Lean4 server via
+    //      formal::Lean4Client::classify().
+    //   3. On VerifyVerdict::Proved, calls mark_fact_proved.
+    //      On Rejected, calls mark_fact_rejected.
+    //      Unreachable / Error are NOT recorded — they mean unknown,
+    //      not false.
+
+    /// Mark a fact as formally proved. `proof_hash` is the opaque
+    /// server-assigned identifier from the verifier; auditors can
+    /// re-run the verifier with the same lean_code to reproduce.
+    pub fn mark_fact_proved(&self, key: &str, proof_hash: &str) -> bool {
+        let conn = self.conn.lock().unwrap_or_else(|e| e.into_inner());
+        conn.execute(
+            "UPDATE facts SET proof_status = 'proved', \
+             proof_hash = ?2, proof_checked_at = datetime('now') \
+             WHERE key = ?1",
+            params![key, proof_hash],
+        ).map(|n| n > 0).unwrap_or(false)
+    }
+
+    /// Mark a fact as formally rejected by the verifier. Clears any
+    /// previous proof_hash; the caller can decide whether to demote
+    /// the fact's tier or delete it.
+    pub fn mark_fact_rejected(&self, key: &str) -> bool {
+        let conn = self.conn.lock().unwrap_or_else(|e| e.into_inner());
+        conn.execute(
+            "UPDATE facts SET proof_status = 'rejected', \
+             proof_hash = NULL, proof_checked_at = datetime('now') \
+             WHERE key = ?1",
+            params![key],
+        ).map(|n| n > 0).unwrap_or(false)
+    }
+
+    /// Fetch proof status for a fact — (status, hash, checked_at).
+    pub fn fact_proof_status(&self, key: &str)
+        -> Option<(Option<String>, Option<String>, Option<String>)>
+    {
+        let conn = self.conn.lock().unwrap_or_else(|e| e.into_inner());
+        conn.query_row(
+            "SELECT proof_status, proof_hash, proof_checked_at \
+             FROM facts WHERE key = ?1",
+            params![key],
+            |r| Ok((
+                r.get::<_, Option<String>>(0)?,
+                r.get::<_, Option<String>>(1)?,
+                r.get::<_, Option<String>>(2)?,
+            )),
+        ).ok()
+    }
+
+    /// Counts for a UI badge: (proved, rejected, pending).
+    /// Pending = facts without proof_status set.
+    pub fn proof_stats(&self) -> (i64, i64, i64) {
+        let conn = self.conn.lock().unwrap_or_else(|e| e.into_inner());
+        let proved: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM facts WHERE proof_status = 'proved'",
+            [], |r| r.get(0),
+        ).unwrap_or(0);
+        let rejected: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM facts WHERE proof_status = 'rejected'",
+            [], |r| r.get(0),
+        ).unwrap_or(0);
+        // Pending is expensive on 58M rows — use rowid-bounded sample.
+        let pending: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM (SELECT 1 FROM facts \
+             WHERE proof_status IS NULL ORDER BY rowid DESC LIMIT 50000)",
+            [], |r| r.get(0),
+        ).unwrap_or(0);
+        (proved, rejected, pending)
     }
 
     // ---- Cross-lingual concept map (#274) ----
@@ -2537,6 +2628,41 @@ mod tests {
             rusqlite::params!["k1"], |r| r.get(0),
         ).unwrap();
         assert_eq!(v, "v1");
+    }
+
+    #[test]
+    fn proof_mark_and_fetch() {
+        let db = temp_db();
+        db.upsert_fact("theorem_1", "1 + 1 = 2", "test", 0.9);
+        assert!(db.mark_fact_proved("theorem_1", "hash_abc"));
+        let s = db.fact_proof_status("theorem_1").unwrap();
+        assert_eq!(s.0.as_deref(), Some("proved"));
+        assert_eq!(s.1.as_deref(), Some("hash_abc"));
+        assert!(s.2.is_some()); // checked_at populated
+    }
+
+    #[test]
+    fn proof_rejected_clears_hash() {
+        let db = temp_db();
+        db.upsert_fact("bogus", "1 = 2", "test", 0.9);
+        db.mark_fact_proved("bogus", "mistake_hash");
+        assert!(db.mark_fact_rejected("bogus"));
+        let s = db.fact_proof_status("bogus").unwrap();
+        assert_eq!(s.0.as_deref(), Some("rejected"));
+        assert_eq!(s.1, None); // hash cleared
+    }
+
+    #[test]
+    fn proof_stats_counts_correctly() {
+        let db = temp_db();
+        db.upsert_fact("p1", "x", "t", 0.9); db.mark_fact_proved("p1", "h1");
+        db.upsert_fact("p2", "x", "t", 0.9); db.mark_fact_proved("p2", "h2");
+        db.upsert_fact("r1", "x", "t", 0.9); db.mark_fact_rejected("r1");
+        db.upsert_fact("pending", "x", "t", 0.9);
+        let (proved, rejected, pending) = db.proof_stats();
+        assert_eq!(proved, 2);
+        assert_eq!(rejected, 1);
+        assert_eq!(pending, 1);
     }
 
     #[test]
