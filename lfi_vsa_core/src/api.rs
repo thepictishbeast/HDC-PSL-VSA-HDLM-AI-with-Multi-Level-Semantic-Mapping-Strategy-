@@ -5254,6 +5254,20 @@ async fn security_headers_middleware(
         headers.insert("permissions-policy", v);
     }
 
+    // #306 HSTS — when accessed over HTTPS the browser will pin TLS for
+    // 1 year + all subdomains + eligible for preload list. Enforcement
+    // of specifically TLS 1.3 lives at the reverse proxy (nginx/caddy)
+    // config; the browser-side policy is what the server can assert.
+    //
+    // BUG ASSUMPTION: this header is ignored over plain HTTP (safe by
+    // design — you only want HSTS set when the browser already sees
+    // HTTPS, and it only takes effect on the HTTPS leg). Serving it
+    // unconditionally is the RFC-recommended behaviour.
+    headers.insert(
+        "strict-transport-security",
+        HeaderValue::from_static("max-age=31536000; includeSubDomains; preload"),
+    );
+
     response
 }
 
