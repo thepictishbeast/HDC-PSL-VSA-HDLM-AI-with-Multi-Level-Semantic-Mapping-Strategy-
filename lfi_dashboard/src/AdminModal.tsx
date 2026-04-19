@@ -717,6 +717,7 @@ export const AdminModal: React.FC<AdminModalProps> = ({
                   Prominent top-of-dashboard action so solo operators can
                   snapshot brain.db before a risky ingest run. */}
               <BackupBrainCard C={C} host={host} />
+              <TeachActivityCard C={C} host={host} />
 
               {/* Skeleton loader — only shown while the first fetch is in
                   flight AND we don't yet have any cached data. Subsequent
@@ -2934,6 +2935,150 @@ const BackupBrainCard: React.FC<{ C: any; host: string }> = ({ C, host }) => {
           fontSize: T.typography.sizeXs, lineHeight: 1.4,
           fontFamily: T.typography.fontMono,
         }}>{result.text}</div>
+      )}
+    </div>
+  );
+};
+
+// #183 slice: Recent Teach Activity. Fetches /api/feedback/recent and
+// surfaces the last N teach/correct entries so solo-training users see
+// proof their teach events landed. Graceful when endpoint returns an
+// empty list or 404.
+const TeachActivityCard: React.FC<{ C: any; host: string }> = ({ C, host }) => {
+  type Entry = {
+    ts?: number; created_at?: string;
+    rating?: string;
+    comment?: string;
+    correction?: string;
+    user_query?: string;
+    conversation_id?: string;
+  };
+  const [entries, setEntries] = React.useState<Entry[] | null>(null);
+  const [err, setErr] = React.useState<string | null>(null);
+  const [loading, setLoading] = React.useState<boolean>(false);
+  const load = React.useCallback(async () => {
+    setLoading(true); setErr(null);
+    try {
+      const r = await fetch(`http://${host}:3000/api/feedback/recent?limit=40`);
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      const d: any = await r.json();
+      const arr: Entry[] = Array.isArray(d) ? d
+        : Array.isArray(d?.items) ? d.items
+        : Array.isArray(d?.entries) ? d.entries
+        : Array.isArray(d?.feedback) ? d.feedback
+        : [];
+      const teachOnly = arr.filter(e =>
+        e.rating === 'correct' ||
+        (typeof e.comment === 'string' && /^teach:/i.test(e.comment))
+      ).slice(0, 10);
+      setEntries(teachOnly);
+    } catch (e: any) {
+      setErr(String(e?.message || e || 'fetch failed'));
+    } finally {
+      setLoading(false);
+    }
+  }, [host]);
+  React.useEffect(() => {
+    load();
+    const id = window.setInterval(load, 30000);
+    return () => window.clearInterval(id);
+  }, [load]);
+  const fmtTime = (e: Entry): string => {
+    const ms = typeof e.ts === 'number' ? (e.ts > 1e12 ? e.ts : e.ts * 1000)
+      : e.created_at ? Date.parse(e.created_at) : NaN;
+    if (!isFinite(ms)) return '';
+    const diff = Date.now() - ms;
+    if (diff < 60_000) return 'just now';
+    if (diff < 3_600_000) return `${Math.floor(diff / 60_000)}m ago`;
+    if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)}h ago`;
+    return new Date(ms).toLocaleDateString();
+  };
+  return (
+    <div style={{
+      padding: T.spacing.md, marginBottom: T.spacing.lg,
+      background: C.bgInput, border: `1px solid ${C.borderSubtle}`,
+      borderRadius: T.radii.md,
+    }}>
+      <div style={{
+        display: 'flex', alignItems: 'center', gap: T.spacing.sm,
+        marginBottom: entries && entries.length > 0 ? T.spacing.sm : 0,
+      }}>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{
+            fontSize: T.typography.sizeXs, fontWeight: T.typography.weightBold,
+            color: C.textMuted, textTransform: 'uppercase', letterSpacing: '0.10em',
+          }}>Recent teach activity</div>
+          <div style={{ fontSize: '11px', color: C.textMuted, marginTop: 2 }}>
+            Last 10 teach/correct events from <code style={{ fontFamily: T.typography.fontMono }}>/api/feedback/recent</code>.
+            Auto-refreshes every 30s.
+          </div>
+        </div>
+        <button onClick={load} disabled={loading}
+          style={{
+            background: 'transparent', border: `1px solid ${C.borderSubtle}`,
+            color: C.textMuted, borderRadius: T.radii.sm,
+            cursor: loading ? 'wait' : 'pointer',
+            padding: '4px 10px', fontSize: T.typography.sizeXs,
+            fontWeight: T.typography.weightBold, fontFamily: 'inherit',
+          }}>{loading ? '…' : 'Refresh'}</button>
+      </div>
+      {err && (
+        <div role='alert' style={{
+          marginTop: T.spacing.sm, padding: '6px 10px',
+          background: C.redBg, border: `1px solid ${C.red}55`,
+          color: C.red, borderRadius: T.radii.sm,
+          fontSize: T.typography.sizeXs,
+        }}>Could not load: {err}</div>
+      )}
+      {!err && entries && entries.length === 0 && !loading && (
+        <div style={{
+          padding: T.spacing.sm, color: C.textDim,
+          fontSize: T.typography.sizeSm, fontStyle: 'italic',
+          textAlign: 'center',
+        }}>
+          No teach events yet. Try Cmd/Ctrl+K → "Teach LFI a fact" or /teach in chat.
+        </div>
+      )}
+      {entries && entries.length > 0 && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+          {entries.map((e, i) => {
+            const body = e.correction || (typeof e.comment === 'string' ? e.comment.replace(/^teach:\s*/i, '') : '') || '(no text)';
+            const preview = body.length > 140 ? body.slice(0, 140) + '…' : body;
+            const time = fmtTime(e);
+            const fromRefusal = typeof e.user_query === 'string' && e.user_query.length > 0;
+            return (
+              <div key={i} style={{
+                padding: '6px 10px', background: C.bgCard,
+                border: `1px solid ${C.borderSubtle}`, borderRadius: T.radii.sm,
+                display: 'flex', gap: T.spacing.sm, alignItems: 'flex-start',
+                fontSize: T.typography.sizeSm, lineHeight: 1.45,
+              }}>
+                <span style={{
+                  fontSize: '10px', fontWeight: T.typography.weightBold,
+                  color: C.accent, fontFamily: T.typography.fontMono,
+                  padding: '1px 6px', background: C.accentBg,
+                  border: `1px solid ${C.accentBorder}`, borderRadius: T.radii.xs,
+                  flexShrink: 0, textTransform: 'uppercase',
+                  letterSpacing: '0.04em', minWidth: '54px', textAlign: 'center',
+                }}>{fromRefusal ? 'correct' : 'teach'}</span>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  {fromRefusal && (
+                    <div style={{
+                      fontSize: '10px', color: C.textMuted, fontStyle: 'italic',
+                      marginBottom: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                    }}>You asked: "{e.user_query!.slice(0, 100)}"</div>
+                  )}
+                  <div style={{ color: C.text, wordBreak: 'break-word' }}>{preview}</div>
+                </div>
+                <span style={{
+                  fontSize: '10px', color: C.textMuted,
+                  fontFamily: T.typography.fontMono, flexShrink: 0,
+                  whiteSpace: 'nowrap',
+                }}>{time}</span>
+              </div>
+            );
+          })}
+        </div>
       )}
     </div>
   );
