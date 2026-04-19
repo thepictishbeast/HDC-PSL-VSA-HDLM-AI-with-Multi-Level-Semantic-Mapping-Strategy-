@@ -62,6 +62,7 @@ pub mod persistence;
 pub mod sealed;
 pub mod ingest;
 pub mod formal;
+pub mod stats_cache;
 
 // Re-export core public types
 pub use sealed::{Sealed, Sensitive, SecretBroker};

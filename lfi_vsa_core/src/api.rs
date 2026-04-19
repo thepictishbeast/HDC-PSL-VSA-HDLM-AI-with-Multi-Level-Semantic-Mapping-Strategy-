@@ -68,6 +68,13 @@ pub struct AppState {
     /// Prevents a single expensive endpoint from saturating the server
     /// when other capabilities are still within budget.
     pub rate_limiters: Mutex<std::collections::HashMap<String, std::collections::VecDeque<std::time::Instant>>>,
+    /// #403 Lock-free DB stats cache. facts_count / sources_count /
+    /// adversarial_count refreshed every 60 s by a background task so
+    /// hot polling endpoints (/api/status, /api/quality/report,
+    /// /api/health/extended) don't COUNT(*) a 72M-row table on every
+    /// call while holding the agent mutex. The mutex contention was
+    /// measured pushing chat turns from <1 s to 11+ s.
+    pub stats_cache: Arc<crate::stats_cache::StatsCache>,
 }
 
 /// #307 Rate-limit check for a named capability. Returns true when the
@@ -242,7 +249,14 @@ async fn handle_chat_socket(mut socket: WebSocket, state: Arc<AppState>) {
         message_timestamps.push_back(now);
         match msg {
             Message::Text(text) => {
-                debug!("// AUDIT: Chat input received: {} bytes", text.len());
+                // #403 per-turn trace id + stage stamps so we can see
+                // exactly where latency goes. Log lines show up in
+                // /var/log/lfi/server.log and (when tail'd) in Diag tab.
+                let _turn_id = (std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map(|d| d.as_micros()).unwrap_or(0) as u64) & 0xFFFF_FFFF;
+                let _turn_t0 = std::time::Instant::now();
+                info!("// CHAT-TRACE[{:08x}] recv +0ms ({} bytes)", _turn_id, text.len());
 
                 // Parse the incoming message
                 let parsed: serde_json::Value = match serde_json::from_str(&text) {
@@ -256,6 +270,9 @@ async fn handle_chat_socket(mut socket: WebSocket, state: Arc<AppState>) {
                 let input = parsed.get("content")
                     .and_then(|v| v.as_str())
                     .unwrap_or("");
+                info!("// CHAT-TRACE[{:08x}] parsed +{}ms input={:?}",
+                    _turn_id, _turn_t0.elapsed().as_millis(),
+                    crate::truncate_str(input, 60));
 
                 // SECURITY: Cap input size to prevent DoS via oversized messages.
                 // AVP-2 AUDIT: WebSocket had no size limit.
@@ -287,7 +304,11 @@ async fn handle_chat_socket(mut socket: WebSocket, state: Arc<AppState>) {
 
                 // Route through CognitiveCore
                 let response_payload = {
+                    info!("// CHAT-TRACE[{:08x}] agent_lock_request +{}ms",
+                        _turn_id, _turn_t0.elapsed().as_millis());
                     let mut agent = state.agent.lock();
+                    info!("// CHAT-TRACE[{:08x}] agent_locked +{}ms",
+                        _turn_id, _turn_t0.elapsed().as_millis());
 
                     // Auto-learn from conversational patterns — extract
                     // persistent user facts that the AI can reference in
@@ -421,7 +442,12 @@ async fn handle_chat_socket(mut socket: WebSocket, state: Arc<AppState>) {
                     } else {
                         input.to_string()
                     };
+                    info!("// CHAT-TRACE[{:08x}] rag_start +{}ms q={:?}",
+                        _turn_id, _turn_t0.elapsed().as_millis(),
+                        crate::truncate_str(&enriched_query, 40));
                     let rag_facts = state.db.search_facts(&enriched_query, 5);
+                    info!("// CHAT-TRACE[{:08x}] rag_done +{}ms hits={}",
+                        _turn_id, _turn_t0.elapsed().as_millis(), rag_facts.len());
                     agent.rag_context = rag_facts.clone();
 
                     // #345: Layer-5 speech-act classification. Ahead of the
@@ -559,8 +585,13 @@ async fn handle_chat_socket(mut socket: WebSocket, state: Arc<AppState>) {
                         } else { None }
                     };
 
+                    info!("// CHAT-TRACE[{:08x}] chat_traced_start +{}ms",
+                        _turn_id, _turn_t0.elapsed().as_millis());
                     match agent.chat_traced(input) {
                         Ok((response, conclusion_id)) => {
+                            info!("// CHAT-TRACE[{:08x}] chat_traced_done +{}ms reply_len={}",
+                                _turn_id, _turn_t0.elapsed().as_millis(),
+                                response.text.len());
                             let thought = &response.thought;
 
                             // #341: Global Workspace — submit the user input and
@@ -800,9 +831,16 @@ async fn handle_chat_socket(mut socket: WebSocket, state: Arc<AppState>) {
                     }
                 }
 
+                info!("// CHAT-TRACE[{:08x}] response_send +{}ms payload={}b",
+                    _turn_id, _turn_t0.elapsed().as_millis(),
+                    response_payload.to_string().len());
                 if socket.send(Message::Text(response_payload.to_string())).await.is_err() {
+                    info!("// CHAT-TRACE[{:08x}] send_failed +{}ms — socket closed",
+                        _turn_id, _turn_t0.elapsed().as_millis());
                     break;
                 }
+                info!("// CHAT-TRACE[{:08x}] response_sent_ok +{}ms",
+                    _turn_id, _turn_t0.elapsed().as_millis());
 
                 // Streaming Ollama enrichment: stream deeper responses for any
                 // substantive query. The initial chat_response gives immediate
@@ -955,30 +993,38 @@ async fn auth_handler(
 async fn status_handler(
     State(state): State<Arc<AppState>>,
 ) -> impl IntoResponse {
-    let agent = state.agent.lock();
-    let guard = agent.shared_knowledge.lock();
-    // Query brain.db for actual counts — in-memory store is intentionally small
-    let (db_facts, db_sources) = {
-        // SAFETY: lock() can fail if another thread panicked while holding it.
-        // We return zeros rather than propagating the panic.
-        let conn = match state.db.conn.lock() {
-            Ok(c) => c,
-            Err(_) => return Json(json!({"error": "db lock poisoned", "facts_count": 0})),
-        };
-        let facts: i64 = conn.query_row("SELECT count(*) FROM facts", [], |r| r.get(0)).unwrap_or(0);
-        let sources: i64 = conn.query_row("SELECT count(DISTINCT source) FROM facts", [], |r| r.get(0)).unwrap_or(0);
-        (facts, sources)
+    // #403 Hot-path: read lock-free cache FIRST, then touch the agent
+    // mutex for a couple of scalar fields. Critical section is ~microseconds
+    // instead of seconds — chat handler no longer starves.
+    let db_facts = state.stats_cache.facts().max(0);
+    let db_sources = state.stats_cache.sources().max(0);
+    let db_adversarial = state.stats_cache.adversarial().max(0);
+    let cache_age_secs = state.stats_cache.age_secs();
+
+    let (tier, authenticated, entropy, bg_running, concepts_count, session_id) = {
+        let agent = state.agent.lock();
+        let guard = agent.shared_knowledge.lock();
+        (
+            format!("{:?}", agent.current_tier),
+            agent.authenticated,
+            agent.entropy_level,
+            agent.background_learner.is_running(),
+            guard.store.concepts.len(),
+            guard.store.current_session_id.clone(),
+        )
     };
+
     Json(json!({
-        "tier": format!("{:?}", agent.current_tier),
-        "authenticated": agent.authenticated,
-        "entropy": agent.entropy_level,
+        "tier": tier,
+        "authenticated": authenticated,
+        "entropy": entropy,
         "facts_count": db_facts,
-        "concepts_count": guard.store.concepts.len(),
+        "concepts_count": concepts_count,
         "sources_count": db_sources,
-        "session_id": guard.store.current_session_id,
-        "background_learning": agent.background_learner.is_running(),
-        "adversarial_count": db_facts, // placeholder — adversarial table count added in quality endpoint
+        "session_id": session_id,
+        "background_learning": bg_running,
+        "adversarial_count": db_adversarial,
+        "stats_cache_age_secs": cache_age_secs,
     }))
 }
 
@@ -2651,6 +2697,11 @@ pub fn create_router() -> Result<Router, Box<dyn std::error::Error>> {
         c
     });
 
+    let stats_cache = Arc::new(crate::stats_cache::StatsCache::new());
+    // Seed the cache synchronously so the first poll is already fast.
+    stats_cache.refresh_blocking(&db);
+    stats_cache.spawn_refresher(db.clone());
+
     let state = Arc::new(AppState {
         tx,
         agent,
@@ -2663,6 +2714,7 @@ pub fn create_router() -> Result<Router, Box<dyn std::error::Error>> {
         lesson_sessions: Arc::new(Mutex::new(std::collections::HashMap::new())),
         speech_act_classifier,
         rate_limiters: Mutex::new(std::collections::HashMap::new()),
+        stats_cache,
     });
 
     // Startup warmup — pre-touch the hot paths so the FIRST chat turn
@@ -2853,19 +2905,12 @@ pub fn create_router() -> Result<Router, Box<dyn std::error::Error>> {
     async fn quality_report_handler(
         State(state): State<Arc<AppState>>,
     ) -> impl IntoResponse {
+        // #403 Hot-path: read from the lock-free stats cache so the UI
+        // can poll this endpoint without COUNT(*)ing 72M rows.
+        let total = state.stats_cache.facts().max(0);
+        let adversarial = state.stats_cache.adversarial().max(0);
+        let sources = state.stats_cache.sources().max(0);
         let report = {
-            // SAFETY: return empty report on lock failure rather than panic
-            let conn = match state.db.conn.lock() {
-                Ok(c) => c,
-                Err(_) => return axum::Json(json!({"error": "db lock poisoned"})),
-            };
-            let total: i64 = conn.query_row("SELECT count(*) FROM facts", [], |r| r.get(0)).unwrap_or(0);
-            let adversarial: i64 = conn.query_row(
-                "SELECT count(*) FROM facts WHERE source IN ('adversarial','anli_r1','anli_r2','anli_r3','fever_gold','truthfulqa')",
-                [], |r| r.get(0)
-            ).unwrap_or(0);
-            let sources: i64 = conn.query_row("SELECT count(DISTINCT source) FROM facts", [], |r| r.get(0)).unwrap_or(0);
-
             json!({
                 "total_facts": total,
                 "distinct_sources": sources,
@@ -3056,25 +3101,24 @@ pub fn create_router() -> Result<Router, Box<dyn std::error::Error>> {
             }
         }
         info!("// ADMIN: Training accuracy endpoint accessed");
-        let stats = {
-            // SAFETY: return empty stats on lock failure
+        // #403 total + adversarial from cache so we don't block behind
+        // other pollers competing for the DB connection mutex.
+        let total = state.stats_cache.facts().max(0);
+        let adversarial = state.stats_cache.adversarial().max(0);
+        let (reasoning_chains, learning_signals) = {
             let conn = match state.db.conn.lock() {
                 Ok(c) => c,
                 Err(_) => return axum::Json(json!({"error": "db lock poisoned"})),
             };
-            let total: i64 = conn.query_row("SELECT count(*) FROM facts", [], |r| r.get(0)).unwrap_or(0);
-            let adversarial: i64 = conn.query_row(
-                "SELECT count(*) FROM facts WHERE source IN ('adversarial','anli_r1','anli_r2','anli_r3','fever_gold','truthfulqa')",
-                [], |r| r.get(0)
-            ).unwrap_or(0);
             let reasoning_chains: i64 = conn.query_row(
                 "SELECT count(*) FROM reasoning_chains", [], |r| r.get(0)
             ).unwrap_or(0);
             let learning_signals: i64 = conn.query_row(
                 "SELECT count(*) FROM learning_signals", [], |r| r.get(0)
             ).unwrap_or(0);
-            (total, adversarial, reasoning_chains, learning_signals)
+            (reasoning_chains, learning_signals)
         };
+        let stats = (total, adversarial, reasoning_chains, learning_signals);
 
         // Read training log for recent accuracy
         let recent_log: Vec<String> = std::fs::read_to_string("/var/log/lfi/training.jsonl")
@@ -3807,6 +3851,12 @@ pub fn create_router() -> Result<Router, Box<dyn std::error::Error>> {
         // HDC cache coverage (sample-based).
         let (hdc_cached, hdc_sample) = state.db.hdc_cache_stats();
 
+        // #403 Stats from lock-free cache — adds facts_total / sources_total
+        // so dashboards can consolidate 2-3 more polls into this one bundle.
+        let facts_total = state.stats_cache.facts().max(0);
+        let sources_total = state.stats_cache.sources().max(0);
+        let stats_age_secs = state.stats_cache.age_secs();
+
         axum::Json(json!({
             "tier": tier,
             "drift": drift_json,
@@ -3817,6 +3867,9 @@ pub fn create_router() -> Result<Router, Box<dyn std::error::Error>> {
             },
             "contradictions_pending": contradictions_pending,
             "tuples_total": tuples_total,
+            "facts_total": facts_total,
+            "sources_total": sources_total,
+            "stats_age_secs": stats_age_secs,
             "hdc_cache": {
                 "cached_in_sample": hdc_cached,
                 "sample_size": hdc_sample,
