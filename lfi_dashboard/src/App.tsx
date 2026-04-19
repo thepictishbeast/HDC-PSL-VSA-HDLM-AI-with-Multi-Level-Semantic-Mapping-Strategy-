@@ -4862,7 +4862,7 @@ ${cmdList}
         const msg = isNetwork
           ? 'Your device is offline — check your network connection'
           : backendOffline
-            ? `Backend offline — start the server at ${getHost()}:3000`
+            ? `Backend offline — plausiden-server not responding at ${getHost()}:3000`
             : remainingSec > 0
               ? `Connection lost — reconnecting in ${remainingSec}s…`
               : 'Connection lost — reconnecting…';
@@ -4873,13 +4873,57 @@ ${cmdList}
               background: bg, color: fg, borderBottom: `1px solid ${border}`,
               padding: `${T.spacing.sm} ${T.spacing.lg}`, textAlign: 'center',
               fontSize: T.typography.sizeMd, fontWeight: T.typography.weightSemibold,
-              display: 'flex', alignItems: 'center', justifyContent: 'center', gap: T.spacing.sm,
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              gap: T.spacing.sm, flexWrap: 'wrap',
             }}>
             <span style={{
               width: '8px', height: '8px', borderRadius: T.radii.round,
               background: fg, animation: 'scc-pulse 1.4s infinite ease-in-out',
             }} />
             <span>{msg}</span>
+            {/* Backend-down state gets quick-action buttons so the user
+                isn't stranded — Retry force-probes /api/status and flips
+                the banner off on success; Troubleshoot jumps to the
+                Docs tab's Server-won't-start runbook. */}
+            {backendOffline && (
+              <>
+                <button onClick={async () => {
+                  try {
+                    const r = await fetch(`http://${getHost()}:3000/api/status`, {
+                      signal: AbortSignal.timeout ? AbortSignal.timeout(3000) : undefined,
+                    });
+                    if (r.ok) {
+                      setBackendOffline(false);
+                      setShowDisconnectBanner(false);
+                      showToast('Backend responded — reconnecting');
+                    } else {
+                      showToast(`Still down: HTTP ${r.status}`);
+                    }
+                  } catch (e: any) {
+                    showToast(`Still unreachable: ${String(e?.message || e || 'fetch failed').slice(0, 60)}`);
+                  }
+                }}
+                  style={{
+                    background: 'transparent', color: fg,
+                    border: `1px solid ${fg}`, borderRadius: T.radii.sm,
+                    padding: '4px 12px', fontSize: T.typography.sizeSm,
+                    fontWeight: T.typography.weightBold, cursor: 'pointer',
+                    fontFamily: 'inherit',
+                  }}>Retry</button>
+                <button onClick={() => {
+                  setActiveView('classroom');
+                  setShowAdmin(false);
+                  showToast('Scroll to Drift → "Server won\'t start?"');
+                }}
+                  style={{
+                    background: 'transparent', color: fg,
+                    border: `1px solid ${fg}`, borderRadius: T.radii.sm,
+                    padding: '4px 12px', fontSize: T.typography.sizeSm,
+                    fontWeight: T.typography.weightBold, cursor: 'pointer',
+                    fontFamily: 'inherit',
+                  }}>Troubleshoot</button>
+              </>
+            )}
             <style>{`@keyframes scc-pulse { 0%,100% { opacity: 1 } 50% { opacity: 0.4 } }`}</style>
           </div>
         );
