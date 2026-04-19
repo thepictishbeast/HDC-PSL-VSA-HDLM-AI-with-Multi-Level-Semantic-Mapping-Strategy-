@@ -6,6 +6,7 @@ pub mod codebook;
 pub mod intercept;
 pub mod symbolic_codebook;
 pub mod semantic_renderer;
+pub mod english_parser;
 
 pub use ast::{Ast, AstNode, NodeKind};
 pub use tier1_forensic::{ForensicGenerator, CodebookGenerator};
