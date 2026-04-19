@@ -2317,66 +2317,43 @@ impl BrainDb {
             groups.entry(et).or_default().push((t, tgt, s));
         }
 
-        /// #358 Confidence-calibrated hedging. PSL-style threshold table.
-        /// Highest → bare assertion. Mid → "generally" / "typically".
-        /// Low → "likely" / "sometimes". Below threshold doesn't prefix
-        /// — the caller already refuses.
-        fn hedge_for(strength: f64) -> &'static str {
-            if strength >= 0.9 { "" }
-            else if strength >= 0.7 { "typically " }
-            else if strength >= 0.5 { "often " }
-            else { "sometimes " }
-        }
-
-        // Sentence template per predicate. The template takes the
-        // subject + a list of (key, filler, strength) tuples and
-        // returns prose with per-filler hedging folded in.
-        fn sentence(
+        // #358 / #399 / #400 Minimal non-hardcoded rendering.
+        //
+        // Previous iterations baked English templates + a hand-curated
+        // hedge pool into the code ("It is typically used for X.").
+        // User flagged that as rote memorization — we want intelligence,
+        // not rehearsed phrases.
+        //
+        // This rendering keeps the shape MINIMAL and SCHEMATIC:
+        //   subject — predicate: obj1, obj2, ... (NN.NN% certain)
+        //
+        // No hedge words, no article picker, no pretend English. The
+        // numeric certainty is the only claim we make about confidence;
+        // it's honest and auditable. A learned generator (#400) will
+        // replace this with genuine prose composed from dialogue
+        // patterns — NOT from a hardcoded template table.
+        fn clause(
             pred: &str, subj: &str, fillers: &[(String, String, f64)], cap: usize,
         ) -> String {
             let limited: Vec<&(String, String, f64)> = fillers.iter().take(cap).collect();
             if limited.is_empty() { return String::new(); }
-            let article = article_for(subj);
-            // Per-filler chip with inline fact link.
-            let chips: Vec<String> = limited.iter().map(|(k, f, _s)| {
-                format!("{} [fact:{}]", f, k)
-            }).collect();
-            let list = match chips.len() {
-                1 => chips[0].clone(),
-                2 => format!("{} and {}", chips[0], chips[1]),
-                _ => {
-                    let (last, rest) = chips.split_last().unwrap();
-                    format!("{}, and {}", rest.join(", "), last)
-                }
-            };
-            // #358 Clause hedge — derived from the MEAN strength so
-            // "strong IsA with one weak outlier" still reads confident,
-            // while a group of all-weak fillers gets the softer frame.
+            let chips: Vec<String> = limited.iter()
+                .map(|(k, f, _s)| format!("{} [fact:{}]", f, k))
+                .collect();
+            let list = chips.join(", ");
             let mean_s = limited.iter().map(|(_,_,s)| *s).sum::<f64>()
                 / limited.len() as f64;
-            let h = hedge_for(mean_s);
-            match pred {
-                "IsA" => format!("{} {} is {}a {}.", article, subj, h, list),
-                "UsedFor" => format!("It is {}used for {}.", h, list),
-                "Causes" => format!("It can {}cause {}.", h, list),
-                "HasPrerequisite" => format!("It {}requires {}.", h, list),
-                "HasSubevent" => format!("It {}involves {}.", h, list),
-                "PartOf" => format!("It is {}part of {}.", h, list),
-                "CapableOf" => format!("It is {}capable of {}.", h, list),
-                "HasProperty" => format!("It {}has the property of being {}.", h, list),
-                "MotivatedByGoal" => format!("It is {}motivated by {}.", h, list),
-                "CausesDesire" => format!("It {}makes one want {}.", h, list),
-                _ => format!("Related ({}): {}.", pred, list),
-            }
+            let pct = (mean_s * 100.0).clamp(0.0, 100.0);
+            format!("{} — {}: {} ({:.2}% certain)", subj, pred, list, pct)
         }
+        // Keep the old function name so the rest of the file compiles
+        // unchanged. The old `sentence(...)` signature takes 4 args;
+        // `clause` is the new implementation.
+        let sentence = clause;
 
-        // `article_for` picks a / an / "" based on leading vowel.
-        fn article_for(word: &str) -> &'static str {
-            let first = word.chars().next().unwrap_or(' ').to_ascii_lowercase();
-            if matches!(first, 'a' | 'e' | 'i' | 'o' | 'u') { "An" }
-            else if first.is_alphabetic() { "A" }
-            else { "The" }
-        }
+        // `article_for` removed along with the hardcoded English templates
+        // (#399 / #400). Reinstating it would violate the no-hardcoded-
+        // response rule.
 
         // Compose. First sentence uses the subject; subsequent use "It"
         // via the templates (see above). IsA is special — lands first
