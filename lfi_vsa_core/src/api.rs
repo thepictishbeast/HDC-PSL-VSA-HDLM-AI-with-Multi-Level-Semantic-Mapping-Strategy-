@@ -392,6 +392,74 @@ async fn handle_chat_socket(mut socket: WebSocket, state: Arc<AppState>) {
                     } else if lower.starts_with("call me ") {
                         learn("sovereign_name", &input[8..], "identity");
                     }
+
+                    // #376 General conversation → fact auto-ingest.
+                    // Teach-y phrases: "remember that X is Y", "X means Y",
+                    // "did you know X is Y". Captures as a fact with
+                    // source='conversation' + confidence 0.8 (user-asserted
+                    // but not explicitly "correct me on this was wrong"
+                    // level, which is the #377 path).
+                    let teach_phrases: &[(&str, &str, &str)] = &[
+                        ("remember that ", " is ",    "conv_remember"),
+                        ("please remember ", " is ", "conv_remember"),
+                        ("note that ", " is ",       "conv_note"),
+                        ("fyi ", " is ",             "conv_fyi"),
+                    ];
+                    for (prefix, sep, key_pfx) in teach_phrases {
+                        if let Some(rest) = lower.strip_prefix(prefix) {
+                            if let Some(pos) = rest.find(sep) {
+                                let subj = rest[..pos].trim();
+                                let obj = rest[pos + sep.len()..]
+                                    .trim_end_matches(|c: char| ".!?".contains(c))
+                                    .trim();
+                                if !subj.is_empty() && !obj.is_empty()
+                                    && subj.len() <= 80 && obj.len() <= 400
+                                {
+                                    let secs = std::time::SystemTime::now()
+                                        .duration_since(std::time::UNIX_EPOCH)
+                                        .map(|d| d.as_secs()).unwrap_or(0);
+                                    let key = format!("{}_{}_{}",
+                                        key_pfx,
+                                        subj.chars().take(32)
+                                            .map(|c| if c.is_ascii_alphanumeric() { c.to_ascii_lowercase() } else { '_' })
+                                            .collect::<String>(),
+                                        secs);
+                                    let body = format!("{} — {}", subj, obj);
+                                    // Use db_ref upsert so the fact is
+                                    // immediately searchable. Confidence
+                                    // 0.8 — high but not certain (user
+                                    // assertion, not externally verified).
+                                    db_ref.upsert_fact(&key, &body, "conversation", 0.8);
+                                    info!("// AUTO-INGEST: {} = {:?}", key, body);
+                                }
+                            }
+                        }
+                    }
+
+                    // Short-form "X means Y"
+                    if let Some(pos) = lower.find(" means ") {
+                        let subj = lower[..pos].trim();
+                        let obj = lower[pos + 7..]
+                            .trim_end_matches(|c: char| ".!?".contains(c))
+                            .trim();
+                        if !subj.is_empty() && !obj.is_empty()
+                            && subj.len() <= 80 && obj.len() <= 400
+                            && !subj.contains("what") && !subj.contains("that")
+                        {
+                            let secs = std::time::SystemTime::now()
+                                .duration_since(std::time::UNIX_EPOCH)
+                                .map(|d| d.as_secs()).unwrap_or(0);
+                            let key = format!("conv_means_{}_{}",
+                                subj.chars().take(32)
+                                    .map(|c| if c.is_ascii_alphanumeric() { c.to_ascii_lowercase() } else { '_' })
+                                    .collect::<String>(),
+                                secs);
+                            db_ref.upsert_fact(&key, &format!("{} means {}", subj, obj),
+                                "conversation", 0.8);
+                            info!("// AUTO-INGEST (means): {} = {:?} means {:?}",
+                                key, subj, obj);
+                        }
+                    }
                     // Preferences
                     for prefix in &["i like ", "i love ", "i enjoy ", "my favorite ", "i prefer "] {
                         if lower.starts_with(prefix) {
@@ -4133,9 +4201,15 @@ pub fn create_router() -> Result<Router, Box<dyn std::error::Error>> {
         };
         let rows: Vec<serde_json::Value> = stmt.query_map([], |r| {
             let cid: String = r.get(0).unwrap_or_default();
-            let parts: Vec<&str> = cid.splitn(3, '_').collect();
-            let trainer = parts.get(1).copied().unwrap_or("unknown").to_string();
-            let session_id = parts.get(2).copied().unwrap_or("unknown").to_string();
+            // Format: trainer_<name>_<session>. Trainer name may contain
+            // underscores (e.g. gemini_cli). Session is the suffix after
+            // the LAST underscore — i.e. use rsplitn so multi-underscore
+            // trainer names round-trip correctly.
+            let rest = cid.strip_prefix("trainer_").unwrap_or(&cid);
+            let (trainer, session_id) = match rest.rsplit_once('_') {
+                Some((t, s)) => (t.to_string(), s.to_string()),
+                None => (rest.to_string(), "unknown".to_string()),
+            };
             let turns: i64 = r.get(1).unwrap_or(0);
             let ups: i64 = r.get(2).unwrap_or(0);
             let downs: i64 = r.get(3).unwrap_or(0);
