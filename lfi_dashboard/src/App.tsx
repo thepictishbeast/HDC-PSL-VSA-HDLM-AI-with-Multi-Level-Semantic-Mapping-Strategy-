@@ -40,6 +40,7 @@ import { diag } from './diag';
 import { markSend, markFirstFrame, markResponse, markRendered, type TurnTrace } from './turnTrace';
 import { useHistoryDialog } from './useHistoryDialog';
 import { useModalFocus } from './useModalFocus';
+import { TourOverlay, type TourStep } from './TourOverlay';
 import { useToastQueue } from './useToastQueue';
 import { useFeedbackModals } from './useFeedbackModals';
 import { useChatSearch } from './useChatSearch';
@@ -880,6 +881,19 @@ ${cmdList}
   // proactively'). Standalone from the refusal-flow Teach CTA so users
   // can add facts without first hitting a refusal.
   const [showTeach, setShowTeach] = useState(false);
+  // #352 interactive tour state. Persists 'seen' flag so first-time users
+  // auto-trigger once, but existing users don't get interrupted.
+  const [showTour, setShowTour] = useState<boolean>(false);
+  useEffect(() => {
+    // Delay 1.5s to let the first-paint settle before introducing the
+    // overlay — otherwise the spotlight lands on an element that's still
+    // mounting + jumping. Only fires once per device via localStorage.
+    let seen = '1';
+    try { seen = localStorage.getItem('lfi_tour_seen_v1') || ''; } catch { /* silent */ }
+    if (seen === '1') return;
+    const id = window.setTimeout(() => setShowTour(true), 1500);
+    return () => window.clearTimeout(id);
+  }, []);
   const [teachText, setTeachText] = useState('');
   const [teachSending, setTeachSending] = useState(false);
   const teachDialogRef = useRef<HTMLDivElement>(null);
@@ -5046,6 +5060,8 @@ ${cmdList}
             onRun: () => { setAdminInitialTab('diag'); setShowAdmin(true); } },
           { id: 'open-user-guide', label: 'Open user guide', hint: 'Hands-on training guide — reading the UI, teach paths, troubleshooting', group: 'Help',
             onRun: () => { setAdminInitialTab('docs'); setShowAdmin(true); } },
+          { id: 'start-tour', label: 'Start guided tour', hint: '60-second interactive walkthrough — desktop and mobile friendly', group: 'Help',
+            onRun: () => { setShowTour(true); } },
           // c2-433: diag export — copy the runtime ring buffer (last 500
           // entries, includes auto-captured console warn/error + window
           // errors) to clipboard. Useful when filing an issue.
@@ -5305,6 +5321,65 @@ ${cmdList}
       {/* ========== SHORTCUTS CHEATSHEET (opens with "?") ========== */}
       {showShortcuts && <ShortcutsModal C={C} onClose={() => setShowShortcuts(false)}
         onOpenUserGuide={() => { setShowShortcuts(false); setAdminInitialTab('docs'); setShowAdmin(true); }} />}
+      {/* #352 interactive walkthrough. Desktop: spotlight next to target.
+          Mobile: tooltip pinned to bottom, swipe to navigate. Steps
+          hook into setShowTeach/setActiveView/setShowAdmin to pre-open
+          the surface each step discusses. */}
+      <TourOverlay C={C} isMobile={isMobile} open={showTour}
+        onClose={() => {
+          setShowTour(false);
+          try { localStorage.setItem('lfi_tour_seen_v1', '1'); } catch { /* silent */ }
+        }}
+        steps={[
+          {
+            key: 'intro',
+            title: 'Welcome to PlausiDen',
+            body: <>LFI is a post-LLM substrate — it only answers from what it knows. This 60-second tour shows how to use it and how to teach it new facts. You can skip any time with <kbd>Esc</kbd> or the ✕ button.</>,
+          },
+          {
+            key: 'chat-input',
+            target: '[data-tour="chat-input"]',
+            title: 'Ask a question',
+            body: <>Type here and press Enter. If LFI has the facts, you get substrate-composed prose with clickable <code>[fact:KEY]</code> citations. If it doesn't, you get an honest refusal — no fabrication.</>,
+          },
+          {
+            key: 'teach',
+            title: 'Teach LFI proactively',
+            body: <>Press <kbd>Cmd/Ctrl+K</kbd> and choose "Teach LFI a fact", or type <code>/teach</code> in the chat input. Write a plain-English fact — LFI extracts tuples automatically. This is how you train it between refusals.</>,
+          },
+          {
+            key: 'refusal',
+            title: 'On refusal: one-click teach',
+            body: <>When LFI refuses ("No HDC match" or "nothing clears the 0.70 trust threshold"), a yellow Teach LFI card appears right on the reply. Click it, write the answer, and LFI learns. Ask again — now it knows.</>,
+          },
+          {
+            key: 'knowledge',
+            target: 'aside [aria-label*="Knowledge"], [aria-label="Open knowledge browser"]',
+            title: 'Browse and review',
+            body: <>Open the Knowledge Browser to see everything LFI has learned, filter by keyword, and review due cards with FSRS (Again / Hard / Good / Easy). Reviewing is how LFI consolidates memory.</>,
+          },
+          {
+            key: 'classroom',
+            title: 'Classroom: drill into training state',
+            body: <>The Classroom view (<kbd>Cmd/Ctrl+2</kbd>) has 12 sub-tabs covering ingestion runs, contradictions, drift, and reports. The Drift tab has one-click Kick-ingest / Encode-HDC / Auto-resolve-ledger buttons.</>,
+          },
+          {
+            key: 'admin',
+            title: 'Admin: backup, docs, diagnostics',
+            body: <>The Admin console (<kbd>Cmd/Ctrl+3</kbd>) has 12 tabs: Dashboard (with Backup brain.db + Recent Teach Activity), Proof, Diag, and Docs (the full user guide). Use Backup before a risky ingest run.</>,
+          },
+          {
+            key: 'help',
+            target: '[data-tour="help-button"]',
+            title: 'Find help from anywhere',
+            body: <>This <strong>Help & guide</strong> button opens the full manual. You can also hit <kbd>?</kbd> for the keyboard cheatsheet, <kbd>Cmd/Ctrl+K</kbd> → "Open user guide", or <code>/guide</code> in chat.</>,
+          },
+          {
+            key: 'done',
+            title: "You're ready",
+            body: <>That's the tour. Everything needed to use + train LFI is one click from anywhere. Re-run from <kbd>Cmd/Ctrl+K</kbd> → "Start guided tour" any time.</>,
+          },
+        ] as TourStep[]} />
 
       {/* ========== SETTINGS MODAL ========== */}
       {showSettings && (
@@ -6782,6 +6857,7 @@ ${cmdList}
                   USER_GUIDE.md. Most discoverable path to the training
                   guide. */}
               <button onClick={() => { setAdminInitialTab('docs'); setShowAdmin(true); }}
+                data-tour='help-button'
                 title='User guide — hands-on training & troubleshooting'
                 aria-label='Open user guide'
                 style={{
@@ -8213,6 +8289,7 @@ ${cmdList}
               )}
               <textarea
                 ref={inputRef}
+                data-tour='chat-input'
                 aria-label='Chat message input'
                 autoComplete='off'
                 spellCheck={true}
