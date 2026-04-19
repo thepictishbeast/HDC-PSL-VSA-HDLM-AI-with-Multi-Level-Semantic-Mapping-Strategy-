@@ -25,7 +25,7 @@ import type { Column } from './components';
 // affordance which users found cramped. Sortable + filterable tables, big-
 // number dashboard cards, bar-chart visualisations of domains + quality.
 
-export type AdminTab = 'dashboard' | 'inventory' | 'domains' | 'training' | 'quality' | 'system' | 'fleet' | 'logs' | 'tokens';
+export type AdminTab = 'dashboard' | 'inventory' | 'domains' | 'training' | 'quality' | 'system' | 'fleet' | 'logs' | 'tokens' | 'proof';
 
 interface FleetInstance {
   id: string;
@@ -122,7 +122,7 @@ export const AdminModal: React.FC<AdminModalProps> = ({
     if (initialTab !== 'dashboard') return initialTab;
     try {
       const stored = localStorage.getItem('lfi_admin_tab') as AdminTab | null;
-      const valid: AdminTab[] = ['dashboard', 'inventory', 'domains', 'training', 'quality', 'system', 'fleet', 'logs', 'tokens'];
+      const valid: AdminTab[] = ['dashboard', 'inventory', 'domains', 'training', 'quality', 'system', 'fleet', 'logs', 'tokens', 'proof'];
       if (stored && valid.includes(stored)) return stored;
     } catch { /* storage blocked */ }
     return initialTab;
@@ -163,8 +163,14 @@ export const AdminModal: React.FC<AdminModalProps> = ({
   const [chainRecent, setChainRecent] = useState<null | any[]>(null);
   const [chainRecentErr, setChainRecentErr] = useState<string | null>(null);
   const [chainRecentLoading, setChainRecentLoading] = useState<boolean>(false);
+  // c2-433 / #305 followup: last-success verify timestamp. Appended to
+  // the green banner as "· verified Ns ago" so operators know the chain
+  // confirmation isn't stale. Updates on every verify that returns
+  // valid:true; an error or invalid doesn't reset this — the red banner
+  // takes over and this becomes hidden.
+  const [lastChainVerifiedAt, setLastChainVerifiedAt] = useState<number | null>(null);
   const [err, setErr] = useState<Record<AdminTab, string | null>>({
-    dashboard: null, inventory: null, domains: null, training: null, quality: null, system: null, fleet: null, logs: null, tokens: null,
+    dashboard: null, inventory: null, domains: null, training: null, quality: null, system: null, fleet: null, logs: null, tokens: null, proof: null,
   });
   const [loading, setLoading] = useState<AdminTab | null>(null);
   // c2-272: per-tab last-successful-load timestamp. Mirrors the Classroom
@@ -298,6 +304,7 @@ export const AdminModal: React.FC<AdminModalProps> = ({
         const brokenAt = typeof data.broken_at_idx === 'number' ? data.broken_at_idx
           : (typeof data.broken_idx === 'number' ? data.broken_idx : null);
         setChainVerify({ valid, broken_at_idx: brokenAt });
+        if (valid) setLastChainVerifiedAt(Date.now());
         // c2-433 / #305 followup: auto-expand the recent-entries panel
         // the moment the chain breaks so the operator sees the events
         // around the broken index without clicking. Idempotent: once
@@ -464,8 +471,19 @@ export const AdminModal: React.FC<AdminModalProps> = ({
                 width: '6px', height: '6px', borderRadius: '50%',
                 background: C.green, flexShrink: 0,
               }} />
-              <span>AUDIT CHAIN VERIFIED</span>
-              <span aria-hidden='true' style={{ marginLeft: 'auto', opacity: 0.7 }}>{chainExpanded ? '▴' : '▾'}</span>
+              <span style={{ flexShrink: 0 }}>AUDIT CHAIN VERIFIED</span>
+              {/* c2-433 / #305 followup: last-verified timestamp. Gives
+                  operators a recency signal so a stale banner (e.g. after
+                  network drop) doesnt falsely reassure. min-width:0 + the
+                  enclosing span let the relative-time string shrink or
+                  ellipsize on narrow viewports instead of pushing the
+                  chevron off-row. */}
+              {lastChainVerifiedAt != null && (
+                <span style={{ opacity: 0.7, fontWeight: 500, letterSpacing: 0, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  · verified {formatRelative(lastChainVerifiedAt)}
+                </span>
+              )}
+              <span aria-hidden='true' style={{ marginLeft: 'auto', opacity: 0.7, flexShrink: 0 }}>{chainExpanded ? '▴' : '▾'}</span>
             </button>
           ) : (
             <button type='button' role='alert'
@@ -483,12 +501,17 @@ export const AdminModal: React.FC<AdminModalProps> = ({
                 width: '100%', cursor: 'pointer', textAlign: 'left',
                 fontFamily: 'inherit',
               }}>
-              <svg width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='currentColor' strokeWidth='2.2' strokeLinecap='round' strokeLinejoin='round' aria-hidden='true'>
+              <svg width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='currentColor' strokeWidth='2.2' strokeLinecap='round' strokeLinejoin='round' aria-hidden='true' style={{ flexShrink: 0 }}>
                 <path d='M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z' />
                 <line x1='12' y1='9' x2='12' y2='13' />
                 <line x1='12' y1='17' x2='12.01' y2='17' />
               </svg>
-              <span style={{ flex: 1 }}>
+              {/* c2-433 / mobile: wordBreak lets long unreachable-endpoint
+                  strings (e.g. HTTP 0 on a hostname that never resolved)
+                  wrap inside the flex:1 column instead of forcing the
+                  chevron off-row. min-width:0 ensures the flex child can
+                  actually shrink below its intrinsic content width. */}
+              <span style={{ flex: 1, minWidth: 0, wordBreak: 'break-word' }}>
                 {chainVerify.error ? (
                   <>Audit chain verify failed — endpoint unreachable ({chainVerify.error}). Chain integrity cannot be confirmed.</>
                 ) : chainVerify.broken_at_idx != null ? (
@@ -497,7 +520,7 @@ export const AdminModal: React.FC<AdminModalProps> = ({
                   <>Audit chain integrity <strong>BROKEN</strong> — chain is invalid (broken index not reported).</>
                 )}
               </span>
-              <span aria-hidden='true' style={{ opacity: 0.7, fontSize: T.typography.sizeMd }}>{chainExpanded ? '▴' : '▾'}</span>
+              <span aria-hidden='true' style={{ opacity: 0.7, fontSize: T.typography.sizeMd, flexShrink: 0 }}>{chainExpanded ? '▴' : '▾'}</span>
             </button>
           )
         )}
@@ -565,7 +588,11 @@ export const AdminModal: React.FC<AdminModalProps> = ({
                     </div>
                   )}
                   <div style={{
-                    display: 'grid', gridTemplateColumns: '60px 160px 1fr 60px 100px',
+                    // c2-433 / mobile fix: fixed column widths summed to
+                    // 380px and overflowed narrow (375px iPhone) viewports.
+                    // Use flexible minmax — idx/sev/hash shrink before the
+                    // event column, and the grid reflows below container.
+                    display: 'grid', gridTemplateColumns: 'minmax(40px, 60px) minmax(110px, 160px) minmax(0, 1fr) minmax(40px, 60px) minmax(60px, 100px)',
                     gap: '6px 12px', fontSize: '10px',
                     fontFamily: T.typography.fontMono,
                   }}>
@@ -631,6 +658,7 @@ export const AdminModal: React.FC<AdminModalProps> = ({
             { id: 'fleet', label: 'Fleet' },
             { id: 'logs', label: 'Logs' },
             { id: 'tokens', label: 'Tokens' },
+            { id: 'proof', label: 'Proof' },
           ]}
           active={tab}
           onChange={setTab} />
@@ -1681,6 +1709,14 @@ export const AdminModal: React.FC<AdminModalProps> = ({
           {tab === 'tokens' && (
             <TokensTab C={C} host={host} />
           )}
+
+          {/* c2-433 / #354 proof-stats panel. Reads /api/proof/stats and
+              shows the distribution of Lean4 proof verdicts across the
+              facts table. Unreachable-verifier is a NO-OP so Unknown
+              stays Unknown rather than being downgraded. */}
+          {tab === 'proof' && (
+            <ProofTab C={C} host={host} />
+          )}
         </div>
       </div>
     </div>
@@ -1731,6 +1767,14 @@ const TokensTab: React.FC<{ C: any; host: string }> = ({ C, host }) => {
   // Prevents fat-finger revocation of live credentials.
   const [confirmingRevokeId, setConfirmingRevokeId] = useState<string | null>(null);
   const confirmTimeoutRef = useRef<number | null>(null);
+  // c2-433 / #303 followup: capability filter. 'all' | one of
+  // KNOWN_CAPABILITIES | 'revoked'. Lets operators narrow a busy token
+  // list to a single scope, or view just the revoked entries waiting
+  // for cleanup.
+  const [filterCap, setFilterCap] = useState<string>('all');
+  // c2-433: per-row click-copy token-id flash state. Holds the id just
+  // copied; self-clears after 1.5s. Matches the Ingest-Runs pattern.
+  const [copiedTokenId, setCopiedTokenId] = useState<string | null>(null);
 
   const load = async () => {
     setLoading(true);
@@ -1836,8 +1880,16 @@ const TokensTab: React.FC<{ C: any; host: string }> = ({ C, host }) => {
     }, 3000);
   };
 
+  // c2-433 / #303 followup: copyToken gains a 2s Copied ✓ feedback tick
+  // so the one-time fresh-token card's Copy button confirms the write
+  // before the secret scrolls away forever.
+  const [tokenCopiedAt, setTokenCopiedAt] = useState<number>(0);
   const copyToken = async (text: string) => {
-    try { await navigator.clipboard.writeText(text); } catch { /* blocked */ }
+    try {
+      await navigator.clipboard.writeText(text);
+      setTokenCopiedAt(Date.now());
+      window.setTimeout(() => setTokenCopiedAt(0), 2000);
+    } catch { /* blocked */ }
   };
 
   return (
@@ -1877,12 +1929,16 @@ const TokensTab: React.FC<{ C: any; host: string }> = ({ C, host }) => {
               color: C.text, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
             }}>{freshToken.token}</code>
             <button onClick={() => copyToken(freshToken.token)}
+              title={tokenCopiedAt > 0 ? 'Secret copied to clipboard' : 'Copy secret to clipboard'}
               style={{
-                background: C.accent, color: '#fff', border: 'none',
+                background: tokenCopiedAt > 0 ? C.green : C.accent,
+                color: '#fff', border: 'none',
                 borderRadius: T.radii.sm, padding: '6px 12px',
                 cursor: 'pointer', fontFamily: 'inherit', fontWeight: T.typography.weightBold,
                 fontSize: T.typography.sizeXs, letterSpacing: '0.04em',
-              }}>Copy</button>
+                transition: 'background 180ms',
+                flexShrink: 0,
+              }}>{tokenCopiedAt > 0 ? 'Copied \u2713' : 'Copy'}</button>
           </div>
         </div>
       )}
@@ -1910,7 +1966,10 @@ const TokensTab: React.FC<{ C: any; host: string }> = ({ C, host }) => {
             aria-label='TTL in seconds'
             placeholder='TTL (seconds)'
             style={{
-              padding: '6px 10px', width: '130px', background: C.bgCard,
+              // c2-433 / mobile: flex-basis lets the TTL input shrink on
+              // narrow viewports instead of forcing a hard 130px.
+              padding: '6px 10px', flex: '1 1 110px', maxWidth: '150px',
+              minWidth: 0, background: C.bgCard,
               border: `1px solid ${C.borderSubtle}`, color: C.text,
               borderRadius: T.radii.sm, fontFamily: T.typography.fontMono,
               fontSize: T.typography.sizeSm,
@@ -1936,6 +1995,69 @@ const TokensTab: React.FC<{ C: any; host: string }> = ({ C, host }) => {
               letterSpacing: '0.04em',
             }}>{issuing ? 'Issuing…' : 'Issue'}</button>
         </div>
+        {/* c2-433 / #303 followup: humanize the TTL seconds input so
+            operators don't have to mentally convert 86400 → 1 day.
+            Blank when input is empty or non-numeric; explicit "no
+            expiry" when value is zero. */}
+        {(() => {
+          const s = Number(issueTtl);
+          if (!issueTtl.trim()) return null;
+          if (Number.isNaN(s)) {
+            return <div style={{ fontSize: '10px', color: C.red, fontFamily: T.typography.fontMono, marginTop: '4px' }}>not a number</div>;
+          }
+          if (s <= 0) {
+            return <div style={{ fontSize: '10px', color: C.textMuted, fontFamily: T.typography.fontMono, marginTop: '4px' }}>= no expiry</div>;
+          }
+          const humanize = (sec: number): string => {
+            if (sec < 60) return `${sec}s`;
+            const mins = Math.floor(sec / 60);
+            const rs = sec % 60;
+            if (mins < 60) return rs > 0 ? `${mins}m ${rs}s` : `${mins}m`;
+            const hrs = Math.floor(mins / 60);
+            const rm = mins % 60;
+            if (hrs < 24) return rm > 0 ? `${hrs}h ${rm}m` : `${hrs}h`;
+            const days = Math.floor(hrs / 24);
+            const rh = hrs % 24;
+            if (days < 7) return rh > 0 ? `${days}d ${rh}h` : `${days}d`;
+            const weeks = Math.floor(days / 7);
+            const rd = days % 7;
+            return rd > 0 ? `${weeks}w ${rd}d` : `${weeks}w`;
+          };
+          return (
+            <div style={{
+              fontSize: '10px', color: C.textDim, fontFamily: T.typography.fontMono,
+              marginTop: '4px',
+            }}>= {humanize(Math.floor(s))}</div>
+          );
+        })()}
+        {/* c2-433 / #303 followup: TTL presets. One-click common durations
+            so admins don't retype raw seconds. Active preset (matches the
+            current TTL exactly) gets an accent border as a visual confirm. */}
+        <div style={{ display: 'flex', gap: '4px', marginTop: '4px', flexWrap: 'wrap' }}>
+          {([
+            { label: '1h', seconds: 3600 },
+            { label: '1d', seconds: 86400 },
+            { label: '7d', seconds: 604800 },
+            { label: '30d', seconds: 2592000 },
+          ]).map(p => {
+            const isActive = Number(issueTtl) === p.seconds;
+            return (
+              <button key={p.label} type='button'
+                onClick={() => setIssueTtl(String(p.seconds))}
+                title={`Set TTL to ${p.label} (${p.seconds.toLocaleString()}s)`}
+                style={{
+                  padding: '2px 8px', fontSize: '10px',
+                  fontWeight: T.typography.weightBold,
+                  background: isActive ? C.accentBg : 'transparent',
+                  border: `1px solid ${isActive ? C.accentBorder : C.borderSubtle}`,
+                  color: isActive ? C.accent : C.textMuted,
+                  borderRadius: T.radii.sm,
+                  cursor: 'pointer', fontFamily: T.typography.fontMono,
+                  letterSpacing: '0.04em',
+                }}>{p.label}</button>
+            );
+          })}
+        </div>
         {issueErr && (
           <div style={{ color: C.red, fontSize: T.typography.sizeXs, fontFamily: T.typography.fontMono }}>
             {issueErr}
@@ -1958,6 +2080,50 @@ const TokensTab: React.FC<{ C: any; host: string }> = ({ C, host }) => {
               fontSize: T.typography.sizeXs, fontWeight: T.typography.weightSemibold,
             }}>{loading ? 'Refreshing…' : 'Refresh'}</button>
         </div>
+        {/* c2-433 / #303 followup: capability filter chips. Renders when
+            there are any tokens. All = no filter. Each capability chip
+            shows the count for that capability; Revoked shows the count
+            of revoked entries. Active chip gets accent border + bg. */}
+        {tokens != null && tokens.length > 0 && (() => {
+          const capCounts: Record<string, number> = { all: tokens.length };
+          let revokedCount = 0;
+          for (const t of tokens) {
+            const isRevoked = t.revoked === true || t.active === false;
+            if (isRevoked) { revokedCount++; continue; }
+            const cap: string = t.capability ?? t.scope ?? '?';
+            capCounts[cap] = (capCounts[cap] || 0) + 1;
+          }
+          const chips: Array<{ id: string; label: string; count: number }> = [
+            { id: 'all', label: 'All', count: capCounts.all },
+            ...KNOWN_CAPABILITIES
+              .filter(c => (capCounts[c] || 0) > 0)
+              .map(c => ({ id: c, label: c, count: capCounts[c] })),
+            ...(revokedCount > 0 ? [{ id: 'revoked', label: 'Revoked', count: revokedCount }] : []),
+          ];
+          if (chips.length <= 2) return null; // No point rendering when everything is one capability
+          return (
+            <div role='tablist' aria-label='Filter tokens by capability'
+              style={{ display: 'flex', gap: '4px', flexWrap: 'wrap', marginBottom: T.spacing.sm }}>
+              {chips.map(c => {
+                const isActive = filterCap === c.id;
+                return (
+                  <button key={c.id} onClick={() => setFilterCap(c.id)}
+                    role='tab' aria-selected={isActive}
+                    style={{
+                      padding: '3px 9px', fontSize: '10px',
+                      fontWeight: T.typography.weightBold,
+                      background: isActive ? C.accentBg : 'transparent',
+                      border: `1px solid ${isActive ? C.accentBorder : C.borderSubtle}`,
+                      color: isActive ? C.accent : C.textMuted,
+                      borderRadius: T.radii.sm,
+                      cursor: 'pointer', fontFamily: T.typography.fontMono,
+                      letterSpacing: '0.04em', textTransform: 'uppercase',
+                    }}>{c.label} <span style={{ opacity: 0.6, marginLeft: '4px' }}>{c.count}</span></button>
+                );
+              })}
+            </div>
+          );
+        })()}
         {tokens != null && tokens.length === 0 && !err && (
           <div style={{
             padding: T.spacing.lg, textAlign: 'center',
@@ -1968,9 +2134,32 @@ const TokensTab: React.FC<{ C: any; host: string }> = ({ C, host }) => {
             No active capability tokens. Issue one above to scope a bearer credential.
           </div>
         )}
-        {tokens != null && tokens.length > 0 && (
+        {tokens != null && tokens.length > 0 && (() => {
+          const visible = tokens.filter((t: any) => {
+            if (filterCap === 'all') return true;
+            const isRevoked = t.revoked === true || t.active === false;
+            if (filterCap === 'revoked') return isRevoked;
+            return !isRevoked && (t.capability ?? t.scope ?? '?') === filterCap;
+          });
+          if (visible.length === 0) {
+            return (
+              <div style={{
+                padding: T.spacing.lg, textAlign: 'center',
+                color: C.textMuted, fontSize: T.typography.sizeSm, fontStyle: 'italic',
+                background: C.bgInput, border: `1px dashed ${C.borderSubtle}`, borderRadius: T.radii.md,
+              }}>
+                No tokens match the {filterCap} filter. <button onClick={() => setFilterCap('all')}
+                  style={{
+                    background: 'transparent', border: 'none', color: C.accent,
+                    cursor: 'pointer', fontFamily: 'inherit', textDecoration: 'underline',
+                    padding: 0, fontSize: T.typography.sizeSm,
+                  }}>Clear filter.</button>
+              </div>
+            );
+          }
+          return (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-            {tokens.map((t: any, i: number) => {
+            {visible.map((t: any, i: number) => {
               const id: string = String(t.id ?? t.token_id ?? t.uuid ?? i);
               const capability: string = t.capability ?? t.scope ?? '?';
               const label: string = t.label ?? '';
@@ -1995,10 +2184,31 @@ const TokensTab: React.FC<{ C: any; host: string }> = ({ C, host }) => {
                     fontFamily: T.typography.fontMono,
                     textTransform: 'uppercase', letterSpacing: '0.06em',
                   }}>{revoked ? 'revoked' : capability}</span>
-                  <span style={{
-                    fontFamily: T.typography.fontMono, fontSize: T.typography.sizeXs,
-                    color: C.textMuted,
-                  }} title={`Token id ${id}`}>#{id.slice(0, 8)}</span>
+                  {/* c2-433: click the truncated token id to copy the
+                      full value to clipboard. 1.5s green flash confirms. */}
+                  <button type='button'
+                    onClick={async () => {
+                      try {
+                        await navigator.clipboard.writeText(id);
+                        setCopiedTokenId(id);
+                        window.setTimeout(() => {
+                          setCopiedTokenId(prev => prev === id ? null : prev);
+                        }, 1500);
+                      } catch { /* clipboard blocked */ }
+                    }}
+                    title={copiedTokenId === id ? `Copied ${id}` : `${id} — click to copy`}
+                    aria-label={copiedTokenId === id ? `Copied token id ${id}` : `Copy token id ${id}`}
+                    style={{
+                      background: 'transparent', border: 'none', padding: 0,
+                      fontFamily: T.typography.fontMono, fontSize: T.typography.sizeXs,
+                      color: copiedTokenId === id ? C.green : C.textMuted,
+                      cursor: 'pointer',
+                      textDecoration: 'underline',
+                      textDecorationColor: `${copiedTokenId === id ? C.green : C.textMuted}33`,
+                      textUnderlineOffset: '2px',
+                      transition: 'color 180ms',
+                      fontWeight: 600,
+                    }}>{copiedTokenId === id ? 'copied \u2713' : `#${id.slice(0, 8)}`}</button>
                   {hashPrefix && (
                     <span title={`SHA-256 hash ${hashPrefix}…`}
                       style={{
@@ -2063,8 +2273,196 @@ const TokensTab: React.FC<{ C: any; host: string }> = ({ C, host }) => {
               );
             })}
           </div>
-        )}
+          );
+        })()}
       </div>
     </div>
   );
 };
+
+// c2-433 / #354: Proof-stats panel. Reads /api/proof/stats every 30s and
+// renders a small 4-metric grid: Proved / Rejected / Unreachable / Unknown.
+// Tolerant parser accepts array / {stats} / {counts} / plain map of
+// status→count. Unreachable is yellow (verifier was down, facts kept
+// their prior tier); Unknown is muted (never attempted). Proved is green,
+// Rejected is red.
+const ProofTab: React.FC<{ C: any; host: string }> = ({ C, host }) => {
+  const [stats, setStats] = useState<Record<string, number>>({});
+  const [total, setTotal] = useState<number | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  const [loading, setLoading] = useState<boolean>(false);
+  const [lastFetched, setLastFetched] = useState<number | null>(null);
+
+  const load = async () => {
+    setLoading(true);
+    setErr(null);
+    const pickCount = (v: any): number => typeof v === 'number' ? v : typeof v?.count === 'number' ? v.count : 0;
+    // c2-433 / #355: parse /api/proof/stats (preferred) OR extract the
+    // .proof bundle from /api/health/extended (fallback). Both populate
+    // a {status: count} map — the buckets renderer is shape-agnostic.
+    const parseStatsPayload = (data: any): { counts: Record<string, number>; tot: number; total: number | null } => {
+      const counts: Record<string, number> = {};
+      let tot = 0;
+      if (Array.isArray(data)) {
+        for (const row of data) {
+          const status = String(row.status ?? row.verdict ?? row.name ?? '').toLowerCase();
+          const n = pickCount(row);
+          if (status) { counts[status] = (counts[status] || 0) + n; tot += n; }
+        }
+      } else if (data && typeof data === 'object') {
+        if (data.stats && typeof data.stats === 'object') {
+          for (const [k, v] of Object.entries(data.stats)) {
+            const n = typeof v === 'number' ? v : pickCount(v);
+            counts[k.toLowerCase()] = n; tot += n;
+          }
+        } else if (data.counts && typeof data.counts === 'object') {
+          for (const [k, v] of Object.entries(data.counts)) {
+            const n = typeof v === 'number' ? v : pickCount(v);
+            counts[k.toLowerCase()] = n; tot += n;
+          }
+        } else {
+          for (const [k, v] of Object.entries(data)) {
+            if (typeof v === 'number') { counts[k.toLowerCase()] = v; tot += v; }
+          }
+        }
+      }
+      return { counts, tot, total: typeof data?.total === 'number' ? data.total : null };
+    };
+    try {
+      let counts: Record<string, number> = {};
+      let tot = 0;
+      let total: number | null = null;
+      try {
+        const r = await fetch(`http://${host}:3000/api/proof/stats`);
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        const data = await r.json();
+        const parsed = parseStatsPayload(data);
+        counts = parsed.counts; tot = parsed.tot; total = parsed.total;
+      } catch {
+        // c2-433 / #355 fallback: pull proof counts out of the extended
+        // bundle. Shape per spec: {proof: {proved, rejected, pending_sample}}.
+        // pending_sample → we classify as 'pending' (yellow tier).
+        const r2 = await fetch(`http://${host}:3000/api/health/extended`);
+        if (!r2.ok) throw new Error(`HTTP ${r2.status}`);
+        const data2 = await r2.json();
+        const p = data2?.proof || {};
+        const proved = typeof p.proved === 'number' ? p.proved : 0;
+        const rejected = typeof p.rejected === 'number' ? p.rejected : 0;
+        const pending = typeof p.pending_sample === 'number' ? p.pending_sample
+          : typeof p.pending === 'number' ? p.pending : 0;
+        counts = { proved, rejected, pending };
+        tot = proved + rejected + pending;
+        total = tot;
+      }
+      setStats(counts);
+      setTotal(total ?? tot);
+      setLastFetched(Date.now());
+    } catch (e: any) {
+      setErr(String(e?.message || e || 'fetch failed'));
+    } finally {
+      setLoading(false);
+    }
+  };
+  useEffect(() => {
+    load();
+    const id = window.setInterval(load, 30_000);
+    return () => window.clearInterval(id);
+    // eslint-disable-next-line
+  }, [host]);
+
+  // Canonical 4 verdict buckets with color tier + which aliases accumulate.
+  const BUCKETS: Array<{ key: string; label: string; tone: string; aliases: string[]; hint: string }> = [
+    { key: 'proved',     label: 'Proved',      tone: C.green,     aliases: ['proved','valid','ok'],             hint: 'Lean4/Kimina accepted the proof' },
+    { key: 'rejected',   label: 'Rejected',    tone: C.red,       aliases: ['rejected','invalid','contradicted'], hint: 'Verifier rejected the proof' },
+    { key: 'unreachable', label: 'Unreachable', tone: C.yellow,    aliases: ['unreachable','timeout','pending'], hint: 'Verifier was down or slow — prior tier preserved' },
+    { key: 'unknown',    label: 'Unknown',     tone: C.textMuted, aliases: ['unknown','error','unchecked','none'], hint: 'Never attempted — no verdict yet' },
+  ];
+
+  const countFor = (aliases: string[]): number => aliases.reduce((acc, a) => acc + (stats[a] || 0), 0);
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: T.spacing.lg }}>
+      {err && <ErrorAlert C={C} message={err} onRetry={load} retrying={loading} />}
+
+      <div style={{ display: 'flex', alignItems: 'center', gap: T.spacing.md, flexWrap: 'wrap' }}>
+        <Label color={C.textMuted}>Proof verdicts</Label>
+        {total != null && (
+          <span style={{ fontSize: T.typography.sizeXs, color: C.textDim, fontFamily: T.typography.fontMono }}>
+            {total.toLocaleString()} fact{total === 1 ? '' : 's'} tracked
+          </span>
+        )}
+        <div style={{ flex: 1 }} />
+        {lastFetched != null && (
+          <span style={{ fontSize: T.typography.sizeXs, color: C.textDim, fontFamily: T.typography.fontMono }}>
+            Updated {formatRelative(lastFetched)}
+          </span>
+        )}
+        <button onClick={load} disabled={loading}
+          style={{
+            background: 'transparent', border: `1px solid ${C.borderSubtle}`,
+            color: C.textMuted, borderRadius: T.radii.sm,
+            cursor: loading ? 'wait' : 'pointer',
+            padding: '4px 10px', fontFamily: 'inherit',
+            fontSize: T.typography.sizeXs, fontWeight: T.typography.weightSemibold,
+          }}>{loading ? 'Refreshing…' : 'Refresh'}</button>
+      </div>
+
+      <div style={{
+        display: 'grid',
+        gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))',
+        gap: T.spacing.md,
+      }}>
+        {BUCKETS.map(b => {
+          const n = countFor(b.aliases);
+          const pct = total && total > 0 ? (n / total) * 100 : null;
+          return (
+            <div key={b.key} title={b.hint}
+              style={{
+                padding: T.spacing.md, borderRadius: T.radii.lg,
+                background: C.bgCard, border: `1px solid ${C.borderSubtle}`,
+                display: 'flex', flexDirection: 'column', gap: '6px',
+              }}>
+              <div style={{
+                fontSize: '10px', color: C.textMuted,
+                fontWeight: T.typography.weightSemibold,
+                textTransform: 'uppercase', letterSpacing: '0.08em',
+              }}>{b.label}</div>
+              <div style={{ display: 'flex', alignItems: 'baseline', gap: T.spacing.sm }}>
+                <span style={{
+                  fontSize: T.typography.sizeXl,
+                  fontWeight: T.typography.weightBlack, color: b.tone,
+                  fontFamily: T.typography.fontMono,
+                }}>{n.toLocaleString()}</span>
+                {pct != null && (
+                  <span style={{
+                    fontSize: '10px', color: C.textDim,
+                    fontFamily: T.typography.fontMono,
+                  }}>{pct.toFixed(1)}%</span>
+                )}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Unclassified bucket (tolerant leftover from parser) */}
+      {(() => {
+        const known = new Set<string>();
+        for (const b of BUCKETS) for (const a of b.aliases) known.add(a);
+        const leftover = Object.entries(stats).filter(([k]) => !known.has(k));
+        if (leftover.length === 0) return null;
+        return (
+          <div style={{
+            padding: T.spacing.md, borderRadius: T.radii.md,
+            background: C.bgInput, border: `1px dashed ${C.borderSubtle}`,
+            fontSize: T.typography.sizeXs, color: C.textMuted,
+            fontFamily: T.typography.fontMono,
+          }}>
+            Unrecognized verdict buckets: {leftover.map(([k, v]) => `${k}:${v}`).join(' · ')}
+          </div>
+        );
+      })()}
+    </div>
+  );
+};
+

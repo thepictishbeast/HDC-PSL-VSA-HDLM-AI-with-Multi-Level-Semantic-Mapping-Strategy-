@@ -41,6 +41,9 @@ export const KnowledgeBrowser: React.FC<KnowledgeBrowserProps> = ({ C, facts, co
   // graded (disables its buttons + shows inline spinner). Map so multiple
   // reviews can technically be in flight, though the UX expects serial.
   const [reviewing, setReviewing] = useState<Record<string, boolean>>({});
+  // c2-433 / #313-ish: Copy-JSON export feedback. 2s Copy → Copied ✓ flip,
+  // matching the Drift/Ledger/Runs export pattern.
+  const [copiedAt, setCopiedAt] = useState<number>(0);
   const dialogRef = useRef<HTMLDivElement>(null);
   useModalFocus(true, dialogRef);
   const isEmpty = !loading && !error && facts.length === 0 && concepts.length === 0 && due.length === 0;
@@ -79,7 +82,7 @@ export const KnowledgeBrowser: React.FC<KnowledgeBrowserProps> = ({ C, facts, co
         padding: '16px 20px', borderBottom: `1px solid ${C.borderSubtle}`,
       }}>
         <h2 id='scc-knowledge-title' style={{ margin: 0, fontSize: T.typography.sizeXl, fontWeight: T.typography.weightBold, color: C.text }}>Knowledge Browser</h2>
-        <div style={{ display: 'flex', gap: T.spacing.sm, alignItems: 'center' }}>
+        <div style={{ display: 'flex', gap: T.spacing.sm, alignItems: 'center', flexWrap: 'wrap', justifyContent: 'flex-end', minWidth: 0 }}>
           {/* c2-433 / task 274: filter input. Narrows facts/concepts/due
               by substring. Counts shown reflect filter when active. */}
           <input type='search' value={filter}
@@ -100,13 +103,43 @@ export const KnowledgeBrowser: React.FC<KnowledgeBrowserProps> = ({ C, facts, co
               padding: '4px 10px', fontSize: T.typography.sizeXs,
               background: C.bgInput, border: `1px solid ${C.borderSubtle}`,
               borderRadius: T.radii.md, color: C.text, fontFamily: 'inherit',
-              outline: 'none', width: '140px',
+              // c2-433 / mobile fix: shrink below 140px on narrow viewports
+              // so the header count + close button stay visible.
+              outline: 'none', flex: '1 1 100px', maxWidth: '180px', minWidth: 0,
             }} />
           <span style={{ fontSize: T.typography.sizeSm, color: C.textMuted, fontFamily: T.typography.fontMono }}>
             {fLower
               ? `${filteredFacts.length}/${facts.length} f · ${filteredConcepts.length}/${concepts.length} c · ${filteredDue.length}/${due.length} d`
               : `${facts.length} facts · ${concepts.length} concepts · ${due.length} due`}
           </span>
+          {/* c2-433: Copy-JSON export for the KB snapshot. Disabled when
+              everything is empty (nothing to export). 2s Copied ✓ feedback
+              matches the Drift/Ledger/Runs pattern. */}
+          <button
+            disabled={isEmpty}
+            onClick={async () => {
+              const payload = {
+                exported_at: new Date().toISOString(),
+                facts, concepts, due, fsrsMeta,
+              };
+              try {
+                await navigator.clipboard.writeText(JSON.stringify(payload, null, 2));
+                setCopiedAt(Date.now());
+                window.setTimeout(() => setCopiedAt(0), 2000);
+              } catch { /* clipboard blocked */ }
+            }}
+            title={copiedAt > 0 ? 'Copied to clipboard' : `Copy ${facts.length} facts + ${concepts.length} concepts + ${due.length} due as JSON`}
+            style={{
+              background: copiedAt > 0 ? `${C.green}18` : 'transparent',
+              border: `1px solid ${copiedAt > 0 ? C.green : C.borderSubtle}`,
+              color: copiedAt > 0 ? C.green : isEmpty ? C.textDim : C.textMuted,
+              borderRadius: T.radii.sm,
+              cursor: isEmpty ? 'not-allowed' : 'pointer',
+              padding: '4px 10px', fontFamily: 'inherit',
+              fontSize: T.typography.sizeXs, fontWeight: T.typography.weightSemibold,
+              opacity: isEmpty ? 0.5 : 1,
+              flexShrink: 0,
+            }}>{copiedAt > 0 ? 'Copied \u2713' : 'Copy'}</button>
           <button onClick={onClose} aria-label='Close knowledge browser'
             style={{ background: 'transparent', border: 'none', color: C.textMuted, fontSize: '20px', cursor: 'pointer' }}>
             {'\u2715'}

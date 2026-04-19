@@ -70,6 +70,9 @@ export const ActivityModal: React.FC<ActivityModalProps> = ({
   // close so each open starts fresh.
   const [eventKindFilter, setEventKindFilter] = useState<string | null>(null);
   const [eventQuery, setEventQuery] = useState<string>('');
+  // c2-433: Copy-JSON export feedback for the activity snapshot. 2s
+  // Copy → Copied ✓ flip matching the other export surfaces.
+  const [copiedAt, setCopiedAt] = useState<number>(0);
   return (
   <div onClick={onClose}
     style={{
@@ -93,10 +96,41 @@ export const ActivityModal: React.FC<ActivityModalProps> = ({
         <h2 id='scc-activity-title' style={{ margin: 0, fontSize: '15px', fontWeight: T.typography.weightBlack, letterSpacing: '0.12em', textTransform: 'uppercase', color: C.text }}>
           Activity &amp; Logs
         </h2>
-        <button onClick={onClose} aria-label='Close activity'
-          style={{ background: 'transparent', border: 'none', color: C.textMuted, fontSize: '20px', cursor: 'pointer' }}>
-          {'\u2715'}
-        </button>
+        <div style={{ display: 'flex', gap: T.spacing.sm, alignItems: 'center' }}>
+          {/* c2-433: Activity snapshot Copy-JSON export. Bundles local UI
+              events + server chat log into one clipboard paste. Matches
+              the Drift/Ledger/Runs/KB/Library pattern. */}
+          <button
+            disabled={localEvents.length === 0 && serverChatLog.length === 0}
+            onClick={async () => {
+              const payload = {
+                exported_at: new Date().toISOString(),
+                events: localEvents,
+                chat_log: serverChatLog,
+              };
+              try {
+                await navigator.clipboard.writeText(JSON.stringify(payload, null, 2));
+                setCopiedAt(Date.now());
+                window.setTimeout(() => setCopiedAt(0), 2000);
+              } catch { /* clipboard blocked */ }
+            }}
+            title={copiedAt > 0 ? 'Copied to clipboard' : `Copy ${localEvents.length} UI events + ${serverChatLog.length} log entries as JSON`}
+            style={{
+              background: copiedAt > 0 ? `${C.green}18` : 'transparent',
+              border: `1px solid ${copiedAt > 0 ? C.green : C.borderSubtle}`,
+              color: copiedAt > 0 ? C.green : C.textMuted,
+              borderRadius: T.radii.sm,
+              cursor: (localEvents.length === 0 && serverChatLog.length === 0) ? 'not-allowed' : 'pointer',
+              padding: '4px 10px', fontFamily: 'inherit',
+              fontSize: T.typography.sizeXs, fontWeight: T.typography.weightSemibold,
+              opacity: (localEvents.length === 0 && serverChatLog.length === 0) ? 0.5 : 1,
+              whiteSpace: 'nowrap',
+            }}>{copiedAt > 0 ? 'Copied \u2713' : 'Copy'}</button>
+          <button onClick={onClose} aria-label='Close activity'
+            style={{ background: 'transparent', border: 'none', color: C.textMuted, fontSize: '20px', cursor: 'pointer' }}>
+            {'\u2715'}
+          </button>
+        </div>
       </div>
       {(() => {
         // c2-433 / task 271: WAI-ARIA tablist kbd nav (Arrow/Home/End +

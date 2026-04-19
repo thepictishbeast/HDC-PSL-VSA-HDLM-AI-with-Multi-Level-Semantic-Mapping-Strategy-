@@ -56,6 +56,9 @@ export const LibraryView: React.FC<LibraryViewProps> = ({ C, host, isDesktop }) 
   const trustTimersRef = useRef<Record<string, number>>({});
   const [autoResolving, setAutoResolving] = useState(false);
   const [autoResolveResult, setAutoResolveResult] = useState<string | null>(null);
+  // c2-433: Copy-JSON export feedback. 2s Copy → Copied ✓ flip matching
+  // the Drift/Ledger/Runs/KB export pattern.
+  const [copiedAt, setCopiedAt] = useState<number>(0);
   // c2-433 / #285: corpus marketplace — ranked top-N by composite score
   // (0.4·trust + 0.3·avg_q + 0.2·vetted + 0.1·log_size). Silent-fail so
   // the rest of Library renders even if the endpoint isn't live yet.
@@ -330,6 +333,37 @@ export const LibraryView: React.FC<LibraryViewProps> = ({ C, host, isDesktop }) 
             Updated {formatRelative(lastUpdated)}
           </span>
         )}
+        {/* c2-433: Copy-JSON export for the Library snapshot. Bundles
+            sources + marketplace top-N + trust map + quality dims into
+            one paste. 2s Copied ✓ feedback. Disabled when sources null. */}
+        <button
+          disabled={!sources || sources.length === 0}
+          onClick={async () => {
+            const payload = {
+              exported_at: new Date().toISOString(),
+              sources: sources || [],
+              marketplace: marketplace || [],
+              trust: trustMap,
+              quality: qualityMap,
+            };
+            try {
+              await navigator.clipboard.writeText(JSON.stringify(payload, null, 2));
+              setCopiedAt(Date.now());
+              window.setTimeout(() => setCopiedAt(0), 2000);
+            } catch { /* clipboard blocked */ }
+          }}
+          title={copiedAt > 0 ? 'Copied to clipboard' : `Copy ${sources?.length ?? 0} sources + marketplace + trust/quality as JSON`}
+          style={{
+            background: copiedAt > 0 ? `${C.green}18` : 'transparent',
+            border: `1px solid ${copiedAt > 0 ? C.green : C.borderSubtle}`,
+            color: copiedAt > 0 ? C.green : (sources && sources.length > 0 ? C.textMuted : C.textDim),
+            borderRadius: T.radii.sm,
+            cursor: (!sources || sources.length === 0) ? 'not-allowed' : 'pointer',
+            padding: '4px 10px', fontFamily: 'inherit',
+            fontSize: T.typography.sizeXs, fontWeight: T.typography.weightSemibold,
+            opacity: (!sources || sources.length === 0) ? 0.5 : 1,
+            whiteSpace: 'nowrap',
+          }}>{copiedAt > 0 ? 'Copied \u2713' : 'Copy'}</button>
         <button onClick={load} disabled={loading} aria-label='Refresh library'
           title={loading ? 'Refreshing…' : 'Refresh'}
           style={{
@@ -435,6 +469,9 @@ export const LibraryView: React.FC<LibraryViewProps> = ({ C, host, isDesktop }) 
                           aria-expanded={isExpanded}
                           aria-label={`${isExpanded ? 'Collapse' : 'Expand'} quality dimensions for ${name}`}
                           style={{
+                            // c2-433 / mobile: flex-wrap lets the inline
+                            // stats chip drop below the name on narrow
+                            // viewports instead of crushing the score.
                             display: 'flex', alignItems: 'center',
                             gap: T.spacing.sm, padding: '8px 12px',
                             background: isExpanded ? C.bgInput : C.bgCard,
@@ -442,7 +479,7 @@ export const LibraryView: React.FC<LibraryViewProps> = ({ C, host, isDesktop }) 
                             borderRadius: T.radii.md, minWidth: 0,
                             cursor: 'pointer', textAlign: 'left',
                             fontFamily: 'inherit', color: C.text,
-                            width: '100%',
+                            width: '100%', flexWrap: 'wrap',
                           }}>
                           <span style={{
                             fontSize: '10px', color: C.textMuted, fontFamily: T.typography.fontMono,
@@ -450,14 +487,14 @@ export const LibraryView: React.FC<LibraryViewProps> = ({ C, host, isDesktop }) 
                             textAlign: 'right',
                           }}>#{i + 1}</span>
                           <span style={{
-                            flex: 1, minWidth: 0, overflow: 'hidden',
+                            flex: '1 1 140px', minWidth: 0, overflow: 'hidden',
                             textOverflow: 'ellipsis', whiteSpace: 'nowrap',
                             color: C.text, fontFamily: T.typography.fontMono,
                             fontSize: T.typography.sizeSm,
                           }} title={url || name}>{name}</span>
                           <span style={{
                             display: 'flex', gap: '6px', alignItems: 'center',
-                            flexShrink: 0, fontSize: '10px',
+                            flexShrink: 0, fontSize: '10px', flexWrap: 'wrap',
                             fontFamily: T.typography.fontMono, color: C.textDim,
                           }}>
                             {trust != null && <span title={`trust ${trust.toFixed(2)}`}>t:{trust.toFixed(2)}</span>}

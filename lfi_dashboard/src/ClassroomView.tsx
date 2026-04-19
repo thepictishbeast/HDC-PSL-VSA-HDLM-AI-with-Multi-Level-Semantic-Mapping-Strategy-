@@ -2076,6 +2076,10 @@ const LedgerTab: React.FC<{ C: any; host: string; onOpenFactKey?: (key: string, 
   // c2-433 / #298 followup: per-row resolve state — rowId -> 'a'|'b'|'dismiss'|'done'|'failed'.
   // Rows marked 'done' fade out until the next poll drops them entirely.
   const [rowResolving, setRowResolving] = React.useState<Record<string, string>>({});
+  // c2-433 / #298 followup: copy-feedback for the JSON export. Flips to
+  // Date.now() on click, self-reverts 2s later so the button label cycles
+  // Copy → Copied ✓ → Copy. Matches the Drift tab export pattern.
+  const [copiedAt, setCopiedAt] = React.useState<number>(0);
 
   const load = React.useCallback(async () => {
     setLoading(true);
@@ -2203,6 +2207,32 @@ const LedgerTab: React.FC<{ C: any; host: string; onOpenFactKey?: (key: string, 
             padding: '4px 10px', fontFamily: 'inherit',
             fontSize: T.typography.sizeXs, fontWeight: T.typography.weightSemibold,
           }}>{resolving ? 'Resolving…' : 'Auto-resolve'}</button>
+        {/* c2-433 / #298 followup: Copy pending ledger as JSON for external
+            triage / ticket-filing. Disabled when there's nothing to export. */}
+        <button
+          disabled={count === 0}
+          onClick={async () => {
+            const payload = {
+              exported_at: new Date().toISOString(),
+              pending: rows || [],
+            };
+            try {
+              await navigator.clipboard.writeText(JSON.stringify(payload, null, 2));
+              setCopiedAt(Date.now());
+              window.setTimeout(() => setCopiedAt(0), 2000);
+            } catch { /* clipboard blocked */ }
+          }}
+          title={copiedAt > 0 ? 'Copied to clipboard' : `Copy ${count} pending contradiction${count === 1 ? '' : 's'} as JSON`}
+          style={{
+            background: copiedAt > 0 ? `${C.green}18` : 'transparent',
+            border: `1px solid ${copiedAt > 0 ? C.green : C.borderSubtle}`,
+            color: copiedAt > 0 ? C.green : count === 0 ? C.textDim : C.textMuted,
+            borderRadius: T.radii.sm,
+            cursor: count === 0 ? 'not-allowed' : 'pointer',
+            padding: '4px 10px', fontFamily: 'inherit',
+            fontSize: T.typography.sizeXs, fontWeight: T.typography.weightSemibold,
+            opacity: count === 0 ? 0.5 : 1,
+          }}>{copiedAt > 0 ? 'Copied \u2713' : 'Copy'}</button>
         <button onClick={load} disabled={loading}
           title={loading ? 'Refreshing…' : 'Refresh now'}
           style={{
@@ -2286,12 +2316,12 @@ const LedgerTab: React.FC<{ C: any; host: string; onOpenFactKey?: (key: string, 
                 <div style={{ display: 'flex', alignItems: 'center', gap: T.spacing.sm, flexWrap: 'wrap' }}>
                   <span style={{
                     fontFamily: T.typography.fontMono, fontSize: T.typography.sizeSm,
-                    color: C.text, flex: '1 1 40%', minWidth: 0, wordBreak: 'break-word',
+                    color: C.text, flex: '1 1 160px', minWidth: 0, wordBreak: 'break-word',
                   }}>{side(r, 'a')}</span>
                   <span style={{ color: C.red, fontSize: T.typography.sizeMd, fontWeight: 900 }}>↔</span>
                   <span style={{
                     fontFamily: T.typography.fontMono, fontSize: T.typography.sizeSm,
-                    color: C.text, flex: '1 1 40%', minWidth: 0, wordBreak: 'break-word',
+                    color: C.text, flex: '1 1 160px', minWidth: 0, wordBreak: 'break-word',
                   }}>{side(r, 'b')}</span>
                 </div>
                 {r.verdict && (
@@ -2371,6 +2401,12 @@ const DriftTab: React.FC<{ C: any; host: string; onJumpTo?: (sub: string) => voi
     contradictions_pending?: number;
     feedback_negative_ratio_24h?: number;
     fsrs_lapse_rate?: number;
+    tuples_total?: number;
+    // c2-433 / #354 forward-compat: share of facts with a resolved Lean4
+    // verdict (Proved or Rejected). Unreachable/Unknown excluded since the
+    // NO-OP semantic means they could still be anything. Higher = more
+    // claims have been through the verifier.
+    proof_verified_ratio?: number;
   };
   // c2-433 / #284 followup: hydrate Drift history from localStorage on mount
   // so the trend survives a reload. Capped at 60 entries (1h @ 60s). Stale
@@ -2455,6 +2491,11 @@ const DriftTab: React.FC<{ C: any; host: string; onJumpTo?: (sub: string) => voi
     // 'down' means lower is better. Drives the color of the trend arrow
     // so an improving metric always renders green regardless of direction.
     polarity: 'up' | 'down';
+    // c2-433 / #284 followup #3: rating thresholds surfaced in the tooltip
+    // so users know WHY a metric is yellow vs red. Format is a compact
+    // human string (e.g. "green ≥60% · yellow ≥30% · red below"). Optional
+    // — the SPO tuples card has no thresholds since it's an absolute count.
+    thresholds?: string;
   };
   const METRICS: MetricSpec[] = [
     {
@@ -2462,18 +2503,21 @@ const DriftTab: React.FC<{ C: any; host: string; onJumpTo?: (sub: string) => voi
       hint: 'Share of facts with a recent upsert. Higher = substrate is learning.',
       format: v => v == null ? '—' : `${(v * 100).toFixed(0)}%`,
       rating: v => v == null ? C.textMuted : v >= 0.6 ? C.green : v >= 0.3 ? C.yellow : C.red,
+      thresholds: 'green ≥60% · yellow ≥30% · red below',
     },
     {
       key: 'stale_ratio', label: 'Stale facts', isPct: true, polarity: 'down',
       hint: 'Share of facts unchanged for a long time. Lower = fresher corpus.',
       format: v => v == null ? '—' : `${(v * 100).toFixed(0)}%`,
       rating: v => v == null ? C.textMuted : v <= 0.3 ? C.green : v <= 0.6 ? C.yellow : C.red,
+      thresholds: 'green ≤30% · yellow ≤60% · red above',
     },
     {
       key: 'hdc_cache_ratio', label: 'HDC cache', isPct: true, polarity: 'up',
       hint: 'Encode-cache hit ratio. Higher = less recompute per query.',
       format: v => v == null ? '—' : `${(v * 100).toFixed(0)}%`,
       rating: v => v == null ? C.textMuted : v >= 0.8 ? C.green : v >= 0.4 ? C.yellow : C.red,
+      thresholds: 'green ≥80% · yellow ≥40% · red below',
     },
     {
       key: 'contradictions_pending', label: 'Contradictions', isPct: false, polarity: 'down',
@@ -2481,6 +2525,7 @@ const DriftTab: React.FC<{ C: any; host: string; onJumpTo?: (sub: string) => voi
       format: v => v == null ? '—' : String(v),
       rating: v => v == null ? C.textMuted : v === 0 ? C.green : v <= 5 ? C.yellow : C.red,
       jumpTo: 'ledger',
+      thresholds: 'green 0 · yellow ≤5 · red above',
     },
     {
       key: 'feedback_negative_ratio_24h', label: 'Neg feedback 24h', isPct: true, polarity: 'down',
@@ -2488,12 +2533,39 @@ const DriftTab: React.FC<{ C: any; host: string; onJumpTo?: (sub: string) => voi
       format: v => v == null ? '—' : `${(v * 100).toFixed(0)}%`,
       rating: v => v == null ? C.textMuted : v <= 0.1 ? C.green : v <= 0.25 ? C.yellow : C.red,
       jumpTo: 'office',
+      thresholds: 'green ≤10% · yellow ≤25% · red above',
     },
     {
       key: 'fsrs_lapse_rate', label: 'FSRS lapse', isPct: true, polarity: 'down',
       hint: 'Share of FSRS cards graded Again. Lower = retention is holding.',
       format: v => v == null ? '—' : `${(v * 100).toFixed(0)}%`,
       rating: v => v == null ? C.textMuted : v <= 0.15 ? C.green : v <= 0.3 ? C.yellow : C.red,
+      thresholds: 'green ≤15% · yellow ≤30% · red above',
+    },
+    {
+      // c2-433 / #329 + #284 followup: SPO tuples card. Absolute count of
+      // subject-predicate-object tuples extracted by /api/tuples/extract.
+      // No threshold tiers — it's a corpus-size indicator, always accent-
+      // colored (healthy-ish regardless of magnitude). Polarity up so the
+      // trend arrow goes green when more tuples accrue between samples.
+      // jumpTo: 'runs' makes the card a one-click path to the Extract Now
+      // button — matches the contradictions → ledger / neg-feedback →
+      // office deep-link pattern.
+      key: 'tuples_total', label: 'SPO tuples', isPct: false, polarity: 'up',
+      hint: 'Total subject-predicate-object tuples extracted (IsA, Causes, UsedFor, HasA, HasPrerequisite, PartOf). Click to jump to Runs where Extract Now lives.',
+      format: v => v == null ? '—' : v.toLocaleString(),
+      rating: v => v == null ? C.textMuted : C.accent,
+      jumpTo: 'runs',
+    },
+    {
+      // c2-433 / #354 forward-compat: proof coverage. Share of facts with
+      // a resolved (Proved or Rejected) Lean4 verdict. Lights up the
+      // moment /api/drift/snapshot starts emitting proof_verified_ratio.
+      key: 'proof_verified_ratio', label: 'Proof coverage', isPct: true, polarity: 'up',
+      hint: 'Share of facts with a resolved Lean4 verdict (Proved or Rejected). Unreachable/Unknown excluded. Higher = more claims verified. No jumpTo — drill in via Admin → Proof.',
+      format: v => v == null ? '—' : `${(v * 100).toFixed(0)}%`,
+      rating: v => v == null ? C.textMuted : v >= 0.5 ? C.green : v >= 0.2 ? C.yellow : C.red,
+      thresholds: 'green ≥50% · yellow ≥20% · red below',
     },
   ];
 
@@ -2607,6 +2679,24 @@ const DriftTab: React.FC<{ C: any; host: string; onJumpTo?: (sub: string) => voi
             fontSize: T.typography.sizeXs, fontWeight: T.typography.weightSemibold,
             opacity: (!current && history.length === 0) ? 0.5 : 1,
           }}>{copiedAt > 0 ? 'Copied \u2713' : 'Copy'}</button>
+        {/* c2-433 / #284 followup: clear session history + localStorage.
+            Native confirm since this is destructive (loses sparkline
+            trend). Hidden when history is empty. */}
+        {history.length > 0 && (
+          <button onClick={() => {
+            if (!window.confirm(`Clear ${history.length} drift sample${history.length === 1 ? '' : 's'} from session + localStorage? The sparklines will reset.`)) return;
+            try { localStorage.removeItem('lfi_drift_history_v1'); } catch { /* quota */ }
+            setHistory([]);
+          }}
+            title={`Clear ${history.length} session sample${history.length === 1 ? '' : 's'} (sparklines reset)`}
+            style={{
+              background: 'transparent', border: `1px solid ${C.borderSubtle}`,
+              color: C.textMuted, borderRadius: T.radii.sm,
+              cursor: 'pointer',
+              padding: '4px 10px', fontFamily: 'inherit',
+              fontSize: T.typography.sizeXs, fontWeight: T.typography.weightSemibold,
+            }}>Clear</button>
+        )}
         <button onClick={load} disabled={loading}
           title={loading ? 'Refreshing…' : 'Refresh now'}
           style={{
@@ -2689,8 +2779,12 @@ const DriftTab: React.FC<{ C: any; host: string; onJumpTo?: (sub: string) => voi
             textAlign: 'left' as const, fontFamily: 'inherit',
             color: C.text,
           };
+          // c2-433 / #284 followup #3: append threshold legend to the
+          // tooltip when the metric has explicit boundaries, so hover
+          // reveals why a value renders green/yellow/red.
+          const fullTitle = m.thresholds ? `${m.hint}\n\nThresholds: ${m.thresholds}` : m.hint;
           return canJump ? (
-            <button key={m.key} type='button' title={m.hint}
+            <button key={m.key} type='button' title={fullTitle}
               onClick={() => onJumpTo!(m.jumpTo!)}
               aria-label={`${m.label} — click to jump to ${m.jumpTo}`}
               style={{
@@ -2700,7 +2794,7 @@ const DriftTab: React.FC<{ C: any; host: string; onJumpTo?: (sub: string) => voi
               {body}
             </button>
           ) : (
-            <div key={m.key} title={m.hint}
+            <div key={m.key} title={fullTitle}
               style={commonStyle}>
               {body}
             </div>
@@ -2730,16 +2824,33 @@ const IngestRunsTab: React.FC<{ C: any; host: string }> = ({ C, host }) => {
   // c2-433 / #308: domain-gap scheduler — thinnest domains to ingest next.
   // Silent-fail so an unavailable endpoint just hides the panel.
   const [gaps, setGaps] = React.useState<any[] | null>(null);
+  // c2-433 / #312 followup: Copy-to-clipboard feedback state. 2s label
+  // flip matching the Drift + Ledger export pattern.
+  const [copiedAt, setCopiedAt] = React.useState<number>(0);
+  // c2-433 / #329: tuple-extraction counter + manual-run button state.
+  // tupleCount tracks /api/tuples/count; extracting is true during the
+  // POST /api/tuples/extract round-trip; extractMsg surfaces the +N added
+  // or error result inline for ~4s.
+  const [tupleCount, setTupleCount] = React.useState<number | null>(null);
+  // c2-433: click-to-copy run_id flash state. Holds the id of the run
+  // whose id was just copied; self-clears after 1.5s.
+  const [copiedRunId, setCopiedRunId] = React.useState<string | null>(null);
+  // c2-433: same pattern for Suggested Next domain click-copy.
+  const [copiedDomain, setCopiedDomain] = React.useState<string | null>(null);
+  const [extracting, setExtracting] = React.useState<boolean>(false);
+  const [extractMsg, setExtractMsg] = React.useState<string | null>(null);
 
   const load = React.useCallback(async () => {
     setLoading(true);
     setErr(null);
     try {
-      // c2-433 / #308: fetch gaps in parallel. Silent-fail on gaps so the
-      // list path still surfaces its own success/error.
-      const [listRes, gapsRes] = await Promise.all([
+      // c2-433 / #308 + #329: fetch gaps + tuple count in parallel with
+      // the list. Silent-fail on each so one endpoint outage doesn't
+      // suppress the other panels.
+      const [listRes, gapsRes, tcRes] = await Promise.all([
         fetch(`http://${host}:3000/api/ingest/list`),
         fetch(`http://${host}:3000/api/ingest/gaps?limit=10`).catch(() => null as Response | null),
+        fetch(`http://${host}:3000/api/tuples/count`).catch(() => null as Response | null),
       ]);
       if (!listRes.ok) throw new Error(`HTTP ${listRes.status}`);
       const data = await listRes.json();
@@ -2761,6 +2872,17 @@ const IngestRunsTab: React.FC<{ C: any; host: string }> = ({ C, host }) => {
           setGaps(glist);
         } catch { /* parse error — leave gaps as-is */ }
       }
+      // c2-433 / #329: tuples count is a plain number or {count:N}. Tolerant.
+      if (tcRes && tcRes.ok) {
+        try {
+          const tdata = await tcRes.json();
+          const n: number | null = typeof tdata === 'number' ? tdata
+            : typeof tdata?.count === 'number' ? tdata.count
+            : typeof tdata?.tuples === 'number' ? tdata.tuples
+            : typeof tdata?.total === 'number' ? tdata.total : null;
+          setTupleCount(n);
+        } catch { /* leave tupleCount as-is */ }
+      }
     } catch (e: any) {
       setErr(String(e?.message || e || 'fetch failed'));
     } finally {
@@ -2772,6 +2894,35 @@ const IngestRunsTab: React.FC<{ C: any; host: string }> = ({ C, host }) => {
     const id = window.setInterval(load, 10_000);
     return () => window.clearInterval(id);
   }, [load]);
+
+  // c2-433 / #329: trigger tuple extraction. POST with limit=500 is the
+  // canonical one-shot per Claude 0's spec. After success, refetch via
+  // load() so the counter updates AND any new ingest progress is seen.
+  const runExtract = async () => {
+    setExtracting(true);
+    setExtractMsg(null);
+    const before = tupleCount ?? 0;
+    try {
+      const r = await fetch(`http://${host}:3000/api/tuples/extract`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ limit: 500 }),
+      });
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      const data = await r.json().catch(() => ({}));
+      const added: number | null = typeof data.added === 'number' ? data.added
+        : typeof data.inserted === 'number' ? data.inserted
+        : typeof data.new === 'number' ? data.new
+        : typeof data.count === 'number' ? data.count - before : null;
+      setExtractMsg(added != null ? `+${added.toLocaleString()} tuples` : `Extracted`);
+      load();
+    } catch (e: any) {
+      setExtractMsg(`Extract failed: ${String(e?.message || e || 'unknown')}`);
+    } finally {
+      setExtracting(false);
+      window.setTimeout(() => setExtractMsg(null), 4000);
+    }
+  };
 
   const statusOf = (r: any): string => String(r.status ?? r.state ?? '').toLowerCase();
   const isRunning = (r: any) => {
@@ -2837,10 +2988,30 @@ const IngestRunsTab: React.FC<{ C: any; host: string }> = ({ C, host }) => {
           display: 'flex', flexDirection: 'column', gap: '6px',
         }}>
         <div style={{ display: 'flex', alignItems: 'baseline', gap: T.spacing.sm, flexWrap: 'wrap' }}>
-          <span style={{
-            fontFamily: T.typography.fontMono, fontSize: T.typography.sizeXs,
-            color: C.accent, fontWeight: 700,
-          }} title={id}>{id.length > 24 ? id.slice(0, 24) + '…' : id}</span>
+          {/* c2-433: click run_id to copy the full value — saves ticket-
+              filers from selecting around the truncation ellipsis. 1.5s
+              green flash confirms the write. */}
+          <button type='button'
+            onClick={async () => {
+              try {
+                await navigator.clipboard.writeText(id);
+                setCopiedRunId(id);
+                window.setTimeout(() => {
+                  setCopiedRunId(prev => prev === id ? null : prev);
+                }, 1500);
+              } catch { /* clipboard blocked */ }
+            }}
+            title={copiedRunId === id ? `Copied ${id}` : `${id} — click to copy`}
+            aria-label={copiedRunId === id ? `Copied run id ${id}` : `Copy run id ${id}`}
+            style={{
+              background: 'transparent', border: 'none',
+              padding: 0, cursor: 'pointer',
+              fontFamily: T.typography.fontMono, fontSize: T.typography.sizeXs,
+              color: copiedRunId === id ? C.green : C.accent, fontWeight: 700,
+              textDecoration: 'underline', textDecorationColor: `${copiedRunId === id ? C.green : C.accent}55`,
+              textUnderlineOffset: '2px',
+              transition: 'color 180ms',
+            }}>{copiedRunId === id ? `copied ${id.slice(0, 18)}…` : (id.length > 24 ? id.slice(0, 24) + '…' : id)}</button>
           <span style={{
             fontFamily: T.typography.fontMono, fontSize: T.typography.sizeSm,
             color: C.text, flex: 1, minWidth: 0,
@@ -2900,6 +3071,38 @@ const IngestRunsTab: React.FC<{ C: any; host: string }> = ({ C, host }) => {
           </span>}
         </h2>
         <div style={{ flex: 1 }} />
+        {/* c2-433 / #329: tuples counter + Extract Now. Chip shows current
+            tupleCount (SI-compact), click fires POST /api/tuples/extract
+            {limit:500}. Inline message pill after for ~4s. Hidden when the
+            count endpoint never returned (fresh install / endpoint not
+            exposed) so the chip doesnt render with a dash. */}
+        {tupleCount != null && (
+          <>
+            {extractMsg && (
+              <span role='status' style={{
+                fontSize: T.typography.sizeXs,
+                color: extractMsg.startsWith('Extract failed') ? C.red : C.green,
+                fontFamily: T.typography.fontMono,
+              }}>{extractMsg}</span>
+            )}
+            <button onClick={runExtract} disabled={extracting}
+              title={`${tupleCount.toLocaleString()} tuples extracted · click to run POST /api/tuples/extract {limit:500}`}
+              style={{
+                background: extracting ? C.bgInput : 'transparent',
+                border: `1px solid ${C.borderSubtle}`,
+                color: C.textMuted, borderRadius: T.radii.sm,
+                cursor: extracting ? 'wait' : 'pointer',
+                padding: '4px 10px', fontFamily: 'inherit',
+                fontSize: T.typography.sizeXs, fontWeight: T.typography.weightSemibold,
+                display: 'inline-flex', alignItems: 'center', gap: '6px',
+              }}>
+              <span style={{ color: C.accent, fontFamily: T.typography.fontMono }}>
+                {compactNum(tupleCount)}
+              </span>
+              <span>{extracting ? 'Extracting…' : 'Extract'}</span>
+            </button>
+          </>
+        )}
         {/* c2-433 / #312 followup: search input. Esc clears when non-empty,
             else propagates (closes parent modal / moves on). */}
         {runs != null && runs.length > 0 && (
@@ -2916,7 +3119,10 @@ const IngestRunsTab: React.FC<{ C: any; host: string }> = ({ C, host }) => {
             placeholder='Filter runs…'
             aria-label='Filter ingest runs by id, source, or status'
             style={{
-              padding: '4px 10px', width: '180px',
+              // c2-433 / mobile fix: flex-basis lets the filter shrink on
+              // narrow viewports instead of forcing a fixed 180px which
+              // pushed the Refresh button off-screen.
+              padding: '4px 10px', flex: '1 1 140px', maxWidth: '220px',
               background: C.bgCard, border: `1px solid ${C.borderSubtle}`,
               color: C.text, borderRadius: T.radii.sm,
               fontFamily: 'inherit', fontSize: T.typography.sizeXs,
@@ -2928,6 +3134,33 @@ const IngestRunsTab: React.FC<{ C: any; host: string }> = ({ C, host }) => {
             {formatRelative(lastFetched)}
           </span>
         )}
+        {/* c2-433 / #312 followup: export runs + gaps snapshot as JSON.
+            Matches the Drift + Ledger Copy pattern. */}
+        <button
+          disabled={!runs || runs.length === 0}
+          onClick={async () => {
+            const payload = {
+              exported_at: new Date().toISOString(),
+              runs: runs || [],
+              gaps: gaps || [],
+            };
+            try {
+              await navigator.clipboard.writeText(JSON.stringify(payload, null, 2));
+              setCopiedAt(Date.now());
+              window.setTimeout(() => setCopiedAt(0), 2000);
+            } catch { /* clipboard blocked */ }
+          }}
+          title={copiedAt > 0 ? 'Copied to clipboard' : `Copy ${runs?.length ?? 0} run${runs?.length === 1 ? '' : 's'} + ${gaps?.length ?? 0} suggested domains as JSON`}
+          style={{
+            background: copiedAt > 0 ? `${C.green}18` : 'transparent',
+            border: `1px solid ${copiedAt > 0 ? C.green : C.borderSubtle}`,
+            color: copiedAt > 0 ? C.green : (runs && runs.length > 0 ? C.textMuted : C.textDim),
+            borderRadius: T.radii.sm,
+            cursor: (!runs || runs.length === 0) ? 'not-allowed' : 'pointer',
+            padding: '4px 10px', fontFamily: 'inherit',
+            fontSize: T.typography.sizeXs, fontWeight: T.typography.weightSemibold,
+            opacity: (!runs || runs.length === 0) ? 0.5 : 1,
+          }}>{copiedAt > 0 ? 'Copied \u2713' : 'Copy'}</button>
         <button onClick={load} disabled={loading}
           title={loading ? 'Refreshing…' : 'Refresh now (auto-refreshes every 10s)'}
           style={{
@@ -3022,12 +3255,33 @@ const IngestRunsTab: React.FC<{ C: any; host: string }> = ({ C, host }) => {
                     fontFamily: T.typography.fontMono, fontWeight: T.typography.weightBold,
                     minWidth: '22px', textAlign: 'right',
                   }}>#{i + 1}</span>
-                  <span style={{
-                    flex: 1, minWidth: 0, overflow: 'hidden',
-                    textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-                    color: C.text, fontFamily: T.typography.fontMono,
-                    fontSize: T.typography.sizeSm,
-                  }} title={domain}>{domain}</span>
+                  {/* c2-433: click the domain to copy — operators paste
+                      into batch-ingest configs. 1.5s green flash. */}
+                  <button type='button'
+                    onClick={async () => {
+                      try {
+                        await navigator.clipboard.writeText(domain);
+                        setCopiedDomain(domain);
+                        window.setTimeout(() => {
+                          setCopiedDomain(prev => prev === domain ? null : prev);
+                        }, 1500);
+                      } catch { /* clipboard blocked */ }
+                    }}
+                    title={copiedDomain === domain ? `Copied ${domain}` : `${domain} — click to copy`}
+                    aria-label={copiedDomain === domain ? `Copied domain ${domain}` : `Copy domain ${domain}`}
+                    style={{
+                      flex: 1, minWidth: 0, overflow: 'hidden',
+                      textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                      color: copiedDomain === domain ? C.green : C.text,
+                      fontFamily: T.typography.fontMono,
+                      fontSize: T.typography.sizeSm,
+                      background: 'transparent', border: 'none', padding: 0,
+                      cursor: 'pointer', textAlign: 'left',
+                      textDecoration: 'underline',
+                      textDecorationColor: `${copiedDomain === domain ? C.green : C.text}22`,
+                      textUnderlineOffset: '2px',
+                      transition: 'color 180ms',
+                    }}>{copiedDomain === domain ? `copied ${domain}` : domain}</button>
                   <span style={{
                     display: 'flex', gap: '10px', alignItems: 'center',
                     flexShrink: 0, fontSize: '10px',

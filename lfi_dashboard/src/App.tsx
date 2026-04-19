@@ -416,6 +416,20 @@ const SovereignCommandConsole: React.FC = () => {
   // time. Disables all 4 rating buttons during POST so a double-click
   // can't fire two grades for the same card.
   const [factReviewing, setFactReviewing] = useState<boolean>(false);
+  // c2-433 / #354: "Verify now" button state. True while POST
+  // /api/proof/verify is in-flight so the button disables + shows
+  // wait cursor.
+  const [factVerifying, setFactVerifying] = useState<boolean>(false);
+  // c2-433 / #354 followup: 1.5s flash when proof_hash is click-copied.
+  const [copiedProofHash, setCopiedProofHash] = useState<string | null>(null);
+  // c2-433 / #274 followup: add-translation inline form state. When expanded,
+  // the popover footer shows a small language + text form. Saving POSTs
+  // /api/concepts/link and refreshes the Translations section.
+  const [factLinkOpen, setFactLinkOpen] = useState<boolean>(false);
+  const [factLinkLang, setFactLinkLang] = useState<string>('en');
+  const [factLinkText, setFactLinkText] = useState<string>('');
+  const [factLinkSaving, setFactLinkSaving] = useState<boolean>(false);
+  const [factLinkErr, setFactLinkErr] = useState<string | null>(null);
   // Tracks whether the chat is scrolled to the latest message. False = user
   // is reading history; we surface a "scroll to bottom" affordance.
   const [chatAtBottom, setChatAtBottom] = useState(true);
@@ -480,24 +494,15 @@ const SovereignCommandConsole: React.FC = () => {
   // user-turn for the retry-pill content without closing over stale state.
   const messagesRef = useRef<typeof messages>([]);
   useEffect(() => { messagesRef.current = messages; }, [messages]);
-  // c2-433 / task 260: mirror currentConversationId for applyToStreamingConvo
-  // — without this the WS handlers comparison "targetId === currentConvId"
-  // reads stale closure state, causing chat_chunks from the original
-  // streaming convo to bleed into the now-active convo when the user
-  // switches mid-stream. The fix the previous-author intended (streaming
-  // ConvoIdRef) handled the conversations-write side but not the messages
-  // gate. Combined with that ref, the bleed is fully sealed.
-  const currentConversationIdRef = useRef<string>(currentConversationId);
-  useEffect(() => { currentConversationIdRef.current = currentConversationId; }, [currentConversationId]);
-  // c2-433 / task 261: same closure-staleness fix for settings (used by the
-  // OS-notification block in chat_done — toggling notifyOnReply mid-session
-  // wouldn't take effect because the WS closure held the WS-setup-time
-  // value) and conversations (used to find the streaming convo's last
-  // assistant message for the notification preview).
-  const settingsRef = useRef(settings);
-  useEffect(() => { settingsRef.current = settings; }, [settings]);
-  const conversationsRef = useRef(conversations);
-  useEffect(() => { conversationsRef.current = conversations; }, [conversations]);
+  // c2-433 / task 260: currentConversationIdRef mirror is set up AFTER the
+  // useState for currentConversationId (below line 2204). This comment
+  // stays here so future refactors don't re-introduce the ref up here and
+  // recreate the TDZ bug ('Cannot access ke before initialization').
+  // c2-433 / task 261: settingsRef + conversationsRef moved to AFTER their
+  // respective useState declarations (~line 592 + ~2244). Placing the ref
+  // above the state caused a production TDZ ('Cannot access ge before
+  // initialization') identical to the currentConversationIdRef bug above.
+  // Search for "task 261 mirror" below for the actual setup.
   const [expandedReasoning, setExpandedReasoning] = useState<number | null>(null);
   const [showTelemetry, setShowTelemetry] = useState(false);
   const [showAdmin, setShowAdmin] = useState(false);
@@ -591,6 +596,14 @@ const SovereignCommandConsole: React.FC = () => {
       return { ...defaultSettings, theme: prefersLight ? 'light' : 'dark' };
     } catch { return defaultSettings; }
   });
+  // c2-433 / task 261 mirror: settingsRef is read by the WS chat_done handler
+  // (OS-notification block) which closes over this function's scope at WS
+  // setup. Without a ref, toggling notifyOnReply mid-session wouldn't take
+  // effect. Must be declared AFTER the useState to avoid TDZ — previously
+  // at line ~506 this crashed prod with 'Cannot access ge before
+  // initialization'.
+  const settingsRef = useRef(settings);
+  useEffect(() => { settingsRef.current = settings; }, [settings]);
   // c0-011 #9: sync theme to backend on change so preferences persist across
   // devices. Fires once per distinct theme value (dedup via ref), including
   // the initial hydrated value — that one-shot keeps backend in sync with
@@ -1085,12 +1098,77 @@ ${cmdList}
   // is the right behavior when the endpoint is unreachable.
   useEffect(() => {
     let cancelled = false;
-    const load = async () => {
+
+    // c2-433 / #355: /api/health/extended is a 22ms one-call bundle
+    // covering drift (11 metrics) + proof counts + contradictions_pending
+    // + tuples_total + hdc_cache {cached,sample,coverage} + tier.
+    // Try it first; fall back to the old 4-parallel pattern if the
+    // endpoint 404s (older deployments without #355).
+    const applyBundle = (d: any) => {
+      if (cancelled || !d || typeof d !== 'object') return;
+      // Tier — top-level OR nested subsystems.current_tier.
+      const tier = d.tier ?? d.subsystems?.current_tier;
+      if (typeof tier === 'string' && tier) {
+        setCurrentTier(prev => prev === tier ? prev : tier);
+      }
+      // Substrate stats — canonical counts from #355 are drift.fresh_count /
+      // axioms; older /api/health nests them under subsystems.
+      const subs = d.subsystems || {};
+      const drift = d.drift || {};
+      const concepts = (typeof d.concepts === 'number' ? d.concepts
+        : typeof subs.knowledge_concepts === 'number' ? subs.knowledge_concepts
+        : typeof drift.concepts === 'number' ? drift.concepts
+        : 0);
+      const axioms = (typeof d.axioms === 'number' ? d.axioms
+        : typeof subs.psl_axioms_registered === 'number' ? subs.psl_axioms_registered
+        : 0);
+      const chatTotal = typeof d.chat_total === 'number' ? d.chat_total
+        : typeof d.chatTotal === 'number' ? d.chatTotal
+        : 0;
+      setSubstrateStats({ concepts, axioms, chatTotal });
+      // Contradictions pending — top-level number per #355.
+      const cp = typeof d.contradictions_pending === 'number' ? d.contradictions_pending
+        : typeof drift.contradictions_pending === 'number' ? drift.contradictions_pending
+        : null;
+      if (cp != null) {
+        setContradictionsPending(cp);
+        if (prevContradictionsRef.current != null && cp > prevContradictionsRef.current) {
+          setContradictionsPulseId(id => id + 1);
+        }
+        prevContradictionsRef.current = cp;
+      }
+      // HDC cache — new nested shape {cached, sample, coverage} OR legacy
+      // {sample_cached, sample_size, coverage}.
+      const hdc = d.hdc_cache;
+      if (hdc && typeof hdc === 'object') {
+        const sample_cached = typeof hdc.cached === 'number' ? hdc.cached
+          : typeof hdc.sample_cached === 'number' ? hdc.sample_cached : 0;
+        const sample_size = typeof hdc.sample === 'number' ? hdc.sample
+          : typeof hdc.sample_size === 'number' ? hdc.sample_size : 0;
+        let coverage: number = 0;
+        if (typeof hdc.coverage === 'number') {
+          coverage = hdc.coverage > 1 ? hdc.coverage / 100 : hdc.coverage;
+        } else if (sample_size > 0) {
+          coverage = Math.max(0, Math.min(1, sample_cached / sample_size));
+        }
+        setHdcCache({ coverage, sample_cached, sample_size });
+      }
+    };
+
+    const loadBundled = async (): Promise<boolean> => {
       try {
-        // c2-433 / task 252: parallel fetch of /api/health + /api/metrics
-        // so both refresh on the same 30s cadence. metrics is Prometheus
-        // text format (line-based "metric value\n") — parse the one
-        // counter we care about with a regex (no full prom-parser needed).
+        const r = await fetch(`http://${getHost()}:3000/api/health/extended`);
+        if (!r.ok) return false;
+        const d = await r.json();
+        applyBundle(d);
+        return true;
+      } catch { return false; }
+    };
+
+    // c2-433 / task 236 (legacy): 4-parallel fallback when /api/health/extended
+    // isn't live. Kept intact so older deployments still render every chip.
+    const loadLegacy = async () => {
+      try {
         const [hRes, mRes, cRes, xRes] = await Promise.all([
           fetch(`http://${getHost()}:3000/api/health`),
           fetch(`http://${getHost()}:3000/api/metrics`).catch(() => null as Response | null),
@@ -1114,17 +1192,9 @@ ${cmdList}
           axioms: typeof subs.psl_axioms_registered === 'number' ? subs.psl_axioms_registered : 0,
           chatTotal,
         });
-        // c2-433 / task 238: sync local currentTier with the backend's
-        // authoritative current_tier on every health poll. Catches the case
-        // where a sibling tab / device flipped the tier, OR the backend
-        // restarted and reset to its default. Only writes if different to
-        // avoid a state-update churn loop.
         if (typeof subs.current_tier === 'string' && subs.current_tier) {
           setCurrentTier(prev => prev === subs.current_tier ? prev : subs.current_tier);
         }
-        // c2-433 / #298: pending contradiction count from ledger. The endpoint
-        // returns either an array of rows or { items: [], count: N } — handle
-        // both shapes. Falsy / parse-fail => null (hide badge entirely).
         if (cRes && cRes.ok) {
           try {
             const cj = await cRes.json();
@@ -1137,19 +1207,12 @@ ${cmdList}
               else if (Array.isArray(cj.contradictions)) n = cj.contradictions.length;
             }
             setContradictionsPending(n);
-            // c2-433 / #298 followup: rise detector. Pulse only when count
-            // STRICTLY grew vs the last poll — avoids re-pulsing on
-            // unchanged values or when the count drops (resolved).
             if (typeof n === 'number' && prevContradictionsRef.current != null && n > prevContradictionsRef.current) {
               setContradictionsPulseId(id => id + 1);
             }
             if (typeof n === 'number') prevContradictionsRef.current = n;
           } catch { /* contradictions parse failure — leave badge as-is */ }
         }
-        // c2-433 / #256: HDC encode-cache coverage. Expected payload
-        // {sample_cached, sample_size, coverage} per Claude 0's 03:00 spec.
-        // Coverage may be reported as 0..1 or 0..100; normalize to a 0..1
-        // float so the chip renders consistently.
         if (xRes && xRes.ok) {
           try {
             const xj = await xRes.json();
@@ -1166,6 +1229,12 @@ ${cmdList}
         }
       } catch { /* peripheral metric — silent */ }
     };
+
+    const load = async () => {
+      const ok = await loadBundled();
+      if (!ok) await loadLegacy();
+    };
+
     load();
     const id = window.setInterval(load, 30_000);
     return () => { cancelled = true; window.clearInterval(id); };
@@ -2205,6 +2274,22 @@ ${cmdList}
     const stored = localStorage.getItem(LS_CURRENT_KEY);
     return stored || '';
   });
+  // c2-433 / task 260: mirror currentConversationId for applyToStreamingConvo
+  // — without this the WS handlers comparison "targetId === currentConvId"
+  // reads stale closure state, causing chat_chunks from the original
+  // streaming convo to bleed into the now-active convo when the user
+  // switches mid-stream. Moved DOWN from line 490 where it caused a TDZ
+  // (currentConversationId was declared after the ref, so production
+  // builds threw 'Cannot access ke before initialization' on mount).
+  const currentConversationIdRef = useRef<string>(currentConversationId);
+  useEffect(() => { currentConversationIdRef.current = currentConversationId; }, [currentConversationId]);
+  // c2-433 / task 261 mirror: conversationsRef is read by the WS chat_done
+  // handler to look up the streaming convo's last assistant turn for the
+  // OS-notification preview. Previously at line ~508 above the useState,
+  // which caused the production TDZ 'Cannot access ge before initialization'
+  // (minified as ge paired with settings above).
+  const conversationsRef = useRef(conversations);
+  useEffect(() => { conversationsRef.current = conversations; }, [conversations]);
 
   // Ensure we always have an active conversation to write into.
   // c2-246 / #107: when the stored id is missing or stale, prefer the most
@@ -3161,6 +3246,30 @@ ${cmdList}
         setFactPopover(prev => prev && prev.key === key ? { ...prev, error: String(e?.message || e || 'fetch failed'), loading: false } : prev);
       }
     })();
+    // c2-433 / #274: cross-lingual concept map. When the key looks like
+    // concept:NAME (or concept/NAME), also fetch the translations list.
+    // Silent-fail — the popover renders without the Translations section
+    // if the endpoint isnt live or the id isnt linked.
+    const conceptMatch = key.match(/^concept[:/](.+)$/);
+    if (conceptMatch) {
+      const conceptId = conceptMatch[1];
+      (async () => {
+        try {
+          const r = await fetch(`http://${getHost()}:3000/api/concepts/${encodeURIComponent(conceptId)}/translations`);
+          if (!r.ok) return;
+          const tdata = await r.json();
+          const list: any[] = Array.isArray(tdata) ? tdata
+            : Array.isArray(tdata?.translations) ? tdata.translations
+            : Array.isArray(tdata?.items) ? tdata.items
+            : [];
+          // Merge into the existing popover data under _translations so the
+          // popover render can pick it up without schema collisions.
+          setFactPopover(prev => prev && prev.key === key
+            ? { ...prev, data: { ...(prev.data || {}), _translations: list } }
+            : prev);
+        } catch { /* silent */ }
+      })();
+    }
   };
 
   // Markdown renderer lives in ./markdown.tsx; we build a ctx each render so the
@@ -3568,10 +3677,14 @@ ${cmdList}
           the viewport edges so it doesn't paint offscreen on phones. Esc /
           outside-click closes via the keydown handler chain + the backdrop. */}
       {factPopover && (() => {
-        const W = 320;  // popover width
+        // c2-433 / mobile: cap popover width to viewport minus gutters so
+        // the 320px default doesn't overflow 320px mobile viewports. On
+        // 375px iPhone we still get 320. On 320px Android the popover
+        // shrinks to fit.
         const margin = 8;
         const vw = typeof window !== 'undefined' ? window.innerWidth : 1024;
         const vh = typeof window !== 'undefined' ? window.innerHeight : 768;
+        const W = Math.min(320, vw - margin * 2);
         const left = Math.min(Math.max(factPopover.x - W / 2, margin), vw - W - margin);
         const maxH = Math.max(160, vh - factPopover.y - margin - 20);
         return (
@@ -3665,6 +3778,81 @@ ${cmdList}
                   if (d.source) rows.push({ label: 'Source', value: d.source });
                   if (d.psl_status || d.psl) rows.push({ label: 'PSL', value: d.psl_status || d.psl });
                   if (typeof d.trust === 'number') rows.push({ label: 'Trust', value: d.trust.toFixed(2), mono: true });
+                  // c2-433 / #182 + #354: Lean4/Kimina verdict. Forward-compat —
+                  // renders whenever the ancestry payload carries
+                  // proof_status / verdict / lean_verdict / verifier_verdict.
+                  // Colored badge: Proved=green, Rejected=red, Unreachable=yellow
+                  // (verifier down; prior tier preserved per #354 NO-OP semantic),
+                  // Error=red. Silent when absent. Appends checked_at relative
+                  // timestamp (from #354 facts.checked_at column) below the badge
+                  // when present.
+                  const rawVerdict = d.proof_status ?? d.verdict ?? d.lean_verdict ?? d.verifier_verdict;
+                  if (rawVerdict) {
+                    const v = String(rawVerdict).toLowerCase();
+                    const tone = v === 'proved' || v === 'valid' || v === 'ok' ? C.green
+                      : v === 'rejected' || v === 'invalid' ? C.red
+                      : v === 'unreachable' || v === 'timeout' || v === 'pending' ? C.yellow
+                      : v === 'error' ? C.red
+                      : C.textMuted;
+                    const checkedAt = d.checked_at ?? d.verified_at ?? d.proof_checked_at;
+                    const checkedMs = checkedAt ? (typeof checkedAt === 'number' ? checkedAt : Date.parse(String(checkedAt))) : null;
+                    const proofHash: string | null = typeof d.proof_hash === 'string' ? d.proof_hash : null;
+                    rows.push({
+                      label: 'Verdict', mono: true,
+                      value: (
+                        <span style={{ display: 'inline-flex', flexDirection: 'column', gap: '3px' }}>
+                          <span style={{
+                            display: 'inline-flex', alignItems: 'center', gap: '4px',
+                            padding: '1px 6px', fontSize: '10px',
+                            background: `${tone}18`, border: `1px solid ${tone}55`,
+                            color: tone, fontWeight: 800,
+                            borderRadius: T.radii.sm,
+                            letterSpacing: '0.04em', textTransform: 'uppercase',
+                            alignSelf: 'flex-start',
+                          }} title={`Lean4/Kimina verifier verdict: ${String(rawVerdict)}${proofHash ? ` · hash ${proofHash.slice(0, 12)}…` : ''}`}>
+                            {String(rawVerdict)}
+                          </span>
+                          {checkedMs && !Number.isNaN(checkedMs) && (
+                            <span style={{
+                              fontSize: '9px', color: C.textDim,
+                              fontFamily: T.typography.fontMono,
+                            }} title={`Last verifier check: ${checkedAt}`}>
+                              checked {formatRelative(checkedMs)}
+                              {/* c2-433 / #354 followup: click-copy proof_hash.
+                                  Mirrors the run_id / token_id / domain
+                                  pattern. 1.5s green flash on success. */}
+                              {proofHash && (
+                                <button type='button'
+                                  onClick={async (e) => {
+                                    e.stopPropagation();
+                                    try {
+                                      await navigator.clipboard.writeText(proofHash);
+                                      setCopiedProofHash(proofHash);
+                                      window.setTimeout(() => {
+                                        setCopiedProofHash(prev => prev === proofHash ? null : prev);
+                                      }, 1500);
+                                    } catch { /* clipboard blocked */ }
+                                  }}
+                                  title={copiedProofHash === proofHash ? `Copied ${proofHash}` : `${proofHash} — click to copy proof_hash`}
+                                  aria-label={copiedProofHash === proofHash ? `Copied proof hash` : `Copy proof hash ${proofHash}`}
+                                  style={{
+                                    marginLeft: '6px',
+                                    background: 'transparent', border: 'none', padding: 0,
+                                    color: copiedProofHash === proofHash ? C.green : C.textDim,
+                                    fontFamily: T.typography.fontMono, fontSize: '9px',
+                                    cursor: 'pointer',
+                                    textDecoration: 'underline',
+                                    textDecorationColor: `${copiedProofHash === proofHash ? C.green : C.textDim}33`,
+                                    textUnderlineOffset: '2px',
+                                    transition: 'color 180ms',
+                                  }}>{copiedProofHash === proofHash ? 'copied ✓' : `· h:${proofHash.slice(0, 8)}…`}</button>
+                              )}
+                            </span>
+                          )}
+                        </span>
+                      ),
+                    });
+                  }
                   if (d.temporal_class || d.tier) rows.push({ label: 'Tier', value: d.temporal_class || d.tier });
                   if (d.explanation) rows.push({ label: 'Note', value: d.explanation });
                   // c2-433 / #299: ancestry payload arrays (versions /
@@ -3676,7 +3864,11 @@ ${cmdList}
                   const contradictions: any[] = Array.isArray(d.contradictions) ? d.contradictions : [];
                   const inbound: any[] = Array.isArray(d.inbound_edges) ? d.inbound_edges : [];
                   const outbound: any[] = Array.isArray(d.outbound_edges) ? d.outbound_edges : [];
-                  const hasAncestry = versions.length + contradictions.length + inbound.length + outbound.length > 0;
+                  // c2-433 / #274: translations from /api/concepts/:id/translations
+                  // (injected under _translations by openFactKey for concept: keys).
+                  // Each entry: {language, text} tolerant to {lang, text} fallback.
+                  const translations: any[] = Array.isArray(d._translations) ? d._translations : [];
+                  const hasAncestry = versions.length + contradictions.length + inbound.length + outbound.length + translations.length > 0;
                   // c2-433 / task 240: raw view forced by toggle, OR the
                   // structured render found nothing recognisable in the
                   // payload. Either way the user gets the underlying JSON.
@@ -3756,10 +3948,202 @@ ${cmdList}
                       {section('Contradictions', contradictions, contradictionText, C.red)}
                       {section('Inbound', inbound, edgeText)}
                       {section('Outbound', outbound, edgeText)}
+                      {/* c2-433 / #274: Translations row per-entry —
+                          language tag in accent + the phrase. */}
+                      {section('Translations', translations, (t: any) => {
+                        const lang = String(t.language ?? t.lang ?? '—').toLowerCase();
+                        const text = String(t.text ?? t.value ?? '');
+                        return (
+                          <span>
+                            <span style={{ color: C.accent, fontWeight: 700, marginRight: '6px' }}>{lang}</span>
+                            {text}
+                          </span>
+                        );
+                      }, C.purple)}
                     </div>
                   );
                 })()}
               </div>
+              {/* c2-433 / #274 followup: concept-link inline form. Shows
+                  only when the popover's key is a concept: key. Collapsed
+                  state is a tiny "+ add translation" pill; expanded shows
+                  a 2-col row (lang select + text input) + Save button.
+                  Posts /api/concepts/link then re-runs openFactKey so the
+                  Translations section refreshes with the new entry. */}
+              {(() => {
+                const isConcept = /^concept[:/]/.test(factPopover.key);
+                if (!isConcept || !factPopover.data || factPopover.loading) return null;
+                const conceptId = factPopover.key.replace(/^concept[:/]/, '');
+                return (
+                  <div style={{
+                    padding: '6px 12px', borderTop: `1px solid ${C.borderSubtle}`,
+                    background: C.bgCard,
+                  }}>
+                    {!factLinkOpen ? (
+                      <button onClick={() => { setFactLinkOpen(true); setFactLinkErr(null); }}
+                        style={{
+                          background: 'transparent', border: 'none',
+                          color: C.accent, cursor: 'pointer',
+                          fontSize: '10px', fontWeight: 700,
+                          fontFamily: T.typography.fontMono,
+                          textTransform: 'uppercase', letterSpacing: '0.04em',
+                          padding: 0,
+                        }}>+ add translation</button>
+                    ) : (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                        <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
+                          <select value={factLinkLang}
+                            onChange={(e) => setFactLinkLang(e.target.value)}
+                            aria-label='Translation language'
+                            style={{
+                              padding: '3px 6px', fontSize: '10px',
+                              background: C.bgInput, color: C.text,
+                              border: `1px solid ${C.borderSubtle}`,
+                              borderRadius: T.radii.sm, fontFamily: T.typography.fontMono,
+                            }}>
+                            {['en','es','fr','de','it','pt','ja','zh','ko','ru','ar','hi'].map(l => (
+                              <option key={l} value={l}>{l}</option>
+                            ))}
+                          </select>
+                          <input type='text' value={factLinkText}
+                            onChange={(e) => setFactLinkText(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Escape') { e.stopPropagation(); setFactLinkOpen(false); setFactLinkText(''); setFactLinkErr(null); }
+                            }}
+                            placeholder='translation text'
+                            aria-label='Translation text'
+                            style={{
+                              flex: '1 1 120px', minWidth: 0,
+                              padding: '3px 6px', fontSize: '10px',
+                              background: C.bgInput, color: C.text,
+                              border: `1px solid ${C.borderSubtle}`,
+                              borderRadius: T.radii.sm, fontFamily: 'inherit',
+                              outline: 'none',
+                            }} />
+                        </div>
+                        {factLinkErr && (
+                          <div style={{ fontSize: '10px', color: C.red, fontFamily: T.typography.fontMono }}>
+                            {factLinkErr}
+                          </div>
+                        )}
+                        <div style={{ display: 'flex', gap: '4px', justifyContent: 'flex-end' }}>
+                          <button onClick={() => { setFactLinkOpen(false); setFactLinkText(''); setFactLinkErr(null); }}
+                            style={{
+                              padding: '3px 9px', fontSize: '10px',
+                              fontWeight: T.typography.weightBold,
+                              background: 'transparent', color: C.textMuted,
+                              border: `1px solid ${C.borderSubtle}`, borderRadius: T.radii.sm,
+                              cursor: 'pointer', fontFamily: 'inherit',
+                              letterSpacing: '0.04em', textTransform: 'uppercase',
+                            }}>Cancel</button>
+                          <button disabled={factLinkSaving || !factLinkText.trim()}
+                            onClick={async () => {
+                              setFactLinkSaving(true);
+                              setFactLinkErr(null);
+                              try {
+                                const r = await fetch(`http://${getHost()}:3000/api/concepts/link`, {
+                                  method: 'POST',
+                                  headers: { 'Content-Type': 'application/json' },
+                                  body: JSON.stringify({ concept_id: conceptId, language: factLinkLang, text: factLinkText.trim() }),
+                                });
+                                if (!r.ok) throw new Error(`HTTP ${r.status}`);
+                                showToast(`Linked ${factLinkLang}: ${factLinkText.trim().slice(0, 40)}`);
+                                logEvent('concept_linked', { concept_id: conceptId, language: factLinkLang });
+                                setFactLinkText('');
+                                setFactLinkOpen(false);
+                                // Re-fetch translations by re-opening the popover
+                                // at the same anchor. Use a small dummy rect at
+                                // the current position since we don't have the
+                                // original.
+                                const pr = factPopover;
+                                if (pr) {
+                                  openFactKey(pr.key, new DOMRect(pr.x - 10, pr.y - 26, 20, 20));
+                                }
+                              } catch (e: any) {
+                                setFactLinkErr(String(e?.message || e || 'link failed'));
+                              } finally {
+                                setFactLinkSaving(false);
+                              }
+                            }}
+                            style={{
+                              padding: '3px 9px', fontSize: '10px',
+                              fontWeight: T.typography.weightBold,
+                              background: C.accentBg, color: C.accent,
+                              border: `1px solid ${C.accentBorder}`, borderRadius: T.radii.sm,
+                              cursor: (factLinkSaving || !factLinkText.trim()) ? 'not-allowed' : 'pointer',
+                              fontFamily: 'inherit',
+                              letterSpacing: '0.04em', textTransform: 'uppercase',
+                              opacity: (factLinkSaving || !factLinkText.trim()) ? 0.5 : 1,
+                            }}>{factLinkSaving ? 'Saving…' : 'Save'}</button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
+              {/* c2-433 / #354: Verify-now button. Visible when the fact
+                  popover's data is loaded AND proof_status is missing or
+                  still pending/unknown. Click POSTs /api/proof/verify
+                  {fact_key} and re-opens the popover to pull the fresh
+                  verdict. Hidden once a proved/rejected verdict is on
+                  file so users don't spam the verifier on proved facts. */}
+              {factPopover.data && !factPopover.loading && !factPopover.error && (() => {
+                const ps = String(factPopover.data.proof_status ?? factPopover.data.verdict ?? factPopover.data.lean_verdict ?? '').toLowerCase();
+                const needsVerify = !ps || ps === 'unknown' || ps === 'pending' || ps === 'unreachable' || ps === 'error';
+                if (!needsVerify) return null;
+                return (
+                  <div style={{
+                    padding: '6px 12px',
+                    borderTop: `1px solid ${C.borderSubtle}`,
+                    background: C.bgCard, display: 'flex', alignItems: 'center', gap: T.spacing.sm,
+                  }}>
+                    <span style={{ flex: 1, fontSize: '10px', color: C.textMuted, fontFamily: T.typography.fontMono }}>
+                      {ps === 'unreachable' ? 'verifier was down' : ps === 'pending' ? 'verifier queued' : 'unverified'}
+                    </span>
+                    <button disabled={factVerifying}
+                      onClick={async () => {
+                        const key = factPopover.key;
+                        setFactVerifying(true);
+                        try {
+                          const r = await fetch(`http://${getHost()}:3000/api/proof/verify`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ fact_key: key }),
+                          });
+                          if (!r.ok) {
+                            if (r.status === 404) {
+                              showToast('Verify endpoint not live');
+                            } else {
+                              throw new Error(`HTTP ${r.status}`);
+                            }
+                          } else {
+                            const data = await r.json().catch(() => ({}));
+                            const v: string = data.verdict ?? data.proof_status ?? data.status ?? 'done';
+                            showToast(`Verify: ${v}`);
+                            logEvent('proof_verify_triggered', { fact_key: key, verdict: v });
+                            // Re-open popover to pull the updated verdict
+                            const pr = factPopover;
+                            if (pr) openFactKey(pr.key, new DOMRect(pr.x - 10, pr.y - 26, 20, 20));
+                          }
+                        } catch (e: any) {
+                          showToast(`Verify failed: ${String(e?.message || e || 'unknown')}`);
+                        } finally {
+                          setFactVerifying(false);
+                        }
+                      }}
+                      style={{
+                        padding: '3px 10px', fontSize: '10px',
+                        fontWeight: T.typography.weightBold,
+                        background: C.accentBg, color: C.accent,
+                        border: `1px solid ${C.accentBorder}`, borderRadius: T.radii.sm,
+                        cursor: factVerifying ? 'wait' : 'pointer',
+                        fontFamily: 'inherit', letterSpacing: '0.04em',
+                        textTransform: 'uppercase',
+                        opacity: factVerifying ? 0.6 : 1,
+                      }}>{factVerifying ? 'Verifying…' : 'Verify now'}</button>
+                  </div>
+                );
+              })()}
               {/* c2-433 / #337 followup: FSRS review footer. When the fact
                   popover is open AND we have a key + no active error, show
                   the 4-rating row (Again / Hard / Good / Easy → 1-4). Click
@@ -4312,6 +4696,115 @@ ${cmdList}
             onRun: () => { setAdminInitialTab('logs'); setShowAdmin(true); fetchChatLog(50); } },
           { id: 'open-admin-tokens', label: 'Open Admin → Tokens', hint: 'Issue / list / revoke capability tokens', group: 'Navigate',
             onRun: () => { setAdminInitialTab('tokens'); setShowAdmin(true); } },
+          { id: 'open-admin-proof', label: 'Open Admin → Proof', hint: 'Lean4 verdict distribution across facts', group: 'Navigate',
+            onRun: () => { setAdminInitialTab('proof'); setShowAdmin(true); } },
+          // c2-433 / #354: verify-fact-by-key palette entry. Fast path
+          // for operators with a fact_key in clipboard — skips the
+          // click-open-popover-click-Verify dance. Toasts the verdict
+          // and also pops the popover so the full context is visible.
+          { id: 'verify-fact', label: 'Verify fact by key', hint: 'POST /api/proof/verify — trigger Lean4 check on a fact', group: 'Skills',
+            onRun: async () => {
+              const key = window.prompt('Fact key (e.g. fact:water-boils-at-100c or concept:volcano)');
+              if (!key || !key.trim()) return;
+              const fk = key.trim();
+              try {
+                const r = await fetch(`http://${getHost()}:3000/api/proof/verify`, {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ fact_key: fk }),
+                });
+                if (!r.ok) {
+                  if (r.status === 404) { showToast('Verify endpoint not live or fact not found'); return; }
+                  throw new Error(`HTTP ${r.status}`);
+                }
+                const data = await r.json().catch(() => ({}));
+                const v: string = data.verdict ?? data.proof_status ?? data.status ?? 'done';
+                showToast(`Verify ${fk}: ${v}`);
+                logEvent('proof_verify_triggered', { fact_key: fk, verdict: v, via: 'cmdk' });
+                // Open the popover at viewport-center anchor so the new
+                // verdict row + checked_at timestamp are visible.
+                const vw = typeof window !== 'undefined' ? window.innerWidth : 1024;
+                const vh = typeof window !== 'undefined' ? window.innerHeight : 768;
+                openFactKey(fk, new DOMRect(vw / 2 - 10, vh / 3, 20, 20));
+              } catch (e: any) {
+                showToast(`Verify failed: ${String(e?.message || e || 'unknown')}`);
+              }
+            },
+          },
+          // c2-433 / #353: parse-english palette entry. Ad-hoc tool for
+          // operators to sanity-check the English parser — paste a
+          // sentence, get back the extracted tuples summarized by
+          // canonical predicate. Full payload lands in logEvent for
+          // post-hoc inspection via Activity modal.
+          { id: 'parse-english', label: 'Parse English → tuples', hint: 'POST to /api/parse/english, toast predicate summary', group: 'Skills',
+            onRun: async () => {
+              const text = window.prompt('Parse English (paste one sentence)');
+              if (!text || !text.trim()) return;
+              try {
+                const r = await fetch(`http://${getHost()}:3000/api/parse/english`, {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ text: text.trim() }),
+                });
+                if (!r.ok) throw new Error(`HTTP ${r.status}`);
+                const data = await r.json();
+                const tuples: any[] = Array.isArray(data) ? data
+                  : Array.isArray(data?.tuples) ? data.tuples
+                  : Array.isArray(data?.relations) ? data.relations
+                  : [];
+                if (tuples.length === 0) {
+                  showToast('Parsed: no tuples extracted');
+                } else {
+                  const byPred = new Map<string, number>();
+                  for (const t of tuples) {
+                    const p = String(t.pred ?? t.predicate ?? t.p ?? '?');
+                    byPred.set(p, (byPred.get(p) || 0) + 1);
+                  }
+                  const summary = [...byPred.entries()]
+                    .sort((a, b) => b[1] - a[1])
+                    .map(([p, n]) => `${n} ${p}`)
+                    .join(' · ');
+                  showToast(`Parsed ${tuples.length}: ${summary}`);
+                }
+                logEvent('parse_english', { text: text.trim(), tuples });
+              } catch (e: any) {
+                showToast(`Parse failed: ${String(e?.message || e || 'unknown')}`);
+              }
+            },
+          },
+          // c2-433 / #274: resolve phrase → concept via /api/concepts/resolve.
+          // Uses window.prompt so we don't need to build a new modal surface.
+          // On success, open the shared fact popover at the palette's position
+          // anchored just below the viewport-center with a small dummy rect —
+          // popover positioning logic clamps it to the visible area.
+          { id: 'resolve-concept', label: 'Resolve phrase → concept', hint: 'Look up a concept_id by language + text', group: 'Skills',
+            onRun: async () => {
+              const raw = window.prompt('Resolve phrase (format: "lang text", e.g. "es volcán")');
+              if (!raw) return;
+              const trimmed = raw.trim();
+              const parts = trimmed.split(/\s+/);
+              const lang = parts.length > 1 && parts[0].length <= 4 ? parts.shift()! : 'en';
+              const text = parts.join(' ');
+              if (!text) { showToast('Resolve needs a phrase'); return; }
+              try {
+                const r = await fetch(`http://${getHost()}:3000/api/concepts/resolve?language=${encodeURIComponent(lang)}&text=${encodeURIComponent(text)}`);
+                if (!r.ok) throw new Error(`HTTP ${r.status}`);
+                const data = await r.json();
+                const conceptId: string | null = data?.concept_id ?? data?.id ?? (typeof data === 'string' ? data : null);
+                const fallback: boolean = data?.fallback === true || data?.linked === false;
+                if (!conceptId) { showToast('No concept_id returned'); return; }
+                showToast(`Resolved ${lang}:${text} → ${conceptId}${fallback ? ' (fallback)' : ''}`);
+                logEvent('concept_resolved', { lang, text, concept_id: conceptId, fallback });
+                // Anchor popover near viewport center. openFactKey computes
+                // offsets from the rect, so any plausible on-screen rect works.
+                const vw = typeof window !== 'undefined' ? window.innerWidth : 1024;
+                const vh = typeof window !== 'undefined' ? window.innerHeight : 768;
+                openFactKey(`concept:${conceptId}`, new DOMRect(vw / 2 - 10, vh / 3, 20, 20));
+              } catch (e: any) {
+                showToast(`Resolve failed: ${String(e?.message || e || 'unknown')}`);
+              }
+            },
+          },
           { id: 'toggle-dev', label: `${settings.developerMode ? 'Disable' : 'Enable'} developer mode`, hint: 'Telemetry + plan panel', group: 'Navigate',
             shortcut: '$mod+D',
             onRun: () => { setSettings(s => ({ ...s, developerMode: !s.developerMode })); } },
@@ -6832,7 +7325,7 @@ ${cmdList}
                     </button>
                   )}
                   {modulesUsed.size > 0 && (
-                    <span title='Cognitive modules that contributed to the last turn'
+                    <span title={`Cognitive modules that contributed to the last turn: ${Array.from(modulesUsed).join(', ')}`}
                       style={{
                         display: 'inline-flex', alignItems: 'center', gap: '6px',
                         padding: '3px 10px', fontSize: T.typography.sizeXs,
@@ -6840,9 +7333,13 @@ ${cmdList}
                         border: `1px solid ${C.borderSubtle}`, color: C.textMuted,
                         borderRadius: T.radii.pill,
                         fontFamily: T.typography.fontMono,
+                        // c2-433 / mobile: cap + ellipsize so a 6-module turn
+                        // doesn't blow the pill past the chat input column.
+                        maxWidth: '260px', overflow: 'hidden',
+                        textOverflow: 'ellipsis', whiteSpace: 'nowrap',
                       }}>
                       <span style={{ color: C.accent, fontWeight: 700, fontFamily: 'inherit' }}>via</span>
-                      <span style={{ color: C.text }}>{Array.from(modulesUsed).join(' · ')}</span>
+                      <span style={{ color: C.text, overflow: 'hidden', textOverflow: 'ellipsis' }}>{Array.from(modulesUsed).join(' · ')}</span>
                     </span>
                   )}
                 </div>
