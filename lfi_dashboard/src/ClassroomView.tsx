@@ -746,7 +746,7 @@ export const ClassroomView: React.FC<ClassroomViewProps> = ({ C, host, isDesktop
 
         {/* --- Lesson Plans --- */}
         {sub === 'lessons' && (
-          <LessonsTab C={C} training={data?.training} files={data?.training_files || []} />
+          <LessonsTab C={C} host={host} training={data?.training} files={data?.training_files || []} />
         )}
 
         {/* --- Test Center --- */}
@@ -1615,11 +1615,152 @@ const TestCenterTab: React.FC<{ C: any; host: string; data: DashboardShape | nul
   );
 };
 
+// c0-ask-4 / #405: rollup of external trainer sessions. Backend ships
+// GET /api/trainer/sessions with {sessions:[{trainer, session_id, turns,
+// up_count, down_count, correction_count, last_activity_ts}]}.
+// Card polls every 10s and renders a DataTable with relative-time
+// "last active" + up/down percentages. Empty state prompts the user to
+// run scripts/gemini-trainer.sh.
+interface TrainerSessionRow {
+  trainer: string;
+  session_id: string;
+  turns: number;
+  up_count?: number;
+  down_count?: number;
+  correction_count?: number;
+  last_activity_ts?: number;       // epoch seconds
+  last_activity?: string;          // ISO fallback
+}
+const TrainerSessionsCard: React.FC<{ C: any; host: string }> = ({ C, host }) => {
+  const [rows, setRows] = useState<TrainerSessionRow[] | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  const [nowTick, setNowTick] = useState(0);
+  useEffect(() => {
+    let cancelled = false;
+    const load = async () => {
+      try {
+        const ctrl = new AbortController();
+        const to = setTimeout(() => ctrl.abort(), 8000);
+        const r = await fetch(`http://${host}:3000/api/trainer/sessions`, { signal: ctrl.signal });
+        clearTimeout(to);
+        if (!r.ok) {
+          if (!cancelled) { setErr(`HTTP ${r.status}`); setRows([]); }
+          return;
+        }
+        const j: any = await r.json().catch(() => ({}));
+        if (cancelled) return;
+        const list: TrainerSessionRow[] = Array.isArray(j?.sessions) ? j.sessions : Array.isArray(j) ? j : [];
+        setRows(list);
+        setErr(null);
+      } catch (e: any) {
+        if (!cancelled) { setErr(e?.message || 'unreachable'); setRows([]); }
+      }
+    };
+    load();
+    const id = setInterval(load, 10000);
+    const tickId = setInterval(() => setNowTick(t => t + 1), 15000);
+    return () => { cancelled = true; clearInterval(id); clearInterval(tickId); };
+  }, [host]);
+
+  const relTime = (ts?: number, iso?: string): string => {
+    let seconds = 0;
+    if (typeof ts === 'number' && isFinite(ts)) seconds = Date.now() / 1000 - ts;
+    else if (iso) {
+      const parsed = Date.parse(iso);
+      if (!isNaN(parsed)) seconds = (Date.now() - parsed) / 1000;
+      else return iso;
+    } else return '—';
+    if (seconds < 0) seconds = 0;
+    if (seconds < 60) return `${Math.round(seconds)}s ago`;
+    if (seconds < 3600) return `${Math.round(seconds / 60)}m ago`;
+    if (seconds < 86400) return `${Math.round(seconds / 3600)}h ago`;
+    return `${Math.round(seconds / 86400)}d ago`;
+  };
+  // touch nowTick so the table re-renders relative-time strings.
+  void nowTick;
+
+  return (
+    <div style={{ marginTop: T.spacing.xl }}>
+      <Label color={C.textMuted} mb={T.spacing.md}>Trainer sessions</Label>
+      {rows && rows.length > 0 ? (
+        (() => {
+          const cols: ReadonlyArray<Column<TrainerSessionRow>> = [
+            {
+              id: 'trainer', header: 'Trainer', align: 'left',
+              sortKey: (r) => r.trainer.toLowerCase(),
+              accessor: (r) => <span style={{ fontFamily: T.typography.fontMono, color: C.text }}>{r.trainer}</span>,
+            },
+            {
+              id: 'session_id', header: 'Session', align: 'left',
+              sortKey: (r) => r.session_id,
+              accessor: (r) => <span style={{ fontFamily: T.typography.fontMono, color: C.textMuted, fontSize: T.typography.sizeXs }}>{r.session_id.slice(0, 12)}</span>,
+            },
+            {
+              id: 'turns', header: 'Turns', align: 'right',
+              sortKey: (r) => r.turns,
+              accessor: (r) => <span style={{ fontFamily: T.typography.fontMono, color: C.accent }}>{r.turns.toLocaleString()}</span>,
+            },
+            {
+              id: 'up', header: 'Up%', align: 'right',
+              sortKey: (r) => (r.turns ? (r.up_count || 0) / r.turns : 0),
+              accessor: (r) => {
+                const pct = r.turns ? ((r.up_count || 0) / r.turns) * 100 : 0;
+                return <span style={{ fontFamily: T.typography.fontMono, color: pct >= 80 ? C.green : pct >= 50 ? C.yellow : C.textMuted }}>{pct.toFixed(0)}%</span>;
+              },
+            },
+            {
+              id: 'down', header: 'Down%', align: 'right',
+              sortKey: (r) => (r.turns ? (r.down_count || 0) / r.turns : 0),
+              accessor: (r) => {
+                const pct = r.turns ? ((r.down_count || 0) / r.turns) * 100 : 0;
+                return <span style={{ fontFamily: T.typography.fontMono, color: pct >= 20 ? C.red : C.textMuted }}>{pct.toFixed(0)}%</span>;
+              },
+            },
+            {
+              id: 'corrections', header: 'Corrections', align: 'right',
+              sortKey: (r) => r.correction_count || 0,
+              accessor: (r) => <span style={{ fontFamily: T.typography.fontMono, color: (r.correction_count || 0) > 0 ? C.yellow : C.textMuted }}>{(r.correction_count || 0).toLocaleString()}</span>,
+            },
+            {
+              id: 'last', header: 'Last active', align: 'right',
+              sortKey: (r) => r.last_activity_ts || (r.last_activity ? Date.parse(r.last_activity) / 1000 : 0),
+              accessor: (r) => <span style={{ fontFamily: T.typography.fontMono, color: C.textSecondary, fontSize: T.typography.sizeXs }}>{relTime(r.last_activity_ts, r.last_activity)}</span>,
+            },
+          ];
+          return (
+            <DataTable<TrainerSessionRow> C={C} rows={rows} columns={cols}
+              rowKey={(r) => r.session_id}
+              sort={{ col: 'last', dir: 'desc' }} />
+          );
+        })()
+      ) : (
+        <div style={{
+          padding: T.spacing.md, background: C.bgInput,
+          border: `1px dashed ${C.borderSubtle}`, borderRadius: T.radii.md,
+          color: C.textDim, fontSize: T.typography.sizeXs, lineHeight: 1.55,
+        }}>
+          {err ? (
+            <>
+              <strong style={{ color: C.textMuted }}>Trainer sessions unavailable</strong> — {err}. Endpoint is <code style={{ fontFamily: T.typography.fontMono, color: C.accent }}>GET /api/trainer/sessions</code>.
+            </>
+          ) : (
+            <>
+              <strong style={{ color: C.textMuted }}>No external trainer sessions yet.</strong>{' '}
+              Kick off <code style={{ fontFamily: T.typography.fontMono, color: C.accent }}>scripts/gemini-trainer.sh</code> or POST to <code style={{ fontFamily: T.typography.fontMono, color: C.accent }}>/api/trainer/turn</code> and rows will appear here.
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  );
+};
+
 const LessonsTab: React.FC<{
   C: any;
+  host: string;
   training?: DashboardShape['training'];
   files: Array<{ file: string; pairs: number; size_mb: number }>;
-}> = ({ C, training, files }) => {
+}> = ({ C, host, training, files }) => {
   const totalPairs = files.reduce((s, f) => s + f.pairs, 0);
   const totalMb = files.reduce((s, f) => s + f.size_mb, 0);
   return (
@@ -1681,6 +1822,7 @@ const LessonsTab: React.FC<{
           })()}
         </div>
       )}
+      <TrainerSessionsCard C={C} host={host} />
     </div>
   );
 };
