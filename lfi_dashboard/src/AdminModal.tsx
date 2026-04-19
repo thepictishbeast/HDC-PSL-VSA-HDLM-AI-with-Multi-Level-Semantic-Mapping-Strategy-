@@ -28,7 +28,7 @@ import type { DiagEntry, DiagLevel } from './diag';
 // affordance which users found cramped. Sortable + filterable tables, big-
 // number dashboard cards, bar-chart visualisations of domains + quality.
 
-export type AdminTab = 'dashboard' | 'inventory' | 'domains' | 'training' | 'quality' | 'system' | 'fleet' | 'logs' | 'tokens' | 'proof' | 'diag' | 'docs';
+export type AdminTab = 'dashboard' | 'inventory' | 'domains' | 'training' | 'quality' | 'system' | 'fleet' | 'logs' | 'tokens' | 'proof' | 'diag' | 'docs' | 'crawler';
 
 interface FleetInstance {
   id: string;
@@ -129,7 +129,7 @@ export const AdminModal: React.FC<AdminModalProps> = ({
     if (initialTab !== 'dashboard') return initialTab;
     try {
       const stored = localStorage.getItem('lfi_admin_tab') as AdminTab | null;
-      const valid: AdminTab[] = ['dashboard', 'inventory', 'domains', 'training', 'quality', 'system', 'fleet', 'logs', 'tokens', 'proof', 'diag', 'docs'];
+      const valid: AdminTab[] = ['dashboard', 'inventory', 'domains', 'training', 'quality', 'system', 'fleet', 'logs', 'tokens', 'proof', 'diag', 'docs', 'crawler'];
       if (stored && valid.includes(stored)) return stored;
     } catch { /* storage blocked */ }
     return initialTab;
@@ -757,6 +757,7 @@ export const AdminModal: React.FC<AdminModalProps> = ({
             { id: 'proof', label: 'Proof' },
             { id: 'diag', label: 'Diag' },
             { id: 'docs', label: 'Docs' },
+            { id: 'crawler', label: 'Crawler' },
           ]}
           active={tab}
           onChange={setTab} />
@@ -1837,6 +1838,14 @@ export const AdminModal: React.FC<AdminModalProps> = ({
               the endpoint isn't yet live. */}
           {tab === 'docs' && (
             <DocsTab C={C} host={host} />
+          )}
+          {/* User ask 2026-04-19: "eventually we should also make a UI
+              for the crawlers". Renders the list of PlausiDen-Crawler
+              runs (via /api/crawler/runs) + last-N results with
+              counts, duration, pass/fail. Claude 0 owns the endpoints
+              — this surface renders a useful placeholder if they 404. */}
+          {tab === 'crawler' && (
+            <CrawlerTab C={C} host={host} />
           )}
         </div>
       </div>
@@ -3141,6 +3150,245 @@ const TeachActivityCard: React.FC<{ C: any; host: string }> = ({ C, host }) => {
               </div>
             );
           })}
+        </div>
+      )}
+    </div>
+  );
+};
+
+// User ask 2026-04-19: surface PlausiDen-Crawler runs inside Admin so
+// the user can glance at crawler telemetry without shelling into the
+// crawler repo. Expected backend endpoints (claude-0 / me to add):
+//   GET  /api/crawler/runs          — [{ id, started, journey, target,
+//                                        durationMs, counts, stepsOk,
+//                                        stepsFailed, dir }]
+//   GET  /api/crawler/runs/:id      — full report.json
+//   POST /api/crawler/run           — body {journey, target} → kicks
+//                                     off a run, returns {run_id}
+// Until those land this tab renders a helpful placeholder with setup
+// instructions. When they land the list renders with a DataTable.
+interface CrawlerRunSummary {
+  id: string;
+  started?: string;
+  journey?: string;
+  target?: string;
+  durationMs?: number;
+  counts?: {
+    consoleErrors?: number;
+    pageErrors?: number;
+    failedRequests?: number;
+    a11yViolations?: number;
+    stepsOk?: number;
+    stepsFailed?: number;
+  };
+}
+const CrawlerTab: React.FC<{ C: any; host: string }> = ({ C, host }) => {
+  const [runs, setRuns] = useState<CrawlerRunSummary[] | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  const [triggerBusy, setTriggerBusy] = useState(false);
+  const [triggerResult, setTriggerResult] = useState<{ ok: boolean; text: string } | null>(null);
+  const [journey, setJourney] = useState('plausiden-smoke');
+  const [target, setTarget] = useState(`http://${host}:3000`);
+
+  const load = React.useCallback(async () => {
+    try {
+      const ctrl = new AbortController();
+      const to = setTimeout(() => ctrl.abort(), 5000);
+      const r = await fetch(`http://${host}:3000/api/crawler/runs`, { signal: ctrl.signal });
+      clearTimeout(to);
+      if (!r.ok) {
+        setErr(r.status === 404 ? 'endpoint-pending' : `HTTP ${r.status}`);
+        setRuns([]);
+        return;
+      }
+      const j: any = await r.json().catch(() => ({}));
+      const list: CrawlerRunSummary[] = Array.isArray(j?.runs) ? j.runs : Array.isArray(j) ? j : [];
+      setRuns(list);
+      setErr(null);
+    } catch (e: any) {
+      setErr(e?.message || 'unreachable');
+      setRuns([]);
+    }
+  }, [host]);
+
+  useEffect(() => {
+    load();
+    const id = setInterval(load, 15000);
+    return () => clearInterval(id);
+  }, [load]);
+
+  const triggerRun = async () => {
+    setTriggerBusy(true);
+    setTriggerResult(null);
+    try {
+      const ctrl = new AbortController();
+      const to = setTimeout(() => ctrl.abort(), 10000);
+      const r = await fetch(`http://${host}:3000/api/crawler/run`, {
+        method: 'POST', signal: ctrl.signal,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ journey, target }),
+      });
+      clearTimeout(to);
+      const j: any = await r.json().catch(() => ({}));
+      if (!r.ok || j?.ok === false) throw new Error(j?.error || `HTTP ${r.status}`);
+      setTriggerResult({ ok: true, text: `Queued run ${j?.run_id || 'pending'}` });
+      setTimeout(load, 1000);
+    } catch (e: any) {
+      setTriggerResult({ ok: false, text: `Trigger failed: ${e?.message || e}` });
+    } finally {
+      setTriggerBusy(false);
+    }
+  };
+
+  const fmtDuration = (ms?: number): string => {
+    if (!ms) return '—';
+    if (ms < 1000) return `${ms}ms`;
+    if (ms < 60000) return `${(ms / 1000).toFixed(1)}s`;
+    return `${Math.round(ms / 60000)}m${Math.round((ms % 60000) / 1000)}s`;
+  };
+  const fmtTime = (iso?: string): string => {
+    if (!iso) return '—';
+    const ts = Date.parse(iso);
+    if (isNaN(ts)) return iso;
+    const s = Math.round((Date.now() - ts) / 1000);
+    if (s < 60) return `${s}s ago`;
+    if (s < 3600) return `${Math.round(s / 60)}m ago`;
+    if (s < 86400) return `${Math.round(s / 3600)}h ago`;
+    return `${Math.round(s / 86400)}d ago`;
+  };
+
+  const inputStyle: React.CSSProperties = {
+    padding: T.spacing.sm, background: C.bgInput, color: C.text,
+    border: `1px solid ${C.borderSubtle}`, borderRadius: T.radii.md,
+    fontSize: T.typography.sizeSm, fontFamily: 'inherit',
+  };
+
+  return (
+    <div>
+      <h2 style={{ fontSize: T.typography.size2xl, fontWeight: 600, color: C.text, margin: '0 0 6px' }}>Crawler</h2>
+      <p style={{ fontSize: T.typography.sizeSm, color: C.textSecondary, margin: '0 0 16px', lineHeight: 1.55 }}>
+        PlausiDen-Crawler runs: headless Chromium click-through of the UI with console/network/a11y capture.
+        Each run writes screenshots + aria snapshots per step + a diff vs the prior run.
+      </p>
+      <div style={{
+        padding: T.spacing.md, background: C.bgInput, borderRadius: T.radii.md,
+        border: `1px solid ${C.borderSubtle}`, marginBottom: T.spacing.lg,
+      }}>
+        <Label color={C.textMuted} mb={T.spacing.sm}>Trigger a run</Label>
+        <div style={{ display: 'flex', gap: T.spacing.sm, alignItems: 'center', flexWrap: 'wrap' }}>
+          <select style={{ ...inputStyle, minWidth: '180px' }} value={journey} onChange={e => setJourney(e.target.value)} aria-label='Journey'>
+            <option value='plausiden-smoke'>plausiden-smoke (33 steps)</option>
+            <option value='plausiden-deep'>plausiden-deep (90 steps)</option>
+          </select>
+          <input
+            style={{ ...inputStyle, minWidth: '240px', flex: 1 }}
+            type='url' aria-label='Target URL'
+            value={target} onChange={e => setTarget(e.target.value)}
+            placeholder={`http://${host}:3000`}
+          />
+          <button
+            type='button' aria-label='Trigger crawler run'
+            onClick={triggerRun} disabled={triggerBusy || !target.trim()}
+            style={{
+              padding: `${T.spacing.sm} ${T.spacing.lg}`,
+              background: C.accent, color: C.bg, border: 'none',
+              borderRadius: T.radii.md, fontWeight: 600,
+              fontSize: T.typography.sizeSm,
+              cursor: triggerBusy ? 'wait' : 'pointer',
+              opacity: triggerBusy ? 0.7 : 1, fontFamily: 'inherit',
+            }}
+          >{triggerBusy ? 'Queuing…' : 'Run now'}</button>
+          {triggerResult && (
+            <span style={{
+              fontSize: T.typography.sizeXs,
+              color: triggerResult.ok ? C.green : C.red, fontWeight: 500,
+            }}>{triggerResult.text}</span>
+          )}
+        </div>
+      </div>
+      <Label color={C.textMuted} mb={T.spacing.sm}>Recent runs</Label>
+      {runs && runs.length > 0 ? (
+        <DataTable<CrawlerRunSummary> C={C}
+          rows={runs.slice(0, 50)}
+          rowKey={(r) => r.id}
+          sort={{ col: 'started', dir: 'desc' }}
+          columns={[
+            {
+              id: 'started', header: 'Started', align: 'left',
+              sortKey: (r) => r.started ? Date.parse(r.started) : 0,
+              accessor: (r) => <span style={{ fontFamily: T.typography.fontMono, color: C.textSecondary, fontSize: T.typography.sizeXs }}>{fmtTime(r.started)}</span>,
+            },
+            {
+              id: 'journey', header: 'Journey', align: 'left',
+              sortKey: (r) => r.journey || '',
+              accessor: (r) => <span style={{ fontFamily: T.typography.fontMono, color: C.text }}>{r.journey || '—'}</span>,
+            },
+            {
+              id: 'target', header: 'Target', align: 'left',
+              sortKey: (r) => r.target || '',
+              accessor: (r) => <span style={{ fontFamily: T.typography.fontMono, color: C.textMuted, fontSize: T.typography.sizeXs }}>{r.target || '—'}</span>,
+            },
+            {
+              id: 'duration', header: 'Duration', align: 'right',
+              sortKey: (r) => r.durationMs || 0,
+              accessor: (r) => <span style={{ fontFamily: T.typography.fontMono, color: C.textSecondary }}>{fmtDuration(r.durationMs)}</span>,
+            },
+            {
+              id: 'steps', header: 'Steps', align: 'right',
+              sortKey: (r) => r.counts?.stepsOk || 0,
+              accessor: (r) => {
+                const ok = r.counts?.stepsOk ?? 0;
+                const fail = r.counts?.stepsFailed ?? 0;
+                return <span style={{ fontFamily: T.typography.fontMono }}>
+                  <span style={{ color: C.green }}>{ok}</span>
+                  {fail > 0 && <span style={{ color: C.red }}>/{fail}</span>}
+                </span>;
+              },
+            },
+            {
+              id: 'errs', header: 'Errors', align: 'right',
+              sortKey: (r) => (r.counts?.pageErrors || 0) + (r.counts?.consoleErrors || 0),
+              accessor: (r) => {
+                const pe = r.counts?.pageErrors || 0;
+                const ce = r.counts?.consoleErrors || 0;
+                const total = pe + ce;
+                return <span style={{ fontFamily: T.typography.fontMono, color: total > 0 ? C.red : C.textMuted }}>{total}</span>;
+              },
+            },
+            {
+              id: 'a11y', header: 'A11y', align: 'right',
+              sortKey: (r) => r.counts?.a11yViolations || 0,
+              accessor: (r) => {
+                const v = r.counts?.a11yViolations || 0;
+                return <span style={{ fontFamily: T.typography.fontMono, color: v > 0 ? C.yellow : C.textMuted }}>{v}</span>;
+              },
+            },
+          ]}
+        />
+      ) : (
+        <div style={{
+          padding: T.spacing.md, background: C.bgInput,
+          border: `1px dashed ${C.borderSubtle}`, borderRadius: T.radii.md,
+          color: C.textDim, fontSize: T.typography.sizeXs, lineHeight: 1.6,
+        }}>
+          {err === 'endpoint-pending' ? (
+            <>
+              <strong style={{ color: C.textMuted }}>Crawler API not mounted yet.</strong> Expected endpoints:
+              <br /><code style={{ fontFamily: T.typography.fontMono, color: C.accent }}>GET /api/crawler/runs</code> — list summaries
+              <br /><code style={{ fontFamily: T.typography.fontMono, color: C.accent }}>GET /api/crawler/runs/:id</code> — full report.json
+              <br /><code style={{ fontFamily: T.typography.fontMono, color: C.accent }}>POST /api/crawler/run {'{journey, target}'}</code> — queue a run
+              <br /><br />Until they land, run manually:
+              <br /><code style={{ fontFamily: T.typography.fontMono, color: C.accent }}>cd PlausiDen-Crawler &amp;&amp; npx tsx src/main.ts --url {target} --journey journeys/{journey}.json</code>
+            </>
+          ) : err ? (
+            <>
+              <strong style={{ color: C.textMuted }}>Crawler runs unreachable:</strong> {err}. Retrying every 15s.
+            </>
+          ) : (
+            <>
+              <strong style={{ color: C.textMuted }}>No crawler runs yet.</strong> Click "Run now" above to kick off the first run.
+            </>
+          )}
         </div>
       )}
     </div>
