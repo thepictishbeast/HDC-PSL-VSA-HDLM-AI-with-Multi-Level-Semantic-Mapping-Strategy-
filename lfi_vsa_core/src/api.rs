@@ -4601,7 +4601,30 @@ pub fn create_router() -> Result<Router, Box<dyn std::error::Error>> {
     async fn privacy_report_handler(
         State(state): State<Arc<AppState>>,
     ) -> impl IntoResponse {
-        let (profile, ui_prefs, feedback_count, trainer_count, adv_count, recent_chat) = {
+        // Counts from the lock-free stats_cache so this path never
+        // blocks on the DB mutex during a background refresh.
+        let adv_count_from_cache = state.stats_cache.adversarial().max(0);
+        // Read chat.jsonl BEFORE acquiring conn.lock() — it's pure file I/O.
+        let mut recent_chat: Vec<serde_json::Value> = Vec::new();
+        let chat_path = lfi_log_path("chat.jsonl");
+        if let Ok(body) = std::fs::read_to_string(chat_path.as_str()) {
+            let lines: Vec<&str> = body.lines().collect();
+            let start = lines.len().saturating_sub(20);
+            for l in &lines[start..] {
+                if let Ok(v) = serde_json::from_str::<serde_json::Value>(l) {
+                    recent_chat.push(json!({
+                        "ts": v["ts"],
+                        "user": crate::truncate_str(
+                            v["user"].as_str().unwrap_or(""), 200),
+                        "reply": crate::truncate_str(
+                            v["reply"].as_str().unwrap_or(""), 300),
+                        "scrubbed": v["scrubbed"],
+                    }));
+                }
+            }
+        }
+
+        let (profile, ui_prefs, feedback_count, trainer_count, adv_count) = {
             let conn = match state.db.conn.lock() {
                 Ok(c) => c,
                 Err(_) => return axum::Json(json!({"ok": false, "error": "db lock"})),
@@ -4637,8 +4660,9 @@ pub fn create_router() -> Result<Router, Box<dyn std::error::Error>> {
                 }))).map(|i| i.filter_map(|r| r.ok()).collect::<Vec<_>>()).unwrap_or_default();
             }
 
-            // 3. Aggregate counts — thumbs-up/down, trainer sessions,
-            // adversarial corrections.
+            // 3. Aggregate counts — thumbs-up/down + trainer sessions.
+            // user_feedback is small so these are fast. adversarial count
+            // comes from the lock-free stats_cache above.
             let feedback_count: i64 = conn.query_row(
                 "SELECT COUNT(*) FROM user_feedback", [], |r| r.get(0),
             ).unwrap_or(0);
@@ -4646,33 +4670,8 @@ pub fn create_router() -> Result<Router, Box<dyn std::error::Error>> {
                 "SELECT COUNT(DISTINCT conversation_id) FROM user_feedback \
                  WHERE conversation_id LIKE 'trainer_%'", [], |r| r.get(0),
             ).unwrap_or(0);
-            let adv_count: i64 = conn.query_row(
-                "SELECT COUNT(*) FROM facts WHERE source='adversarial'",
-                [], |r| r.get(0),
-            ).unwrap_or(0);
 
-            // 4. Recent chat turns — from chat.jsonl (ts + user + reply),
-            // capped at 20 so the payload stays small.
-            let mut recent_chat: Vec<serde_json::Value> = Vec::new();
-            let chat_path = lfi_log_path("chat.jsonl");
-            if let Ok(body) = std::fs::read_to_string(chat_path.as_str()) {
-                let lines: Vec<&str> = body.lines().collect();
-                let start = lines.len().saturating_sub(20);
-                for l in &lines[start..] {
-                    if let Ok(v) = serde_json::from_str::<serde_json::Value>(l) {
-                        recent_chat.push(json!({
-                            "ts": v["ts"],
-                            "user": crate::truncate_str(
-                                v["user"].as_str().unwrap_or(""), 200),
-                            "reply": crate::truncate_str(
-                                v["reply"].as_str().unwrap_or(""), 300),
-                            "scrubbed": v["scrubbed"],
-                        }));
-                    }
-                }
-            }
-
-            (profile, ui_prefs, feedback_count, trainer_count, adv_count, recent_chat)
+            (profile, ui_prefs, feedback_count, trainer_count, adv_count_from_cache)
         };
 
         // Rights surface. Plain-language, no legalese.
