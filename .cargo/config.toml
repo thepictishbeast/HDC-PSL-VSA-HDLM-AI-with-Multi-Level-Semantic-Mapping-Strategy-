@@ -1,0 +1,25 @@
+# #226 Cross-compile targets for mobile builds.
+#
+# Usage:
+#   rustup target add aarch64-linux-android
+#   rustup target add aarch64-unknown-linux-gnu
+#   # Then: cargo build --release --no-default-features --features mobile \
+#   #       --target aarch64-linux-android
+#
+# The [env] section below is consumed by the `mobile` feature but is a
+# no-op on default desktop builds.
+
+[target.aarch64-linux-android]
+# Android NDK r26+ ships clang as the default linker; point at the
+# exact driver the Rust target expects.
+#linker = "aarch64-linux-android29-clang"
+#ar = "llvm-ar"
+# Enable NEON SIMD when the toolchain supports it.
+rustflags = ["-C", "target-feature=+neon"]
+
+[target.aarch64-unknown-linux-gnu]
+# Most Linux ARM64 systems have gcc cross-compilers shipped as
+# aarch64-linux-gnu-*. If not installed the build errors with a clear
+# message naming the missing tool.
+#linker = "aarch64-linux-gnu-gcc"
+rustflags = ["-C", "target-feature=+neon"]

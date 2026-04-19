@@ -39,6 +39,23 @@ tower = { version = "0.5", features = ["util"] }
 http-body-util = "0.1"
 proptest = "1.4"
 
+# #226 Feature flags for target builds.
+#
+# Default builds are the full desktop/server surface. `mobile` strips
+# features that don't fit on ARM64 phones or tablets:
+#   - desktop-automation handlers (HID, screen capture, clipboard)
+#   - libp2p mesh (battery + network cost)
+#   - heavy SIMD paths (use NEON scalar fallback)
+#
+# Cross-compile example:
+#   rustup target add aarch64-linux-android
+#   cargo build --release --no-default-features --features mobile \
+#         --target aarch64-linux-android
+[features]
+default = ["desktop"]
+desktop = []
+mobile = []
+
 [package.metadata.deb]
 name = "plausiden-ai"
 maintainer = "PlausiDen Technologies LLC <dev@plausiden.com>"
