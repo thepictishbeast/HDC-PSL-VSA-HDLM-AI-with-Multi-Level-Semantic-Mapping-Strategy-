@@ -712,7 +712,9 @@ export const AdminModal: React.FC<AdminModalProps> = ({
             { id: 'training', label: 'Training' },
             { id: 'quality', label: 'Quality' },
             { id: 'system', label: 'System' },
-            { id: 'fleet', label: 'Fleet' },
+            // Fleet subtab removed — top-level Fleet view (Cmd+4) is the
+            // authoritative orchestrator surface. Keeping two was a
+            // user-confusing duplicate.
             { id: 'logs', label: 'Logs' },
             { id: 'tokens', label: 'Tokens' },
             { id: 'proof', label: 'Proof' },
