@@ -721,8 +721,10 @@ const WorkspaceControl: React.FC<{
 }> = ({ C, wsHost, wsData, setWsData, wsLoading, setWsLoading, wsErr, setWsErr, wsSaving, setWsSaving, wsMaxMb, setWsMaxMb }) => {
   useEffect(() => {
     let cancelled = false;
-    (async () => {
-      setWsLoading(true);
+    let firstLoad = true;
+    const load = async () => {
+      // Skip the loading-flag flash on polling refreshes (first load only).
+      if (firstLoad) setWsLoading(true);
       setWsErr(null);
       try {
         const r = await fetch(`http://${wsHost}:3000/api/settings/workspace`);
@@ -730,19 +732,24 @@ const WorkspaceControl: React.FC<{
         const data = await r.json();
         if (cancelled) return;
         setWsData(data);
-        const mb = typeof data?.max_mb === 'number' ? data.max_mb
-          : typeof data?.footprint_mb === 'number' ? data.footprint_mb
-          : 512;
-        // Snap to the nearest preset stop for the slider's initial position.
-        const snapped = WS_STOPS.reduce((best, s) => Math.abs(s - mb) < Math.abs(best - mb) ? s : best, WS_STOPS[0]);
-        setWsMaxMb(snapped);
+        if (firstLoad) {
+          const mb = typeof data?.max_mb === 'number' ? data.max_mb
+            : typeof data?.footprint_mb === 'number' ? data.footprint_mb
+            : 512;
+          const snapped = WS_STOPS.reduce((best, s) => Math.abs(s - mb) < Math.abs(best - mb) ? s : best, WS_STOPS[0]);
+          setWsMaxMb(snapped);
+        }
       } catch (e: any) {
         if (!cancelled) setWsErr(String(e?.message || e || 'fetch failed'));
       } finally {
-        if (!cancelled) setWsLoading(false);
+        if (!cancelled) { setWsLoading(false); firstLoad = false; }
       }
-    })();
-    return () => { cancelled = true; };
+    };
+    load();
+    // c2-433 / #398 followup: 10s poll so footprint updates live as chat
+    // turns allocate slots. Cheap — single GET, no heavy backend work.
+    const id = window.setInterval(load, 10_000);
+    return () => { cancelled = true; window.clearInterval(id); };
   }, [wsHost]);
 
   // Hide entirely when endpoint is unreachable — keeps Settings tab clean
@@ -797,7 +804,7 @@ const WorkspaceControl: React.FC<{
           <div style={{
             display: 'flex', alignItems: 'baseline', gap: T.spacing.sm,
             fontFamily: T.typography.fontMono, fontSize: T.typography.sizeSm,
-            color: C.text, marginBottom: '8px',
+            color: C.text, marginBottom: '6px', flexWrap: 'wrap',
           }}>
             <span style={{ color: C.accent, fontWeight: 700 }}>{fmtSlots(capacity)} slots</span>
             <span style={{ color: C.textMuted }}>
@@ -809,6 +816,40 @@ const WorkspaceControl: React.FC<{
               </span>
             )}
           </div>
+          {/* c2-433 / #398 followup: live fill progress bar. Updates every
+              10s via the poll above. Tiered color (green / yellow / red)
+              matches the Drift card thresholds at 40% and 75%. */}
+          {wsMaxMb > 0 && (() => {
+            const ratio = Math.max(0, Math.min(1, activeMb / wsMaxMb));
+            const pct = ratio * 100;
+            const fillColor = ratio <= 0.4 ? C.green : ratio <= 0.75 ? C.yellow : C.red;
+            return (
+              <div style={{ marginBottom: '10px' }}>
+                <div style={{
+                  height: '6px', background: C.bgInput,
+                  border: `1px solid ${C.borderSubtle}`,
+                  borderRadius: T.radii.xs, overflow: 'hidden',
+                }}>
+                  <div style={{
+                    width: `${pct.toFixed(1)}%`, height: '100%',
+                    background: fillColor,
+                    transition: 'width 400ms, background 200ms',
+                  }} />
+                </div>
+                <div style={{
+                  fontSize: '9px', color: C.textDim, fontFamily: T.typography.fontMono,
+                  marginTop: '2px', display: 'flex', justifyContent: 'space-between',
+                }}>
+                  <span>{pct.toFixed(1)}% fill</span>
+                  {ratio > 0.75 && (
+                    <span style={{ color: C.red, fontWeight: 700 }}>
+                      eviction pressure — consider a bigger cap
+                    </span>
+                  )}
+                </div>
+              </div>
+            );
+          })()}
           <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
             {WS_STOPS.map(mb => {
               const active = wsMaxMb === mb;
