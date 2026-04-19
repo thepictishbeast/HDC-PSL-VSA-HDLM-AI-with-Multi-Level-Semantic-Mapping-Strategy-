@@ -4755,6 +4755,47 @@ ${cmdList}
           // for operators with a fact_key in clipboard — skips the
           // click-open-popover-click-Verify dance. Toasts the verdict
           // and also pops the popover so the full context is visible.
+          // c2-433 / #357 + Tier-5 #38 lead-in: dump the last assistant
+          // message's citations to clipboard as a formatted list. Useful
+          // for ticket-filing + downstream audit.
+          { id: 'copy-last-citations', label: "Copy last reply's citations", hint: 'Extract [fact:KEY] + source/similarity from the most recent assistant turn', group: 'Skills',
+            onRun: () => {
+              const last = [...messages].reverse().find(m => m.role === 'assistant' && (m.content || '').trim().length > 0);
+              if (!last) { showToast('No assistant reply yet'); return; }
+              // Parse [fact:KEY] (source: X, similarity N%) sequences in order.
+              const combined = /\[(?:fact|k):([A-Za-z0-9_\-:]{1,80})\](?:\s*[\(\[]source:\s*([^,\)\]]+),\s*similarity\s+(\d+)%[\)\]])?/g;
+              const rows: Array<{ key: string; source: string | null; similarity: number | null }> = [];
+              const seen = new Set<string>();
+              let m: RegExpExecArray | null;
+              while ((m = combined.exec(last.content)) !== null) {
+                const key = m[1];
+                if (seen.has(key)) continue; // dedupe
+                seen.add(key);
+                rows.push({
+                  key,
+                  source: m[2]?.trim() || null,
+                  similarity: m[3] ? Number(m[3]) : null,
+                });
+              }
+              if (rows.length === 0) { showToast('No citations in the last reply'); return; }
+              const sources = new Set(rows.map(r => r.source).filter(Boolean) as string[]);
+              const lines = [
+                `# Citations for reply at ${new Date(last.timestamp).toISOString()}`,
+                `# ${rows.length} fact${rows.length === 1 ? '' : 's'} from ${sources.size} source${sources.size === 1 ? '' : 's'}`,
+                '',
+                ...rows.map(r => {
+                  const meta = r.source ? `  [${r.source}${r.similarity != null ? ` ${r.similarity}%` : ''}]` : '';
+                  return `- ${r.key}${meta}`;
+                }),
+              ].join('\n');
+              navigator.clipboard.writeText(lines)
+                .then(() => {
+                  showToast(`Copied ${rows.length} citation${rows.length === 1 ? '' : 's'}`);
+                  logEvent('copy_last_citations', { count: rows.length, source_count: sources.size });
+                })
+                .catch(() => showToast('Clipboard blocked'));
+            },
+          },
           { id: 'verify-fact', label: 'Verify fact by key', hint: 'POST /api/proof/verify — trigger Lean4 check on a fact', group: 'Skills',
             onRun: async () => {
               const key = window.prompt('Fact key (e.g. fact:water-boils-at-100c or concept:volcano)');
