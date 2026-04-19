@@ -253,6 +253,12 @@ const SovereignCommandConsole: React.FC = () => {
   // ready for triage. null = never-loaded (hide badge), 0 = loaded-empty
   // (also hide), >0 = badge with compact number.
   const [contradictionsPending, setContradictionsPending] = useState<number | null>(null);
+  // c2-433: unseen diag error counter. Subscribes to diag on mount; every
+  // new error entry bumps the counter. Clicking Admin (any tab) resets
+  // it since the operator is now looking. Drives a small red dot badge
+  // on the Admin tab button so ops see "something broke" before they
+  // open Admin → Diag.
+  const [diagUnseenErrors, setDiagUnseenErrors] = useState<number>(0);
   // c2-433 / #298 followup: rise-detection ref + pulse state. When the
   // latest poll returns a count strictly greater than the previous count,
   // we bump badgePulseId to trigger a 3s CSS scale animation on the
@@ -1251,8 +1257,18 @@ ${cmdList}
   // c2-433: install the diag logger ONCE on mount. After this runs,
   // window.diag is available for devtools console (diag.snapshot() /
   // diag.export() / diag.clear()) and console.warn + console.error
-  // calls are mirrored into the ring buffer automatically.
-  useEffect(() => { diag.install(); }, []);
+  // calls are mirrored into the ring buffer automatically. Also
+  // subscribe to new entries so we can bump diagUnseenErrors and
+  // flash the Admin-tab red-dot.
+  useEffect(() => {
+    diag.install();
+    const unsub = diag.subscribe((e) => {
+      if (e.level === 'error') {
+        setDiagUnseenErrors(n => n + 1);
+      }
+    });
+    return unsub;
+  }, []);
 
   // c2-433 / #316 / #300: pre-send pipeline dry-run. When the user is
   // composing a query (not-empty, >= 6 chars, connected, not currently
@@ -5151,7 +5167,9 @@ ${cmdList}
           const VIEWS = [
             { id: 'chat' as const,      label: 'Chat',      onClick: () => { setActiveView('chat'); setShowAdmin(false); } },
             { id: 'classroom' as const, label: 'Classroom', onClick: () => { setActiveView('classroom'); setShowAdmin(false); } },
-            { id: 'admin' as const,     label: 'Admin',     onClick: () => { setShowAdmin(true); } },
+            // c2-433: clicking Admin (any tab) dismisses the unseen-error
+            // badge since the operator is now in the tools surface.
+            { id: 'admin' as const,     label: 'Admin',     onClick: () => { setShowAdmin(true); setDiagUnseenErrors(0); } },
           ];
           const activeIdx = VIEWS.findIndex(v => (v.id === 'admin' ? showAdmin : (activeView === v.id && !showAdmin)));
           const onTabKey = (e: React.KeyboardEvent) => {
@@ -5176,11 +5194,19 @@ ${cmdList}
             // even at 100+ pending.
             const badge = (v.id === 'classroom' && typeof contradictionsPending === 'number' && contradictionsPending > 0)
               ? contradictionsPending : null;
+            // c2-433: Admin tab gets a small red DOT (not a number) when
+            // the diag ring buffer has unseen errors. Pairs with the
+            // diag logger's auto-capture of console.error + window errors.
+            // Dismissed the moment the user clicks Admin (see VIEWS above).
+            const adminErrDot = (v.id === 'admin' && diagUnseenErrors > 0);
+            const tabTitle = badge !== null ? `${badge} pending contradiction${badge === 1 ? '' : 's'} in the ledger`
+              : adminErrDot ? `${diagUnseenErrors} unseen error${diagUnseenErrors === 1 ? '' : 's'} in the diag log`
+              : undefined;
             return (
               <button key={v.id} onClick={v.onClick}
                 role='tab' aria-selected={isActive}
                 tabIndex={isActive ? 0 : -1}
-                title={badge !== null ? `${badge} pending contradiction${badge === 1 ? '' : 's'} in the ledger` : undefined}
+                title={tabTitle}
                 style={{
                   position: 'relative',
                   padding: isMobile ? '6px 10px' : '7px 14px',
@@ -5192,6 +5218,16 @@ ${cmdList}
                   whiteSpace: 'nowrap',
                 }}>
                 {v.label}
+                {adminErrDot && (
+                  <span aria-label={`${diagUnseenErrors} unseen diag errors`}
+                    style={{
+                      position: 'absolute', top: '-3px', right: '-3px',
+                      width: '9px', height: '9px',
+                      background: C.red, borderRadius: '50%',
+                      border: `1.5px solid ${C.bg}`,
+                      animation: 'scc-badge-rise-pulse 2.4s ease-out 1',
+                    }} />
+                )}
                 {badge !== null && (
                   <span key={contradictionsPulseId}
                     aria-label={`${badge} pending contradictions`}
