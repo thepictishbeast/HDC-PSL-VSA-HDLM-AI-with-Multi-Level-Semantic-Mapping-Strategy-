@@ -22,6 +22,7 @@ export default defineConfig({
             if (id.includes('react-virtuoso')) return 'vendor-virtuoso';
             if (id.includes('@xterm') || id.includes('xterm')) return 'vendor-xterm';
             if (id.includes('highlight.js')) return 'vendor-hljs';
+            if (id.includes('eruda')) return 'vendor-eruda';
             return 'vendor-misc';
           }
           return undefined;

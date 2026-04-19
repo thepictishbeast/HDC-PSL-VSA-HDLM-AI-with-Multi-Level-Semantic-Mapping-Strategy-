@@ -141,6 +141,29 @@ pub fn hdc_retrieval_response_shaped(
                 k, source_label(k)));
         }
     }
+
+    // #363 Source-agreement surfacing. Tally distinct source labels across
+    // the top + related set. When >= 2 distinct sources appear, add a
+    // one-line summary so the operator sees whether this answer stands
+    // on a single corpus or has cross-corpus support. Pure signal — no
+    // hardcoded language for agreement / disagreement semantics (that's
+    // the Auto-resolve ledger's job).
+    let mut source_counts: std::collections::BTreeMap<String, usize> =
+        std::collections::BTreeMap::new();
+    *source_counts.entry(source_label(top_key)).or_insert(0) += 1;
+    for (k, _, _) in related.iter().map(|r| *r) {
+        *source_counts.entry(source_label(k)).or_insert(0) += 1;
+    }
+    if source_counts.len() >= 2 {
+        let mut rows: Vec<(String, usize)> = source_counts.into_iter().collect();
+        rows.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(&b.0)));
+        let summary: String = rows.iter()
+            .map(|(s, n)| if *n > 1 { format!("{} ({}×)", s, n) } else { s.clone() })
+            .collect::<Vec<_>>()
+            .join(", ");
+        out.push_str(&format!("\n\nSources: {}", summary));
+    }
+
     out
 }
 

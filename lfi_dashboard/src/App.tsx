@@ -662,18 +662,31 @@ const SovereignCommandConsole: React.FC = () => {
 
   useEffect(() => {
     try { localStorage.setItem('lfi_settings', JSON.stringify(settings)); } catch {}
-    // Runtime Eruda sync: if the setting changes while the app is open, show
-    // or hide immediately without needing a page reload.
-    try {
-      const er: any = (window as any).eruda;
-      if (!er) return;
-      const isMobile = /Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
-      const should =
-        settings.erudaMode === 'on' ||
-        (settings.erudaMode === 'auto' && isMobile);
-      if (should && !er._isInit) { er.init(); }
-      else if (!should && er._isInit) { er.destroy?.(); }
-    } catch {}
+    // Runtime Eruda sync: dynamically import the npm package when the
+    // user toggles erudaMode on. CSP blocks the old CDN path; bundled
+    // chunk loads same-origin so it always works. Code-split so non-
+    // eruda users don't pay the ~90 KB.
+    (async () => {
+      try {
+        const isMobileUa = /Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+        const should =
+          settings.erudaMode === 'on' ||
+          (settings.erudaMode === 'auto' && isMobileUa);
+        let er: any = (window as any).eruda;
+        if (should) {
+          if (!er) {
+            const mod: any = await import('eruda');
+            er = mod?.default || mod;
+            (window as any).eruda = er;
+          }
+          if (er && !er._isInit) er.init();
+        } else if (er && er._isInit) {
+          er.destroy?.();
+        }
+      } catch (e) {
+        diag.warn('eruda', 'dynamic import failed', e);
+      }
+    })();
   }, [settings]);
   const [showSettings, setShowSettings] = useState(false);
   const [showShortcuts, setShowShortcuts] = useState(false);

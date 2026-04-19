@@ -37,31 +37,9 @@
     <!-- c2-381 / BIG #177: PWA manifest wired. install prompt becomes
          eligible once the SW registers + the manifest loads successfully. -->
     <link rel="manifest" href="/manifest.webmanifest" />
-    <!-- c2-295: Eruda CDN load is now gated by the user's erudaMode setting.
-         Unconditional inclusion cost every user ~36KB network + CDN call on
-         every load — violates PSA §4.3 no-CDN policy for non-dev users.
-         When the setting says "show Eruda for this session", we inject the
-         script tag dynamically; otherwise the CDN is never hit. -->
-    <script>
-      (function () {
-        try {
-          var raw = localStorage.getItem('lfi_settings');
-          var mode = 'auto';
-          if (raw) {
-            var s = JSON.parse(raw);
-            if (s && typeof s.erudaMode === 'string') mode = s.erudaMode;
-          }
-          var isMobile = /Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
-          var shouldShow = mode === 'on' || (mode === 'auto' && isMobile);
-          if (!shouldShow) return;
-          var tag = document.createElement('script');
-          tag.src = 'https://cdn.jsdelivr.net/npm/eruda';
-          tag.onload = function () { try { window.eruda && window.eruda.init(); } catch (_) { /* non-fatal */ } };
-          tag.onerror = function () { /* offline or blocked — user just won't have Eruda */ };
-          document.head.appendChild(tag);
-        } catch (e) { /* non-fatal */ }
-      })();
-    </script>
+    <!-- Eruda bootstrapping moved into App.tsx as a dynamic import of the
+         npm package. CSP blocks cross-origin scripts (cdn.jsdelivr.net)
+         so the old CDN tag never loaded. -->
   </head>
   <body>
     <div id="root"></div>
