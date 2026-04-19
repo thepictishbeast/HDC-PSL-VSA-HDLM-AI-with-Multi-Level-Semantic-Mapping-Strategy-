@@ -39,6 +39,7 @@ import { compactNum, formatRam, formatTime, copyToClipboard, diskPressure, smart
 import { diag } from './diag';
 import { markSend, markFirstFrame, markResponse, markRendered, type TurnTrace } from './turnTrace';
 import { useHistoryDialog } from './useHistoryDialog';
+import { useModalFocus } from './useModalFocus';
 import { useToastQueue } from './useToastQueue';
 import { useFeedbackModals } from './useFeedbackModals';
 import { useChatSearch } from './useChatSearch';
@@ -879,6 +880,8 @@ ${cmdList}
   const [showTeach, setShowTeach] = useState(false);
   const [teachText, setTeachText] = useState('');
   const [teachSending, setTeachSending] = useState(false);
+  const teachDialogRef = useRef<HTMLDivElement>(null);
+  useModalFocus(showTeach, teachDialogRef);
   const [showTraining, setShowTraining] = useState(false);
   const [trainingLog, setTrainingLog] = useState<Array<{ ts: string; domain: string; batch: number; sessions: number }>>([]);
   const fetchTrainingLog = async () => {
@@ -3690,7 +3693,7 @@ ${cmdList}
             display: 'flex', alignItems: 'center', justifyContent: 'center',
             padding: isMobile ? T.spacing.sm : T.spacing.lg,
           }}>
-          <div onClick={(e) => e.stopPropagation()}
+          <div ref={teachDialogRef} onClick={(e) => e.stopPropagation()}
             role='dialog' aria-modal='true' aria-labelledby='scc-teach-title'
             style={{
               width: '100%', maxWidth: '560px',
