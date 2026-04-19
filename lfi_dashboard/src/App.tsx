@@ -552,35 +552,29 @@ const SovereignCommandConsole: React.FC = () => {
   // Nothing else ever writes to these, so no local state is needed.
 
   // c2-419 / c2-501: preload chunks during browser idle so first open feels
-  // instant. Two tiers — Tier 1 fires asap (small + likely-needed: palette,
-  // shortcuts, settings). Tier 2 fires after first idle window completes
-  // (heavier destinations: Admin, Classroom, Activity, KB). XTermModal
-  // (~340 KB) stays pay-on-demand. lazyWithRetry survives the rare case
-  // where the chunk hash rotated mid-session.
+  // instant. Tier 1 only (palette, shortcuts, settings — ~12 KB gzipped
+  // total). Heavier destinations (Admin ~18KB, Classroom ~22KB, Activity,
+  // KB) stay pay-on-open — background-prefetching them was competing
+  // with the user's actual navigation on slow networks. User reported
+  // "extremely long load" → cutting Tier 2 removes ~300KB from the idle
+  // bandwidth race. lazyWithRetry still covers stale-chunk recovery.
+  // Also skip preload entirely on save-data or 2G connections.
   useEffect(() => {
+    const conn: any = (navigator as any).connection;
+    if (conn?.saveData) return;
+    if (conn?.effectiveType === 'slow-2g' || conn?.effectiveType === '2g') return;
     const tier1 = () => {
       import('./CommandPalette');
       import('./ShortcutsModal');
       import('./SettingsModal');
     };
-    const tier2 = () => {
-      import('./AdminModal');
-      import('./ClassroomView');
-      import('./ActivityModal');
-      import('./KnowledgeBrowser');
-    };
     const ric: any = (window as any).requestIdleCallback;
     if (typeof ric === 'function') {
       const id1 = ric(tier1, { timeout: 4000 });
-      const id2 = ric(() => ric(tier2, { timeout: 8000 }), { timeout: 6000 });
-      return () => {
-        (window as any).cancelIdleCallback?.(id1);
-        (window as any).cancelIdleCallback?.(id2);
-      };
+      return () => { (window as any).cancelIdleCallback?.(id1); };
     }
     const id1 = window.setTimeout(tier1, 1500);
-    const id2 = window.setTimeout(tier2, 4000);
-    return () => { window.clearTimeout(id1); window.clearTimeout(id2); };
+    return () => { window.clearTimeout(id1); };
   }, []);
 
   // Persistent settings (localStorage-backed). A single object keeps storage
