@@ -104,9 +104,14 @@ pub fn hdc_retrieval_response_shaped(
     out.push_str(opener);
     out.push_str("\n\n");
     out.push_str(&lead);
+    // #357 Inline fact:key citation — THE differentiator vs LLMs.
+    // Every assertion in an LFI answer carries the key it came from so
+    // the UI renders a clickable chip (Claude 2's mdCtx.onFactKey
+    // popover). The source label is kept for backward compat + the
+    // activity chip "via conceptnet" readout.
     out.push_str(&format!(
-        "\n\n(source: {}, similarity {:.0}%)",
-        source_label(top_key), top_score * 100.0,
+        "\n\n[fact:{}] (source: {}, similarity {:.0}%)",
+        top_key, source_label(top_key), top_score * 100.0,
     ));
 
     // If additional distinct matches exist, list up to 3 as terse related.
@@ -117,7 +122,8 @@ pub fn hdc_retrieval_response_shaped(
             let cl = strip_key_prefix(k, v);
             out.push_str("- ");
             out.push_str(&word_truncate(&cl, 220));
-            out.push_str(&format!(" _(source: {})_\n", source_label(k)));
+            out.push_str(&format!(" [fact:{}] _(source: {})_\n",
+                k, source_label(k)));
         }
     }
     out
