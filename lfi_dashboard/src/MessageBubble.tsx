@@ -233,7 +233,7 @@ export const UserMessage: React.FC<UserMessageProps> = ({
   onBeginEdit, onCancelEdit, onCommitEdit, formatTime, onCopy, onContextMenu,
 }) => {
   const [expanded, setExpanded] = React.useState(false);
-  const needsCollapse = !editing && msg.content.length > COLLAPSE_AT && !expanded;
+  const needsCollapse = !editing && typeof msg.content === 'string' && msg.content.length > COLLAPSE_AT && !expanded;
   const shown = needsCollapse ? msg.content.slice(0, COLLAPSE_PREVIEW) : msg.content;
   // c2-433 / task 223: long-press shim — only attach handlers when not editing
   // (the editor uses its own touch behavior) and when the parent provided a
@@ -323,7 +323,7 @@ export const UserMessage: React.FC<UserMessageProps> = ({
       }}>
         {shown}
         {needsCollapse && <span style={{ color: C.textMuted }}>{'\u2026'}</span>}
-        {msg.content.length > COLLAPSE_AT && (
+        {typeof msg.content === 'string' && msg.content.length > COLLAPSE_AT && (
           <button onClick={() => setExpanded(v => !v)}
             style={{
               display: 'block', marginTop: T.spacing.xs,
@@ -332,7 +332,7 @@ export const UserMessage: React.FC<UserMessageProps> = ({
               fontSize: T.typography.sizeXs, fontWeight: T.typography.weightBold,
               padding: 0, textAlign: 'left',
             }}>
-            {expanded ? 'Show less' : `Show more (${msg.content.length.toLocaleString()} chars)`}
+            {expanded ? 'Show less' : `Show more (${(typeof msg.content === 'string' ? msg.content.length : 0).toLocaleString()} chars)`}
           </button>
         )}
         <div title={new Date(msg.timestamp).toLocaleString()}
@@ -399,7 +399,7 @@ export const AssistantMessage: React.FC<AssistantMessageProps> = ({
   // fences as literal text — worst case the preview ends in an
   // unclosed ``` which renders as a flat fence until the user expands.
   const [expanded, setExpanded] = React.useState(false);
-  const needsCollapse = msg.content.length > COLLAPSE_AT && !expanded;
+  const needsCollapse = typeof msg.content === 'string' && msg.content.length > COLLAPSE_AT && !expanded;
   const bodyText = needsCollapse ? msg.content.slice(0, COLLAPSE_PREVIEW) : msg.content;
   // c2-433 / #359 + claude-0 #400 ship: refusal detection. After backend
   // de-hardcoded the conversational response pools, Pulse responses now
@@ -409,6 +409,10 @@ export const AssistantMessage: React.FC<AssistantMessageProps> = ({
   // the yellow left-border + REFUSAL pill. Conservative: single-paragraph
   // only so a long answer that happens to contain "cannot" isn't flagged.
   const refusalMatch = (() => {
+    // Defensive: msg.content is typed as string but a bad WS frame could
+    // ship null/undefined. Without this guard the whole AssistantMessage
+    // render would crash in a way the user sees as a blank page.
+    if (typeof msg.content !== 'string') return null;
     const trimmed = msg.content.trim();
     const first = trimmed.slice(0, 600);
     // Allow up to 5 non-empty lines so claude-0's multi-sentence
@@ -447,7 +451,7 @@ export const AssistantMessage: React.FC<AssistantMessageProps> = ({
   // open feels native vs the silent appearance of the menu.
   const longPress = useLongPress(onContextMenu);
   const chips: string[] = (() => {
-    if (!isLast || msg.content.length <= 40) return [];
+    if (!isLast || typeof msg.content !== 'string' || msg.content.length <= 40) return [];
     const words = msg.content.toLowerCase().split(/\s+/).filter(w => w.length > 5);
     const unique = [...new Set(words)].slice(0, 20);
     const topics = unique.filter(w => !['about','which','would','could','should','these','those','there','their','really','actually','because','through'].includes(w)).slice(0, 3);
@@ -533,7 +537,7 @@ export const AssistantMessage: React.FC<AssistantMessageProps> = ({
               </button>
             </div>
           )}
-          {msg.content.length > COLLAPSE_AT && (
+          {typeof msg.content === 'string' && msg.content.length > COLLAPSE_AT && (
             <button onClick={() => setExpanded(v => !v)}
               style={{
                 display: 'block', marginTop: T.spacing.sm,
@@ -542,7 +546,7 @@ export const AssistantMessage: React.FC<AssistantMessageProps> = ({
                 fontSize: T.typography.sizeXs, fontWeight: T.typography.weightBold,
                 padding: 0, textAlign: 'left',
               }}>
-              {expanded ? 'Show less' : `Show more (${msg.content.length.toLocaleString()} chars)`}
+              {expanded ? 'Show less' : `Show more (${(typeof msg.content === 'string' ? msg.content.length : 0).toLocaleString()} chars)`}
             </button>
           )}
           {developerMode && msg.conclusion_id != null && (
@@ -745,7 +749,7 @@ export const AssistantMessage: React.FC<AssistantMessageProps> = ({
               padding: '0 8px', marginTop: '2px',
               fontFamily: T.typography.fontMono,
             }}>
-              {words.toLocaleString()} {words === 1 ? 'word' : 'words'} · {msg.content.length.toLocaleString()} chars
+              {words.toLocaleString()} {words === 1 ? 'word' : 'words'} · {(typeof msg.content === 'string' ? msg.content.length : 0).toLocaleString()} chars
             </div>
           );
         })()}

@@ -891,7 +891,10 @@ ${cmdList}
     // Delay 1.5s to let the first-paint settle before introducing the
     // overlay — otherwise the spotlight lands on an element that's still
     // mounting + jumping.
-    const id = window.setTimeout(() => setShowTour(true), 1500);
+    const id = window.setTimeout(() => {
+      diag.info('tour', 'first-visit autolaunch');
+      setShowTour(true);
+    }, 1500);
     return () => window.clearTimeout(id);
   }, [isAuthenticated]);
   const [teachText, setTeachText] = useState('');
@@ -1637,6 +1640,7 @@ ${cmdList}
 
       ws.onopen = () => {
         console.debug("// SCC: Chat WS OPEN");
+        diag.info('ws-chat', 'open', { url: wsUrl, hadDisconnected: hasDisconnected });
         // #354: cancel any pending disconnect flip — fast reconnect
         // should leave no visible UI flicker.
         if (pendingDisconnectTimer) {
@@ -1882,6 +1886,7 @@ ${cmdList}
 
       ws.onclose = (ev) => {
         console.debug("// SCC: Chat WS CLOSED:", ev.code, ev.reason || '', 'reconnect in', reconnectDelayMs, 'ms');
+        diag.warn('ws-chat', `close code=${ev.code}`, { code: ev.code, reason: ev.reason || '', wasClean: ev.wasClean, reconnectInMs: reconnectDelayMs });
         hasDisconnected = true;
         // #354 / claude-0 14:10: DO NOT flip isConnected immediately. A
         // 3s debounce covers the common case where reconnect completes
@@ -1931,6 +1936,7 @@ ${cmdList}
 
       ws.onerror = (ev) => {
         console.error("// SCC: Chat WS ERROR:", ev);
+        diag.error('ws-chat', 'error event (onclose will follow)', ev as any);
         // #354: onerror typically pairs with onclose; let the
         // debounced onclose handler own the isConnected flip.
       };
