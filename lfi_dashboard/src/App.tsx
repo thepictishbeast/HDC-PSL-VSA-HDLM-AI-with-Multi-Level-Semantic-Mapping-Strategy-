@@ -38,6 +38,7 @@ import { compactNum, formatRam, formatTime, copyToClipboard, diskPressure, smart
 // error events. Installed once on mount. Exposed on window.diag for devtools.
 import { diag } from './diag';
 import { markSend, markFirstFrame, markResponse, markRendered, type TurnTrace } from './turnTrace';
+import { useHistoryDialog } from './useHistoryDialog';
 import { useToastQueue } from './useToastQueue';
 import { useFeedbackModals } from './useFeedbackModals';
 import { useChatSearch } from './useChatSearch';
@@ -1382,54 +1383,56 @@ ${cmdList}
     return 'chat';
   });
 
-  // URL hash <-> activeView sync. State change pushes the hash; popstate
-  // (back/forward) reads the hash and updates state. Admin opens as a modal
-  // so it also writes #admin while showAdmin is true, and restores the
-  // previous view (chat or classroom) when closed.
+  // URL hash <-> activeView sync. First mount replaceState (no history
+  // balloon); subsequent view changes pushState so the browser Back button
+  // actually takes the user to the previous view. Admin is NOT in the hash
+  // anymore — it's wired through useHistoryDialog below so Back closes it
+  // without fighting the view machinery.
+  const firstViewSyncRef = useRef(true);
   useEffect(() => {
-    const want = showAdmin ? 'admin' : activeView;
+    const want = activeView;
     const cur = window.location.hash.replace('#', '');
     if (cur !== want) {
       const url = `${window.location.pathname}${window.location.search}#${want}`;
-      // Use replaceState for in-session updates so we don't balloon history
-      // with every tab click; back button still works because the initial
-      // page load pushed its own entry.
-      window.history.replaceState(null, '', url);
+      if (firstViewSyncRef.current) {
+        window.history.replaceState(null, '', url);
+      } else {
+        window.history.pushState(null, '', url);
+      }
     }
-    // c0-020 E4: announce view change to screen readers so blind users know
-    // they've navigated into a different section, not just a modal.
-    if (want === 'admin') setSrAnnouncement('Admin console opened');
-    else if (want === 'classroom') setSrAnnouncement('Classroom view active');
+    firstViewSyncRef.current = false;
+    if (want === 'classroom') setSrAnnouncement('Classroom view active');
     else if (want === 'fleet') setSrAnnouncement('Fleet view active');
     else if (want === 'library') setSrAnnouncement('Library view active');
     else if (want === 'auditorium') setSrAnnouncement('Auditorium view active');
     else setSrAnnouncement('Chat view active');
-  }, [activeView, showAdmin]);
+  }, [activeView]);
   useEffect(() => {
     const onHashChange = () => {
       const h = window.location.hash.replace('#', '');
-      if (h === 'admin') {
-        setShowAdmin(true);
-      } else if (h === 'classroom') {
-        setShowAdmin(false);
-        setActiveView('classroom');
-      } else if (h === 'fleet') {
-        setShowAdmin(false);
-        setActiveView('fleet');
-      } else if (h === 'library') {
-        setShowAdmin(false);
-        setActiveView('library');
-      } else if (h === 'auditorium') {
-        setShowAdmin(false);
-        setActiveView('auditorium');
-      } else {
-        setShowAdmin(false);
-        setActiveView('chat');
-      }
+      if (h === 'classroom') setActiveView('classroom');
+      else if (h === 'fleet') setActiveView('fleet');
+      else if (h === 'library') setActiveView('library');
+      else if (h === 'auditorium') setActiveView('auditorium');
+      else setActiveView('chat');
     };
     window.addEventListener('hashchange', onHashChange);
     return () => window.removeEventListener('hashchange', onHashChange);
   }, []);
+
+  // Browser Back → close the topmost modal / popover / dialog. Each hook call
+  // pushes a history entry when the surface opens; popstate closes it.
+  // Programmatic close (e.g. clicking X) pops the stale entry so forward/back
+  // stays balanced. Ordering mirrors Escape-key precedence in the key handler.
+  useHistoryDialog(showAdmin, () => setShowAdmin(false), 'admin');
+  useHistoryDialog(showSettings, () => setShowSettings(false), 'settings');
+  useHistoryDialog(showCmdPalette, () => setShowCmdPalette(false), 'cmdk');
+  useHistoryDialog(showActivity, () => setShowActivity(false), 'activity');
+  useHistoryDialog(showKnowledge, () => setShowKnowledge(false), 'kb');
+  useHistoryDialog(showShortcuts, () => setShowShortcuts(false), 'shortcuts');
+  useHistoryDialog(showTerminal, () => setShowTerminal(false), 'xterm');
+  useHistoryDialog(showTraining, () => setShowTraining(false), 'training');
+  useHistoryDialog(!!showGame, () => setShowGame(null), 'game');
 
   // Network-level online/offline listener. Reads navigator.onLine and keeps
   // a separate banner color (amber vs red) so users know if the problem is
