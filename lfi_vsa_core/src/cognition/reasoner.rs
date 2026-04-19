@@ -1691,16 +1691,48 @@ impl CognitiveCore {
             }
         }
 
-        // #400 Substrate route. Instead of scoring the input against a
-        // fixed anchor pool and picking from a canned variant list, we pull
-        // whatever the RAG pipeline already populated onto this reasoner and
-        // let `hdc_retrieval_response_shaped` compose a grounded reply — the
-        // same path Define / Explain / Why / HowTo use for formal queries.
-        // When retrieval surfaced nothing, the composer itself returns a
-        // calibrated refusal naming the blocking condition; that honest
-        // "no fact clears the trust threshold" beats a warm-sounding
-        // template that makes LFI sound like a chatbot.
+        // #400 / #404 Substrate route. For CASUAL conversational input
+        // ("hello" / "im good" / "how are you"), RAG typically surfaces
+        // low-similarity dataset rows (MNLI entailments, random Q&A
+        // pairs) that are grounded but awkward to dump verbatim. Instead
+        // of showing the MNLI text, emit a short grounded message that
+        // names what LFI is good at. When the top hit is strong enough
+        // (≥ 0.70 similarity) OR comes from the concept graph, fall
+        // through to the full prose composer — those are genuinely
+        // useful answers.
         let act = self.active_speech_act.map(|(a, _)| a);
+        let top = self.rag_context.iter()
+            .max_by(|a, b| a.2.partial_cmp(&b.2).unwrap_or(std::cmp::Ordering::Equal));
+        let weak_casual = match top {
+            Some((k, _, s)) => {
+                let is_concept = k.starts_with("concept:");
+                let is_strong = *s >= 0.70;
+                !is_concept && !is_strong
+            }
+            None => true,
+        };
+        if weak_casual {
+            // Short, honest, grounded message — no canned pleasantry,
+            // no fabricated friendliness. Tells the user what LFI can
+            // actually do + invites a substrate-shaped question.
+            let q = crate::truncate_str(input.trim(), 80);
+            let top_snippet = top.map(|(_, v, s)| {
+                let short = crate::truncate_str(v, 60).replace('\n', " ");
+                format!(" (closest hit similarity {:.0}%: \"{}…\")", s * 100.0, short)
+            }).unwrap_or_default();
+            return format!(
+                "I'm a post-LLM system grounded in an ingested fact base — \
+                 nothing clears the 0.70 trust threshold for \"{}\"{}.\n\n\
+                 I answer best when you ask about something in the corpus. Try:\n\
+                 • what is X\n\
+                 • tell me about X\n\
+                 • why does X cause Y\n\
+                 • how does X work\n\
+                 • what's related to X\n\n\
+                 Or ingest a corpus that covers the topic you want to chat about.",
+                q, top_snippet,
+            );
+        }
         hdc_retrieval_response_shaped(input, &self.rag_context, act)
     }
 
