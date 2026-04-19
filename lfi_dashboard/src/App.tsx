@@ -5764,11 +5764,14 @@ ${cmdList}
           )}
         </div>
 
-        {/* Center: view switcher — Chat / Classroom / Admin (c0-027).
-            c2-433 / task 272: WAI-ARIA kbd nav (Arrow/Home/End + roving
-            tabindex) per #178. Cmd+1/2/3 still work as the global jump;
-            arrow-nav is the within-tablist standard. */}
-        {(() => {
+        {/* 2026-04-19 header 3-tab strip removed — it duplicated Chat/
+            Classroom/Admin that already live in the authoritative 6-view
+            nav below (Agora/Classroom/Admin/Fleet/Library/Auditorium) and
+            crammed against the PlausiDen AI title. Badges (contradictions
+            count + admin error dot) forwarded to the nav strip below.
+            Code kept behind a false gate for a cycle in case a revert is
+            needed; will be removed entirely next cleanup pass. */}
+        {false && (() => {
           const VIEWS = [
             { id: 'chat' as const,      label: 'Chat',      onClick: () => { setActiveView('chat'); setShowAdmin(false); } },
             { id: 'classroom' as const, label: 'Classroom', onClick: () => { setActiveView('classroom'); setShowAdmin(false); } },
@@ -5855,6 +5858,7 @@ ${cmdList}
         </div>
           );
         })()}
+        {false && /* header-row 3-tab strip disabled 2026-04-19 — duplicated with the 6-view nav */ null}
 
         {/* c2-367 / task 94: prominent New Chat button. Sits in the header
             cluster just before the account menu so power users don't have
@@ -6228,10 +6232,19 @@ ${cmdList}
             { id: 'auditorium', label: 'Auditorium', mod: '6', act: () => { setActiveView('auditorium'); setShowAdmin(false); } },
           ] as const).map(item => {
             const isActive = (item.id === 'admin' ? showAdmin : (activeView === item.id && !showAdmin));
+            // Badges carried over from the removed 3-tab header strip.
+            const badge = (item.id === 'classroom' && typeof contradictionsPending === 'number' && contradictionsPending > 0)
+              ? contradictionsPending : null;
+            const adminErrDot = (item.id === 'admin' && diagUnseenErrors > 0);
             return (
-              <button key={item.id} onClick={item.act}
+              <button key={item.id} onClick={() => {
+                item.act();
+                if (item.id === 'admin') setDiagUnseenErrors(0);
+              }}
                 aria-current={isActive ? 'page' : undefined}
-                title={`${item.label} (${mod()}${item.mod})`}
+                title={badge !== null ? `${item.label} — ${badge} pending contradiction${badge === 1 ? '' : 's'}`
+                  : adminErrDot ? `${item.label} — ${diagUnseenErrors} unseen error${diagUnseenErrors === 1 ? '' : 's'} in diag`
+                  : `${item.label} (${mod()}${item.mod})`}
                 style={{
                   background: 'transparent', border: 'none', cursor: 'pointer',
                   padding: `${T.spacing.sm} ${isDesktop ? T.spacing.lg : T.spacing.md}`,
@@ -6241,7 +6254,7 @@ ${cmdList}
                   borderBottom: `2px solid ${isActive ? C.accent : 'transparent'}`,
                   marginBottom: '-1px', display: 'flex', alignItems: 'center', gap: '6px',
                   transition: `color ${T.motion.fast}, border-color ${T.motion.fast}`,
-                  whiteSpace: 'nowrap', flexShrink: 0,
+                  whiteSpace: 'nowrap', flexShrink: 0, position: 'relative',
                 }}
                 onMouseEnter={(e) => { if (!isActive) e.currentTarget.style.color = C.text; }}
                 onMouseLeave={(e) => { if (!isActive) e.currentTarget.style.color = C.textMuted; }}>
@@ -6252,6 +6265,28 @@ ${cmdList}
                     fontSize: '10px', color: isActive ? C.accent : C.textDim,
                     opacity: 0.7,
                   }}>{modKey(item.mod)}</kbd>
+                )}
+                {adminErrDot && (
+                  <span aria-label={`${diagUnseenErrors} unseen diag errors`}
+                    style={{
+                      position: 'absolute', top: '6px', right: '4px',
+                      width: '8px', height: '8px',
+                      background: C.red, borderRadius: '50%',
+                      border: `1.5px solid ${C.bgCard}`,
+                    }} />
+                )}
+                {badge !== null && (
+                  <span aria-label={`${badge} pending contradictions`}
+                    style={{
+                      position: 'absolute', top: '4px', right: '2px',
+                      minWidth: '16px', height: '16px', padding: '0 4px',
+                      background: C.red, color: '#fff',
+                      fontSize: '9px', fontWeight: 800,
+                      borderRadius: '8px', lineHeight: '16px',
+                      display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                      border: `1.5px solid ${C.bgCard}`,
+                      fontFamily: T.typography.fontMono, letterSpacing: 0,
+                    }}>{badge > 99 ? '99+' : badge}</span>
                 )}
               </button>
             );
