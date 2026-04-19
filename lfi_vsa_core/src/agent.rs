@@ -151,7 +151,18 @@ impl LfiAgent {
             provenance: Arc::new(Mutex::new(ProvenanceEngine::new())),
             rag_context: Vec::new(),
             causal_graph: crate::cognition::causal::CausalGraph::new(),
-            workspace: crate::cognition::global_workspace::GlobalWorkspace::standard(),
+            // #397 Default to a massive Global Workspace — beats GPT/Claude
+            // context-window size by orders of magnitude when RAM allows.
+            // Reads LFI_WORKSPACE_MAX_MB env (default 512 MB = ~400k slots)
+            // so operators can cap it without recompiling. UI can
+            // override at runtime via PUT /api/settings/workspace.
+            workspace: {
+                let mb: usize = std::env::var("LFI_WORKSPACE_MAX_MB")
+                    .ok().and_then(|s| s.parse().ok())
+                    .unwrap_or(512);
+                let bytes = mb.saturating_mul(1024 * 1024);
+                crate::cognition::global_workspace::GlobalWorkspace::new_with_ram_budget(bytes)
+            },
             topic_stack: std::collections::VecDeque::with_capacity(8),
             grok_monitor: crate::cognition::grokking_monitor::GrokMonitor::new(100),
             commitments: crate::crypto_commitment::CommitmentRegistry::new(),

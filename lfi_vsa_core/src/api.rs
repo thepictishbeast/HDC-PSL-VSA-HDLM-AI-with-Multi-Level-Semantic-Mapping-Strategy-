@@ -3682,6 +3682,61 @@ pub fn create_router() -> Result<Router, Box<dyn std::error::Error>> {
         }))
     }
 
+    // ---- Workspace RAM cap (#397 / #398) ----
+
+    /// GET /api/settings/workspace — current workspace capacity + footprint.
+    async fn settings_workspace_get_handler(
+        State(state): State<Arc<AppState>>,
+    ) -> impl IntoResponse {
+        let agent = state.agent.lock();
+        let k = agent.workspace.capacity();
+        let bytes = agent.workspace.ram_footprint_bytes();
+        axum::Json(json!({
+            "capacity": k,
+            "footprint_bytes": bytes,
+            "footprint_mb": (bytes as f64 / (1024.0 * 1024.0) * 100.0).round() / 100.0,
+            // ~2 KB per slot accounting for the bitvec + metadata + Vec
+            // overhead. Matches the sizing constant in
+            // GlobalWorkspace::new_with_ram_budget so the UI can label
+            // slots consistently with the backend calculation.
+            "per_slot_bytes": 1950,
+        }))
+    }
+
+    /// PUT /api/settings/workspace
+    /// Body: { "max_mb": 256 }
+    /// Resizes the workspace to the largest k that fits in max_mb.
+    async fn settings_workspace_set_handler(
+        State(state): State<Arc<AppState>>,
+        Json(body): Json<serde_json::Value>,
+    ) -> impl IntoResponse {
+        let max_mb = body.get("max_mb")
+            .and_then(|v| v.as_u64()).unwrap_or(0);
+        if max_mb == 0 || max_mb > 16_384 {
+            return axum::Json(json!({
+                "error": "max_mb must be 1..=16384 (16 GB cap — enforce RAM-safety)",
+            }));
+        }
+        let bytes = (max_mb as usize).saturating_mul(1024 * 1024);
+        let new_k = bytes / 1950; // matches per_slot_bytes above
+        let mut agent = state.agent.lock();
+        agent.workspace.resize(new_k);
+        // Audit-chain the change so rotations are visible in the
+        // integrity panel alongside token + auth events.
+        drop(agent);
+        let _ = state.db.audit_chain_append(
+            "settings", "Info", "rest_client",
+            "workspace_resized",
+            &format!("max_mb={} capacity={}", max_mb, new_k),
+        );
+        let agent = state.agent.lock();
+        axum::Json(json!({
+            "capacity": agent.workspace.capacity(),
+            "footprint_bytes": agent.workspace.ram_footprint_bytes(),
+            "max_mb": max_mb,
+        }))
+    }
+
     // ---- Combined health + drift + proof + contradictions (#355) ----
 
     /// GET /api/health/extended
@@ -5406,6 +5461,9 @@ pub fn create_router() -> Result<Router, Box<dyn std::error::Error>> {
         .route("/api/proof/status/:key", get(proof_status_handler))
         .route("/api/proof/stats", get(proof_stats_handler))
         .route("/api/health/extended", get(health_extended_handler))
+        .route("/api/settings/workspace",
+               get(settings_workspace_get_handler)
+               .put(settings_workspace_set_handler))
         .route("/api/capability/tokens",
                get(capability_token_list_handler)
                .post(capability_token_issue_handler))

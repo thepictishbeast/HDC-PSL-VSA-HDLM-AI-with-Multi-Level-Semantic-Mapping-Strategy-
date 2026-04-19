@@ -67,6 +67,52 @@ impl GlobalWorkspace {
         Self::new(8)
     }
 
+    /// #397 Size the workspace by a RAM budget (in bytes). Each slot holds
+    /// one BipolarVector + metadata — approximately 1.3 KB heap including
+    /// the bitvec allocation. We multiply by 1.5× to account for Vec
+    /// overhead + label strings + HashMap padding during eviction.
+    /// Returns the computed capacity so the caller can log / expose it.
+    pub fn new_with_ram_budget(bytes: usize) -> Self {
+        let per_slot_bytes = 1300 * 3 / 2; // ~2 KB accounting for overhead
+        let k = (bytes / per_slot_bytes).max(8);
+        Self::new(k)
+    }
+
+    /// Resize the workspace in place. Preserves the highest-salience
+    /// entries when shrinking; pads with None when growing. The k-limit
+    /// takes effect on the next compete() call.
+    pub fn resize(&mut self, new_k: usize) {
+        let new_k = new_k.max(1);
+        if new_k == self.k { return; }
+        if new_k < self.k {
+            // Shrink: keep top-k entries by salience.
+            let mut entries: Vec<WorkspaceEntry> = self.slots.iter()
+                .filter_map(|s| s.clone()).collect();
+            entries.sort_by(|a, b| b.salience.partial_cmp(&a.salience)
+                .unwrap_or(std::cmp::Ordering::Equal));
+            entries.truncate(new_k);
+            self.slots = entries.into_iter().map(Some).collect();
+            while self.slots.len() < new_k { self.slots.push(None); }
+        } else {
+            // Grow: pad with None.
+            while self.slots.len() < new_k { self.slots.push(None); }
+        }
+        self.k = new_k;
+    }
+
+    /// Current configured capacity (k).
+    pub fn capacity(&self) -> usize { self.k }
+
+    /// Estimated heap footprint in bytes (rough; accounts for each
+    /// BipolarVector + label String + Vec overhead).
+    pub fn ram_footprint_bytes(&self) -> usize {
+        // Empty slots cost only Option discriminant (~16 B). Occupied
+        // slots cost the bitvec (10_000 bits ≈ 1250 B) + label String
+        // capacity + a few scalar fields.
+        let occupied = self.slots.iter().filter(|s| s.is_some()).count();
+        (self.k * 16) + (occupied * 1400)
+    }
+
     /// Submit entries from all modules. The top-k by salience win broadcast slots.
     /// Existing entries decay; new entries compete against decayed incumbents.
     pub fn compete(&mut self, submissions: Vec<WorkspaceEntry>) -> Vec<WorkspaceEntry> {
