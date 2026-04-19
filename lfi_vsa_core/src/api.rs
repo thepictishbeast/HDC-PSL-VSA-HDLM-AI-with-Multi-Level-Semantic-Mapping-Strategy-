@@ -3682,6 +3682,96 @@ pub fn create_router() -> Result<Router, Box<dyn std::error::Error>> {
         }))
     }
 
+    // ---- HDLM HTTP surfaces (#343 parser + #344 renderer) ----
+
+    /// POST /api/parse/english
+    /// Body: { "text": "..." }
+    /// Returns tokenised text with per-token POS tags + AST node counts
+    /// so the UI can render the forensic parser's output.
+    async fn parse_english_handler(
+        Json(body): Json<serde_json::Value>,
+    ) -> impl IntoResponse {
+        let text = body.get("text")
+            .and_then(|v| v.as_str()).unwrap_or("").trim();
+        if text.is_empty() || text.len() > 4096 {
+            return axum::Json(json!({"error": "text must be 1..=4096 chars"}));
+        }
+        use crate::hdlm::english_parser::{tokenise, build_tree};
+        use crate::hdlm::ast::Ast;
+        let tokens = tokenise(text);
+        let token_json: Vec<serde_json::Value> = tokens.iter().map(|t| json!({
+            "text": t.text,
+            "pos": t.pos.as_str(),
+        })).collect();
+        let mut ast = Ast::new();
+        let root = build_tree(&mut ast, &tokens).ok();
+        let sentence_count = root.and_then(|r| ast.get_node(r))
+            .map(|n| n.children.len()).unwrap_or(0);
+        axum::Json(json!({
+            "token_count": tokens.len(),
+            "sentence_count": sentence_count,
+            "tokens": token_json,
+        }))
+    }
+
+    /// POST /api/hdlm/render
+    /// Body: { "text": "...", "candidates": ["w1", "w2", ...],
+    ///         "k": 5, "min_score": 0.5, "namespace": "wordnet" }
+    /// Encodes the text via role_binding::concept_vector, then reports
+    /// which of the candidates match it via cosine similarity.
+    async fn hdlm_render_handler(
+        Json(body): Json<serde_json::Value>,
+    ) -> impl IntoResponse {
+        let text = body.get("text")
+            .and_then(|v| v.as_str()).unwrap_or("").trim();
+        let cands = body.get("candidates")
+            .and_then(|v| v.as_array()).cloned().unwrap_or_default();
+        let k = body.get("k")
+            .and_then(|v| v.as_u64()).unwrap_or(5).min(100) as usize;
+        let min_score = body.get("min_score")
+            .and_then(|v| v.as_f64()).unwrap_or(0.5_f64)
+            .clamp(-1.0_f64, 1.0_f64);
+        let ns = body.get("namespace")
+            .and_then(|v| v.as_str()).unwrap_or("concept");
+        if text.is_empty() || text.len() > 4096 {
+            return axum::Json(json!({"error": "text must be 1..=4096 chars"}));
+        }
+        if cands.is_empty() || cands.len() > 500 {
+            return axum::Json(json!({"error": "candidates must be 1..=500"}));
+        }
+
+        use crate::hdlm::SymbolicCodebook;
+        use crate::hdlm::semantic_renderer::{nearest_symbols, render_sketch};
+
+        // BUG ASSUMPTION: composite + candidate vectors MUST share a
+        // seed derivation for cosine similarity to be meaningful. We
+        // encode both through the same SymbolicCodebook namespace
+        // rather than using concept_vector() (which has a different
+        // LFI::CONCEPT:: prefix and would make self-similarity ≈ 0).
+        let cb = SymbolicCodebook::new(ns);
+        let composite = cb.encode(text);
+        let cand_strs: Vec<String> = cands.iter()
+            .filter_map(|v| v.as_str())
+            .filter(|s| !s.is_empty() && s.len() <= 128)
+            .map(|s| s.to_string())
+            .collect();
+        let cand_refs: Vec<&str> = cand_strs.iter()
+            .map(|s| s.as_str()).collect();
+        let matches = nearest_symbols(&composite, &cb, &cand_refs, k);
+        let matches_json: Vec<serde_json::Value> = matches.iter().map(|m| json!({
+            "symbol": m.symbol,
+            "score": (m.score * 10000.0).round() / 10000.0,
+        })).collect();
+        let sketch = render_sketch(&composite, &cb, &cand_refs, k, min_score);
+        axum::Json(json!({
+            "sketch": sketch,
+            "matches": matches_json,
+            "count": matches_json.len(),
+            "text": text,
+            "namespace": ns,
+        }))
+    }
+
     // ---- Tuple extraction pipeline (#329) ----
 
     /// POST /api/tuples/extract
@@ -5164,6 +5254,8 @@ pub fn create_router() -> Result<Router, Box<dyn std::error::Error>> {
         .route("/api/ingest/gaps", get(ingest_gaps_handler))
         .route("/api/tuples/extract", post(tuples_extract_handler))
         .route("/api/tuples/count", get(tuples_count_handler))
+        .route("/api/parse/english", post(parse_english_handler))
+        .route("/api/hdlm/render", post(hdlm_render_handler))
         .route("/api/capability/tokens",
                get(capability_token_list_handler)
                .post(capability_token_issue_handler))
