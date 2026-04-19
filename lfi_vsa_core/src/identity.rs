@@ -85,18 +85,31 @@ impl IdentityProver {
     }
 
     /// Verifies if a presented identity matches the sovereign commitment.
+    ///
+    /// SECURITY: #323 — every commitment comparison goes through
+    /// `subtle::ConstantTimeEq` and the three results are combined with
+    /// bitwise AND so the branch pattern is independent of which
+    /// component differs. Previously the plain `&&` on `==` let an
+    /// attacker distinguish "name wrong" from "password wrong" via
+    /// timing, which leaks which component they've already guessed.
+    /// AVP-PASS-20: Tier 3 — timing side-channel mitigation.
     pub fn verify(proof: &SovereignProof, name: &str, credential: &str, license: &str, password: &str) -> bool {
+        use subtle::ConstantTimeEq;
         let current = Self::commit(name, credential, license, password, proof.kind);
-        let matched = current.name_hash == proof.name_hash 
-                   && current.credentials_commitment == proof.credentials_commitment
-                   && current.password_commitment == proof.password_commitment;
-        
+        let n_eq = current.name_hash.to_le_bytes()
+            .ct_eq(&proof.name_hash.to_le_bytes());
+        let c_eq = current.credentials_commitment.to_le_bytes()
+            .ct_eq(&proof.credentials_commitment.to_le_bytes());
+        let p_eq = current.password_commitment.to_le_bytes()
+            .ct_eq(&proof.password_commitment.to_le_bytes());
+        let matched: bool = (n_eq & c_eq & p_eq).into();
+
         if matched {
             debuglog!("IdentityProver: IDENTITY VERIFIED.");
         } else {
             debuglog!("IdentityProver: SPOOFING ATTEMPT DETECTED.");
         }
-        
+
         matched
     }
 
