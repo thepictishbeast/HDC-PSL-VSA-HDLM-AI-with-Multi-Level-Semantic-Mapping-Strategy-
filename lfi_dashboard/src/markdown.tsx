@@ -272,7 +272,52 @@ export const renderInlineMd = (raw: string, baseKey: string, ctx: MarkdownCtx): 
                 // is still readable.
                 out.push(<span key={`${baseKey}-f${i}-${j}-${k}-${m}`}>{fp}</span>);
               } else if (fp) {
-                out.push(<span key={`${baseKey}-t${i}-${j}-${k}-${m}`}>{wrapHighlight(fp, ctx.highlight, `${baseKey}-t${i}-${j}-${k}-${m}`)}</span>);
+                // c2-433 / #358 numeric certainty: per-clause backend
+                // emits `(87.50% certain)` which we want to render as a
+                // tier-colored pill instead of plain text. Split the
+                // remaining text on the certainty pattern so the numbers
+                // stand out visually without losing their inline context.
+                const certRegex = /\((\d+(?:\.\d+)?)%\s+certain\)/g;
+                const certParts: Array<string | { cert: number }> = [];
+                let lastIdx = 0;
+                let cm: RegExpExecArray | null;
+                while ((cm = certRegex.exec(fp)) !== null) {
+                  if (cm.index > lastIdx) certParts.push(fp.slice(lastIdx, cm.index));
+                  certParts.push({ cert: Number(cm[1]) });
+                  lastIdx = cm.index + cm[0].length;
+                }
+                if (lastIdx < fp.length) certParts.push(fp.slice(lastIdx));
+                if (certParts.length === 1 && typeof certParts[0] === 'string') {
+                  // No certainty match — normal text path.
+                  out.push(<span key={`${baseKey}-t${i}-${j}-${k}-${m}`}>{wrapHighlight(fp, ctx.highlight, `${baseKey}-t${i}-${j}-${k}-${m}`)}</span>);
+                } else {
+                  certParts.forEach((cp, cq) => {
+                    if (typeof cp === 'string') {
+                      if (cp) out.push(<span key={`${baseKey}-t${i}-${j}-${k}-${m}-${cq}`}>{wrapHighlight(cp, ctx.highlight, `${baseKey}-t${i}-${j}-${k}-${m}-${cq}`)}</span>);
+                    } else {
+                      const n = cp.cert;
+                      const tone = n >= 80 ? C.green : n >= 50 ? (C.yellow || C.textMuted) : C.red;
+                      out.push(
+                        <span key={`${baseKey}-c${i}-${j}-${k}-${m}-${cq}`}
+                          title={`Confidence ${n.toFixed(2)}% — colored green ≥80 / yellow ≥50 / red below`}
+                          style={{
+                            display: 'inline-flex', alignItems: 'center',
+                            padding: '0 6px', margin: '0 2px',
+                            fontSize: '0.8em',
+                            fontFamily: C.font || 'monospace',
+                            background: `${tone}18`,
+                            color: tone,
+                            border: `1px solid ${tone}55`,
+                            borderRadius: '3px',
+                            fontWeight: 700,
+                            verticalAlign: 'baseline',
+                            lineHeight: '1.3',
+                            letterSpacing: '0.02em',
+                          }}>{n.toFixed(n % 1 === 0 ? 0 : 2)}%</span>
+                      );
+                    }
+                  });
+                }
               }
             });
           }
