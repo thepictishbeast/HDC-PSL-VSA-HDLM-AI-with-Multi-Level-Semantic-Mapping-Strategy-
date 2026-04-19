@@ -3394,20 +3394,27 @@ const ServerWontStartHelp: React.FC<{ C: any }> = ({ C }) => {
             Run these from a shell. Full reference: <code style={{ fontFamily: T.typography.fontMono }}>docs/manager_guide.md</code> §10.5 or the Docs tab in Admin.
           </p>
           <ol style={{ margin: 0, paddingLeft: '20px' }}>
-            <li><strong>Check if it's actually up:</strong><br />
+            <li><strong>Service status (authoritative — claude-0 13:55 ship):</strong><br />
+              <code style={{ fontFamily: T.typography.fontMono, background: C.bgInput, padding: '1px 6px', borderRadius: 3 }}>systemctl status plausiden-server</code>
+              — <span style={{ color: C.textMuted }}>shows active/failed + last log lines. Restart=always so it auto-retries every 5s on crash.</span>
+            </li>
+            <li style={{ marginTop: T.spacing.sm }}><strong>Hit the health endpoint directly:</strong><br />
               <code style={{ fontFamily: T.typography.fontMono, background: C.bgInput, padding: '1px 6px', borderRadius: 3 }}>curl -sS http://localhost:3000/api/health | head</code>
             </li>
-            <li style={{ marginTop: T.spacing.sm }}><strong>Check for a stuck PID on port 3000:</strong><br />
-              <code style={{ fontFamily: T.typography.fontMono, background: C.bgInput, padding: '1px 6px', borderRadius: 3 }}>lsof -i :3000 || ss -ltnp 'sport = :3000'</code>
+            <li style={{ marginTop: T.spacing.sm }}><strong>Which process holds :3000?</strong><br />
+              <code style={{ fontFamily: T.typography.fontMono, background: C.bgInput, padding: '1px 6px', borderRadius: 3 }}>ss -ltnp 'sport = :3000'</code>
+              — <span style={{ color: C.textMuted }}>expect systemd-managed plausiden-server; any other PID (stale nohup) should be killed.</span>
             </li>
-            <li style={{ marginTop: T.spacing.sm }}><strong>Tail the log for the failure reason:</strong><br />
-              <code style={{ fontFamily: T.typography.fontMono, background: C.bgInput, padding: '1px 6px', borderRadius: 3 }}>journalctl -u lfi --since '10 min ago' --no-pager | tail -60</code>
+            <li style={{ marginTop: T.spacing.sm }}><strong>Tail the service log for the failure reason:</strong><br />
+              <code style={{ fontFamily: T.typography.fontMono, background: C.bgInput, padding: '1px 6px', borderRadius: 3 }}>journalctl -u plausiden-server --since '10 min ago' --no-pager | tail -60</code>
             </li>
-            <li style={{ marginTop: T.spacing.sm }}><strong>If brain.db is locked (WAL checkpoint hung):</strong><br />
-              <code style={{ fontFamily: T.typography.fontMono, background: C.bgInput, padding: '1px 6px', borderRadius: 3 }}>fuser ~/LFI-data/brain.db</code> then kill the holder and restart.
+            <li style={{ marginTop: T.spacing.sm }}><strong>brain.db locked (WAL checkpoint hung)?</strong><br />
+              <code style={{ fontFamily: T.typography.fontMono, background: C.bgInput, padding: '1px 6px', borderRadius: 3 }}>fuser ~/LFI-data/brain.db</code>
+              — kill the holder, then restart the service (next step).
             </li>
             <li style={{ marginTop: T.spacing.sm }}><strong>Restart:</strong><br />
-              <code style={{ fontFamily: T.typography.fontMono, background: C.bgInput, padding: '1px 6px', borderRadius: 3 }}>systemctl --user restart lfi</code> or the equivalent run command.
+              <code style={{ fontFamily: T.typography.fontMono, background: C.bgInput, padding: '1px 6px', borderRadius: 3 }}>systemctl restart plausiden-server</code>
+              — <span style={{ color: C.textMuted }}>canonical path; the old nohup pattern should not recur.</span>
             </li>
           </ol>
         </div>
