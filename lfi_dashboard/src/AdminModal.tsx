@@ -28,7 +28,7 @@ import type { DiagEntry, DiagLevel } from './diag';
 // affordance which users found cramped. Sortable + filterable tables, big-
 // number dashboard cards, bar-chart visualisations of domains + quality.
 
-export type AdminTab = 'dashboard' | 'inventory' | 'domains' | 'training' | 'quality' | 'system' | 'fleet' | 'logs' | 'tokens' | 'proof' | 'diag' | 'docs' | 'crawler';
+export type AdminTab = 'dashboard' | 'inventory' | 'domains' | 'training' | 'quality' | 'system' | 'fleet' | 'logs' | 'tokens' | 'proof' | 'diag' | 'docs' | 'crawler' | 'privacy';
 
 interface FleetInstance {
   id: string;
@@ -129,7 +129,7 @@ export const AdminModal: React.FC<AdminModalProps> = ({
     if (initialTab !== 'dashboard') return initialTab;
     try {
       const stored = localStorage.getItem('lfi_admin_tab') as AdminTab | null;
-      const valid: AdminTab[] = ['dashboard', 'inventory', 'domains', 'training', 'quality', 'system', 'fleet', 'logs', 'tokens', 'proof', 'diag', 'docs', 'crawler'];
+      const valid: AdminTab[] = ['dashboard', 'inventory', 'domains', 'training', 'quality', 'system', 'fleet', 'logs', 'tokens', 'proof', 'diag', 'docs', 'crawler', 'privacy'];
       if (stored && valid.includes(stored)) return stored;
     } catch { /* storage blocked */ }
     return initialTab;
@@ -758,6 +758,7 @@ export const AdminModal: React.FC<AdminModalProps> = ({
             { id: 'diag', label: 'Diag' },
             { id: 'docs', label: 'Docs' },
             { id: 'crawler', label: 'Crawler' },
+            { id: 'privacy', label: 'Privacy' },
           ]}
           active={tab}
           onChange={setTab} />
@@ -1846,6 +1847,11 @@ export const AdminModal: React.FC<AdminModalProps> = ({
               — this surface renders a useful placeholder if they 404. */}
           {tab === 'crawler' && (
             <CrawlerTab C={C} host={host} />
+          )}
+          {/* c0-privacy / #380: privacy report — what LFI knows about
+              the user. Payload from GET /api/privacy/report. */}
+          {tab === 'privacy' && (
+            <PrivacyTab C={C} host={host} />
           )}
         </div>
       </div>
@@ -3390,6 +3396,252 @@ const CrawlerTab: React.FC<{ C: any; host: string }> = ({ C, host }) => {
             </>
           )}
         </div>
+      )}
+    </div>
+  );
+};
+
+// c0-privacy / #380: consumer of GET /api/privacy/report. Shape per
+// claude-0 a01457a: { ok, identity_and_preferences[],
+// ui_prefs[], feedback_given:{total_feedbacks, trainer_sessions,
+// adversarial_examples_from_you}, recent_chat_turns[],
+// your_rights:{local_first, export, delete_profile_row,
+// wipe_chat_history, source_of_truth} }.
+interface PrivacyRow {
+  key: string;
+  value: string;
+  category?: string;
+  learned_at?: string;
+}
+interface PrivacyChat {
+  role?: string;
+  content?: string;
+  timestamp?: string;
+  conversation_id?: string;
+}
+interface PrivacyRights {
+  local_first?: string;
+  export?: string;
+  delete_profile_row?: string;
+  wipe_chat_history?: string;
+  source_of_truth?: string;
+}
+interface PrivacyPayload {
+  ok?: boolean;
+  identity_and_preferences?: PrivacyRow[];
+  ui_prefs?: PrivacyRow[];
+  feedback_given?: {
+    total_feedbacks?: number;
+    trainer_sessions?: number;
+    adversarial_examples_from_you?: number;
+  };
+  recent_chat_turns?: PrivacyChat[];
+  your_rights?: PrivacyRights;
+}
+const PrivacyTab: React.FC<{ C: any; host: string }> = ({ C, host }) => {
+  const [data, setData] = useState<PrivacyPayload | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [showPrefs, setShowPrefs] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    const load = async () => {
+      setLoading(true); setErr(null);
+      try {
+        const ctrl = new AbortController();
+        const to = setTimeout(() => ctrl.abort(), 8000);
+        const r = await fetch(`http://${host}:3000/api/privacy/report`, { signal: ctrl.signal });
+        clearTimeout(to);
+        if (!r.ok) {
+          if (!cancelled) { setErr(r.status === 404 ? 'endpoint-pending' : `HTTP ${r.status}`); setData(null); }
+          return;
+        }
+        const j: PrivacyPayload = await r.json().catch(() => ({} as PrivacyPayload));
+        if (!cancelled) { setData(j); setErr(null); }
+      } catch (e: any) {
+        if (!cancelled) { setErr(e?.message || 'unreachable'); setData(null); }
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    };
+    load();
+    return () => { cancelled = true; };
+  }, [host]);
+
+  const fmtLearned = (iso?: string): string => {
+    if (!iso) return '—';
+    const ts = Date.parse(iso);
+    if (isNaN(ts)) return iso;
+    const s = Math.round((Date.now() - ts) / 1000);
+    if (s < 60) return `${s}s ago`;
+    if (s < 3600) return `${Math.round(s / 60)}m ago`;
+    if (s < 86400) return `${Math.round(s / 3600)}h ago`;
+    const days = Math.round(s / 86400);
+    if (days < 14) return `${days}d ago`;
+    return new Date(ts).toISOString().slice(0, 10);
+  };
+
+  return (
+    <div>
+      <h2 style={{ fontSize: T.typography.size2xl, fontWeight: 600, color: C.text, margin: '0 0 6px' }}>Privacy</h2>
+      <p style={{ fontSize: T.typography.sizeSm, color: C.textSecondary, margin: '0 0 16px', lineHeight: 1.55 }}>
+        What PlausiDen knows about you — pulled live from your local brain.db. Everything here stays on your hardware.
+      </p>
+      {loading && <SkeletonLoader C={C} base='input' height='140px' style={{ marginBottom: T.spacing.lg }} />}
+      {err === 'endpoint-pending' && (
+        <div style={{
+          padding: T.spacing.md, background: C.bgInput,
+          border: `1px dashed ${C.borderSubtle}`, borderRadius: T.radii.md,
+          color: C.textDim, fontSize: T.typography.sizeXs, lineHeight: 1.6, marginBottom: T.spacing.lg,
+        }}>
+          <strong style={{ color: C.textMuted }}>Privacy endpoint not mounted yet.</strong>{' '}
+          Waiting on <code style={{ fontFamily: T.typography.fontMono, color: C.accent }}>GET /api/privacy/report</code>.
+        </div>
+      )}
+      {err && err !== 'endpoint-pending' && (
+        <ErrorAlert C={C} message={`Could not load privacy report: ${err}`} onRetry={() => window.location.reload()} />
+      )}
+      {data && (
+        <>
+          {/* Your rights callout */}
+          {data.your_rights && (
+            <div style={{
+              padding: T.spacing.md, marginBottom: T.spacing.lg,
+              background: C.bgInput, borderRadius: T.radii.md,
+              border: `1px solid ${C.accent}40`,
+            }}>
+              <Label color={C.accent} mb={T.spacing.sm}>Your rights</Label>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: T.spacing.xs, fontSize: T.typography.sizeSm, color: C.textSecondary, lineHeight: 1.5 }}>
+                {data.your_rights.local_first && <div>• <strong style={{ color: C.text }}>Local-first:</strong> {data.your_rights.local_first}</div>}
+                {data.your_rights.export && <div>• <strong style={{ color: C.text }}>Export:</strong> {data.your_rights.export}</div>}
+                {data.your_rights.delete_profile_row && <div>• <strong style={{ color: C.text }}>Delete:</strong> {data.your_rights.delete_profile_row}</div>}
+                {data.your_rights.wipe_chat_history && <div>• <strong style={{ color: C.text }}>Wipe chat:</strong> {data.your_rights.wipe_chat_history}</div>}
+                {data.your_rights.source_of_truth && <div>• <strong style={{ color: C.text }}>Source of truth:</strong> {data.your_rights.source_of_truth}</div>}
+              </div>
+            </div>
+          )}
+          {/* Feedback totals */}
+          {data.feedback_given && (
+            <div style={{
+              display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
+              gap: T.spacing.md, marginBottom: T.spacing.lg,
+            }}>
+              <DashCard C={C} label='Feedbacks given' color={C.accent} value={(data.feedback_given.total_feedbacks ?? 0).toLocaleString()} />
+              <DashCard C={C} label='Trainer sessions' color={C.purple} value={(data.feedback_given.trainer_sessions ?? 0).toLocaleString()} />
+              <DashCard C={C} label='Adversarial (from you)' color={C.yellow} value={(data.feedback_given.adversarial_examples_from_you ?? 0).toLocaleString()} />
+            </div>
+          )}
+          {/* Identity + preferences */}
+          <Label color={C.textMuted} mb={T.spacing.sm}>Identity &amp; preferences ({(data.identity_and_preferences || []).length})</Label>
+          {(data.identity_and_preferences || []).length === 0 ? (
+            <div style={{
+              padding: T.spacing.md, marginBottom: T.spacing.lg,
+              background: C.bgInput, borderRadius: T.radii.md,
+              border: `1px dashed ${C.borderSubtle}`,
+              color: C.textDim, fontSize: T.typography.sizeXs,
+            }}>
+              Nothing learned yet. Say "remember that X is Y" in chat and it'll land here.
+            </div>
+          ) : (
+            <DataTable<PrivacyRow> C={C}
+              rows={(data.identity_and_preferences || []).slice(0, 200)}
+              rowKey={(r) => r.key}
+              sort={{ col: 'learned_at', dir: 'desc' }}
+              columns={[
+                {
+                  id: 'key', header: 'Key', align: 'left',
+                  sortKey: (r) => r.key.toLowerCase(),
+                  accessor: (r) => <span style={{ fontFamily: T.typography.fontMono, color: C.text }}>{r.key}</span>,
+                },
+                {
+                  id: 'value', header: 'Value', align: 'left',
+                  sortKey: (r) => (r.value || '').toLowerCase(),
+                  accessor: (r) => <span style={{ color: C.textSecondary, wordBreak: 'break-word' }}>{r.value}</span>,
+                },
+                {
+                  id: 'category', header: 'Category', align: 'left',
+                  sortKey: (r) => (r.category || '').toLowerCase(),
+                  accessor: (r) => <span style={{ fontFamily: T.typography.fontMono, color: C.textMuted, fontSize: T.typography.sizeXs }}>{r.category || '—'}</span>,
+                },
+                {
+                  id: 'learned_at', header: 'Learned', align: 'right',
+                  sortKey: (r) => r.learned_at ? Date.parse(r.learned_at) : 0,
+                  accessor: (r) => <span style={{ fontFamily: T.typography.fontMono, color: C.textSecondary, fontSize: T.typography.sizeXs }}>{fmtLearned(r.learned_at)}</span>,
+                },
+              ]}
+            />
+          )}
+          {/* UI prefs (collapsible) */}
+          <div style={{ marginTop: T.spacing.lg }}>
+            <button
+              type='button'
+              onClick={() => setShowPrefs(v => !v)}
+              aria-expanded={showPrefs}
+              style={{
+                background: 'transparent', color: C.textSecondary, border: 'none',
+                padding: 0, cursor: 'pointer', fontFamily: 'inherit',
+                fontSize: T.typography.sizeSm, fontWeight: 500,
+              }}
+            >{showPrefs ? '▼' : '▶'} UI preferences ({(data.ui_prefs || []).length})</button>
+            {showPrefs && (
+              <div style={{ marginTop: T.spacing.sm }}>
+                {(data.ui_prefs || []).length === 0 ? (
+                  <div style={{ color: C.textDim, fontSize: T.typography.sizeXs, padding: T.spacing.sm }}>No UI prefs stored.</div>
+                ) : (
+                  <DataTable<PrivacyRow> C={C}
+                    rows={data.ui_prefs || []}
+                    rowKey={(r) => r.key}
+                    sort={{ col: 'key', dir: 'asc' }}
+                    columns={[
+                      {
+                        id: 'key', header: 'Key', align: 'left',
+                        sortKey: (r) => r.key,
+                        accessor: (r) => <span style={{ fontFamily: T.typography.fontMono, color: C.textMuted, fontSize: T.typography.sizeXs }}>{r.key}</span>,
+                      },
+                      {
+                        id: 'value', header: 'Value', align: 'left',
+                        sortKey: (r) => r.value,
+                        accessor: (r) => <span style={{ fontFamily: T.typography.fontMono, color: C.textSecondary, fontSize: T.typography.sizeXs }}>{r.value}</span>,
+                      },
+                    ]}
+                  />
+                )}
+              </div>
+            )}
+          </div>
+          {/* Recent chat timeline */}
+          {data.recent_chat_turns && data.recent_chat_turns.length > 0 && (
+            <div style={{ marginTop: T.spacing.xl }}>
+              <Label color={C.textMuted} mb={T.spacing.sm}>Recent chat turns ({data.recent_chat_turns.length})</Label>
+              <div style={{
+                maxHeight: '360px', overflowY: 'auto',
+                border: `1px solid ${C.borderSubtle}`,
+                borderRadius: T.radii.md, background: C.bgInput,
+              }}>
+                {data.recent_chat_turns.map((t, i) => (
+                  <div key={i} style={{
+                    padding: `${T.spacing.sm} ${T.spacing.md}`,
+                    borderBottom: i < data.recent_chat_turns!.length - 1 ? `1px solid ${C.borderSubtle}` : 'none',
+                  }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: T.spacing.xs }}>
+                      <span style={{
+                        fontFamily: T.typography.fontMono, fontSize: T.typography.sizeXs, fontWeight: 600,
+                        color: t.role === 'user' ? C.accent : t.role === 'assistant' ? C.green : C.textMuted,
+                      }}>{t.role || '—'}</span>
+                      <span style={{ fontFamily: T.typography.fontMono, fontSize: T.typography.sizeXs, color: C.textMuted }}>
+                        {fmtLearned(t.timestamp)}
+                      </span>
+                    </div>
+                    <div style={{ fontSize: T.typography.sizeSm, color: C.textSecondary, whiteSpace: 'pre-wrap', lineHeight: 1.4 }}>
+                      {(t.content || '').slice(0, 500)}{(t.content || '').length > 500 ? '…' : ''}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </>
       )}
     </div>
   );
