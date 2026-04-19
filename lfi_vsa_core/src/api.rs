@@ -192,12 +192,15 @@ pub async fn telemetry_handler(
 async fn handle_telemetry_socket(mut socket: WebSocket, _state: Arc<AppState>) {
     info!("// AUDIT: SCC Telemetry client connected.");
 
+    // #403 / stability Telemetry WS now tolerant of idle periods — both
+    // sends a live-sample every 1s AND a protocol Ping every 15s so proxies
+    // don't kill the socket during silent periods. Breaks cleanly if either
+    // the send or the recv closes, so the client's reconnect logic can
+    // re-establish without the user seeing "offline" on a zombie socket.
+    let ping_every = std::time::Duration::from_secs(15);
+    let mut last_ping = std::time::Instant::now();
+
     loop {
-        // Sample telemetry from the agent's VSA state.
-        // #403 Previously held state.agent.lock() unnecessarily — the
-        // orthogonality probe operates on a fresh HyperMemory and does not
-        // need agent state. Removing the spurious hold so the telemetry WS
-        // no longer contends with chat.
         let stats = {
             let input_hv = crate::memory_bus::HyperMemory::new(crate::memory_bus::DIM_PROLETARIAT);
             let vsa_ortho = input_hv.audit_orthogonality();
@@ -210,9 +213,18 @@ async fn handle_telemetry_socket(mut socket: WebSocket, _state: Arc<AppState>) {
         }).to_string();
 
         if socket.send(Message::Text(payload)).await.is_err() {
-            debug!("// AUDIT: Telemetry client disconnected.");
+            debug!("// AUDIT: Telemetry client disconnected (send).");
             break;
         }
+
+        if last_ping.elapsed() >= ping_every {
+            if socket.send(Message::Ping(vec![])).await.is_err() {
+                debug!("// AUDIT: Telemetry client disconnected (ping).");
+                break;
+            }
+            last_ping = std::time::Instant::now();
+        }
+
         tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
     }
 }
@@ -238,14 +250,16 @@ async fn handle_chat_socket(mut socket: WebSocket, state: Arc<AppState>) {
 
     // #403 WS keepalive. Intermediate proxies (reverse proxies, WireGuard
     // NAT, phone LTE) commonly drop WebSocket connections after ~60 s of
-    // silence. A server-side Ping every 25 s keeps the path warm; if the
-    // next Ping can't be sent, the loop breaks so the UI's auto-reconnect
-    // can kick in rather than leaving the user staring at a dead socket.
-    //
-    // Browsers auto-Pong any server Ping transparently so this does not
-    // require UI changes. The 25s interval is well below the 45s
-    // "Backend isn't streaming" banner the UI shows on dead streams.
-    let keepalive = std::time::Duration::from_secs(25);
+    // silence. Send a TEXT heartbeat every 15 s — text because:
+    //   (a) it updates the UI's lastBackendFrameRef so the sidebar's
+    //       'offline' chip doesn't climb into the stale window during an
+    //       idle chat
+    //   (b) it survives weird proxies that silently drop protocol Ping
+    //       frames (seen on cellular MVNOs / double-NAT setups)
+    // Also send a protocol Ping alongside so standard browser ws layer
+    // pongs too — belt + suspenders. 15 s is well below a typical 30-60 s
+    // proxy idle timeout.
+    let keepalive = std::time::Duration::from_secs(15);
 
     loop {
         let msg = match tokio::time::timeout(keepalive, socket.recv()).await {
@@ -256,11 +270,16 @@ async fn handle_chat_socket(mut socket: WebSocket, state: Arc<AppState>) {
             }
             Ok(None) => break,                       // client closed
             Err(_) => {
-                // No message in 25 s → send a server Ping to keep the
-                // TCP path alive through proxies.
-                if socket.send(Message::Ping(vec![])).await.is_err() {
-                    break;
-                }
+                // No message in 15 s → heartbeat. Text payload the UI
+                // already consumes via lastBackendFrameRef.
+                let hb = json!({
+                    "type": "heartbeat",
+                    "t": std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .map(|d| d.as_millis() as u64).unwrap_or(0),
+                }).to_string();
+                if socket.send(Message::Text(hb)).await.is_err() { break; }
+                if socket.send(Message::Ping(vec![])).await.is_err() { break; }
                 continue;
             }
         };
@@ -968,7 +987,13 @@ async fn handle_chat_socket(mut socket: WebSocket, state: Arc<AppState>) {
                     let _ = child.kill().await;
                 }
             }
-            Message::Close(_) => break,
+            Message::Close(cf) => {
+                let reason = cf.as_ref()
+                    .map(|c| format!("code={} reason={}", c.code, crate::truncate_str(&c.reason, 80)))
+                    .unwrap_or_else(|| "no_frame".to_string());
+                info!("// AUDIT: SCC Chat client sent close: {}", reason);
+                break;
+            }
             _ => {}
         }
         } // <-- closes the inner `{` opened above so the old loop body stays indented.
