@@ -8,3 +8,4 @@ pub mod atomic;
 pub mod discourse;
 pub mod argumentation;
 pub mod semantic_role;
+pub mod dialogue_act;
