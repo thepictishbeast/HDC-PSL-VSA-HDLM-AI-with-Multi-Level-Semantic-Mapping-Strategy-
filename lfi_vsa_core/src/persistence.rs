@@ -1183,6 +1183,15 @@ impl BrainDb {
             if total_cards > 0 { total_lapses as f64 / total_cards as f64 } else { 0.0 },
         );
 
+        // #329 Tuple extraction progress — surfaces whether the structured
+        // SPO pipeline is keeping up with raw ingest. Small table so exact
+        // COUNT is fine. Facts-table count uses the sample approximation
+        // pattern (free scan) to stay under budget.
+        let tuples_total: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM facts_tuples", [], |r| r.get(0),
+        ).unwrap_or(0);
+        out.insert("tuples_total".into(), tuples_total as f64);
+
         out
     }
 
