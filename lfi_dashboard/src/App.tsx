@@ -5044,12 +5044,25 @@ ${cmdList}
 
       {/* ========== FIRST-RUN WELCOME ========== */}
       {showWelcome && (
-        <div style={{
-          position: 'fixed', inset: 0, zIndex: T.z.modal + 50,
-          background: 'rgba(0,0,0,0.70)',
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-          padding: T.spacing.lg,
-        }}>
+        <div
+          onClick={(e) => {
+            // Click-outside-to-dismiss (common modal pattern). The inner
+            // dialog stopPropagation via its own container below.
+            if (e.target === e.currentTarget) dismissWelcome();
+          }}
+          onKeyDown={(e) => {
+            // Esc also dismisses. Crawler spotted the header chats-
+            // toggle was un-clickable because this modal caught the
+            // clicks and had no other exit.
+            if (e.key === 'Escape') dismissWelcome();
+          }}
+          tabIndex={-1}
+          style={{
+            position: 'fixed', inset: 0, zIndex: T.z.modal + 50,
+            background: 'rgba(0,0,0,0.70)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            padding: T.spacing.lg,
+          }}>
           <div role='dialog' aria-modal='true' aria-labelledby='scc-welcome-title'
             style={{
             width: '100%', maxWidth: '520px',
