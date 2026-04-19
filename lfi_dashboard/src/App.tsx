@@ -250,6 +250,9 @@ const SovereignCommandConsole: React.FC = () => {
   // haven't fetched yet; missing fields stay 0. Chip is hidden until we
   // have a confirmed payload so the UI doesn't render zero-value chrome.
   const [substrateStats, setSubstrateStats] = useState<{ concepts: number; axioms: number; chatTotal: number } | null>(null);
+  // claude-0 #403: age of the backend-cached stats snapshot (seconds). >60s
+  // means the background refresh task stalled — counts may be stale.
+  const [statsAgeSecs, setStatsAgeSecs] = useState<number | null>(null);
   // c2-433 / #298: pending contradiction count from /api/contradictions/recent.
   // Feeds a small red badge on the Classroom tab button + a tooltip line so
   // the user can see at a glance that the ledger has unresolved disagreements
@@ -1169,6 +1172,12 @@ ${cmdList}
         : typeof d.chatTotal === 'number' ? d.chatTotal
         : 0;
       setSubstrateStats({ concepts, axioms, chatTotal });
+      // claude-0 #403: stats_age_secs rides along on /api/health/extended.
+      // null when the endpoint predates #403 or doesn't emit it.
+      const age = typeof d.stats_age_secs === 'number' ? d.stats_age_secs
+        : typeof d.stats_age === 'number' ? d.stats_age
+        : null;
+      setStatsAgeSecs(age);
       // Contradictions pending — top-level number per #355.
       const cp = typeof d.contradictions_pending === 'number' ? d.contradictions_pending
         : typeof drift.contradictions_pending === 'number' ? drift.contradictions_pending
@@ -5452,8 +5461,12 @@ ${cmdList}
                   fontWeight: 700, letterSpacing: '0.04em', marginTop: '2px',
                   display: 'flex', alignItems: 'center', gap: '6px',
                 }}
-                  title={connHealth === 'green' ? 'Connected — frames arriving' : connHealth === 'yellow' ? 'No frames for 15s+ — backend may be stalled' : 'Disconnected — reconnecting'}>
+                  title={`${connHealth === 'green' ? 'Connected — frames arriving' : connHealth === 'yellow' ? 'No frames for 15s+ — backend may be stalled' : 'Disconnected — reconnecting'}${statsAgeSecs != null ? ` · stats cached ${statsAgeSecs}s ago` : ''}`}>
                   <span>{connHealth === 'green' ? 'Online' : connHealth === 'yellow' ? 'Stale' : 'Offline'}</span>
+                  {statsAgeSecs != null && statsAgeSecs > 60 && (
+                    <span title={`Backend stats cache ${statsAgeSecs}s old — the 60s refresh loop may be blocked`}
+                      style={{ color: '#eab308', fontWeight: 600 }}>· {statsAgeSecs}s</span>
+                  )}
                   {/* c2-433 / task 236: substrate fill chip — concepts (RAG
                       facts in the HDC store) + axioms (PSL constraints
                       registered). Tells the user the substrate is non-empty

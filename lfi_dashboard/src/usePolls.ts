@@ -3,7 +3,11 @@ import { useEffect, useState } from 'react';
 // Three polling hooks for the sidebar dashboard. Each manages its own interval
 // + AbortController; parent just flips `active` to pause (unauthenticated).
 
-// -------- /api/status (5s) --------
+// -------- /api/status (15s) --------
+// Cadence bumped 5s → 15s per claude-0 #403: backend stats are cached
+// server-side on a 60s background refresh, so polling faster than ~15s
+// just re-reads the same Arc<AtomicI64>. 3× fewer requests, same data
+// freshness. Latency sample still captures user-visible RTT.
 export interface KgCounters { facts: number; concepts: number; sources: number; entropy: number }
 
 export const useStatusPoll = (host: string, active: boolean) => {
@@ -46,7 +50,7 @@ export const useStatusPoll = (host: string, active: boolean) => {
       }
     };
     fetchStatus();
-    const id = setInterval(fetchStatus, 5000);
+    const id = setInterval(fetchStatus, 15000);
     return () => clearInterval(id);
   }, [host, active]);
   return { kg, lastOk, lastError, latencyMs };
