@@ -2853,28 +2853,34 @@ const DocsTab: React.FC<{ C: any; host: string }> = ({ C, host }) => {
   const [source, setSource] = useState<string>('');
   const load = React.useCallback(async () => {
     setLoading(true); setErr(null);
-    // Try several known locations in order. First hit wins.
-    const candidates = [
-      `/docs/manager_guide.md`,
-      `/api/docs/manager_guide`,
-      `/api/docs/manager_guide.md`,
+    // Try backend first, then the bundled USER_GUIDE.md (served by Vite
+    // from /public). Bundled path always wins if backend is offline so
+    // the user never sees an empty Docs tab.
+    const backendCandidates = [
+      `http://${host}:3000/docs/manager_guide.md`,
+      `http://${host}:3000/api/docs/manager_guide`,
+      `http://${host}:3000/api/docs/manager_guide.md`,
     ];
-    for (const path of candidates) {
+    const bundledCandidates = [
+      `/USER_GUIDE.md`,
+    ];
+    for (const url of [...backendCandidates, ...bundledCandidates]) {
       try {
-        const url = `http://${host}:3000${path}`;
         const r = await fetch(url);
         if (!r.ok) continue;
         const body = await r.text();
-        if (body && body.length > 10) {
+        // Guard against index.html being returned by a catch-all route —
+        // real markdown won't start with "<!DOCTYPE".
+        if (body && body.length > 10 && !body.trimStart().startsWith('<!')) {
           setText(body);
-          setSource(path);
+          setSource(url.replace(`http://${host}:3000`, ''));
           setLoading(false);
           return;
         }
       } catch { /* try next */ }
     }
     setLoading(false);
-    setErr('manager_guide.md not available yet — claude-0 is shipping the endpoint. Try again in a minute.');
+    setErr('Guide not available — bundled fallback at /USER_GUIDE.md should have loaded. Try Reload.');
   }, [host]);
   useEffect(() => { load(); }, [load]);
   return (

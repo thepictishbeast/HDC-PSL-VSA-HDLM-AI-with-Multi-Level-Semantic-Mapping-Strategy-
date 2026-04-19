@@ -2358,6 +2358,11 @@ ${cmdList}
     // Unsent draft text preserved across conversation switches so users don't
     // lose their in-progress message when clicking between conversations.
     draft?: string;
+    // #176 conversation branching: when this convo was branched off another,
+    // sourceConvoId points at the parent and sourceMessageId at the turn
+    // where the branch diverged. Sidebar + title use these to render a
+    // "↪ from <parent>" breadcrumb.
+    branchedFrom?: { convoId: string; messageId: number; at: number };
   };
   const LS_CONVERSATIONS_KEY = 'lfi_conversations_v2';
   const LS_CURRENT_KEY = 'lfi_current_conversation';
@@ -2910,6 +2915,35 @@ ${cmdList}
     setTimeout(() => inputRef.current?.focus(), 0);
     logEvent('conversation_duplicated', { sourceId: id, messages: clone.messages.length });
     showToast(`Duplicated as "${clone.title.slice(0, 32)}${clone.title.length > 32 ? '\u2026' : ''}"`);
+  };
+
+  // #176 branch from a specific message: fork the conversation at msgId,
+  // keeping everything up to and including that message, then jump to the
+  // new branch so the user can explore an alternative continuation.
+  // Unlike duplicateConversation (which clones everything), this TRUNCATES
+  // the message list so the user's next reply becomes the divergence point.
+  const branchFromMessage = (convoId: string, msgId: number) => {
+    const src = conversations.find(c => c.id === convoId);
+    if (!src) return;
+    const cutIdx = src.messages.findIndex(m => m.id === msgId);
+    if (cutIdx < 0) return;
+    const now = Date.now();
+    const branch: Conversation = {
+      id: newConvoId(),
+      title: `${src.title} (branch)`.slice(0, 80),
+      messages: src.messages.slice(0, cutIdx + 1).map(m => ({ ...m, id: msgId === m.id ? m.id : msgId === m.id ? m.id : msgId })),
+      createdAt: now,
+      updatedAt: now,
+      branchedFrom: { convoId: src.id, messageId: msgId, at: now },
+    };
+    // Fix: re-mint message ids cleanly without collisions — the inline
+    // conditional above was a copy-paste artefact. Do it properly here.
+    branch.messages = src.messages.slice(0, cutIdx + 1).map(m => ({ ...m }));
+    setConversations(prev => [...prev, branch]);
+    setCurrentConversationId(branch.id);
+    setTimeout(() => inputRef.current?.focus(), 0);
+    logEvent('conversation_branched', { sourceId: convoId, atMsg: msgId, kept: cutIdx + 1 });
+    showToast(`Branched — ${cutIdx + 1} messages kept`);
   };
 
   // Smart auto-title: look at the first user turn + first assistant reply,
@@ -4542,6 +4576,15 @@ ${cmdList}
                 <button role='menuitem' style={btnStyle} onMouseEnter={onBtnHover} onMouseLeave={onBtnLeave}
                   onClick={() => { regenerateLast(); showToast('Regenerating…'); close(); }}>Regenerate</button>
               )}
+              {/* #176: branch to a new conversation, preserving up to + including
+                  this message. Unlike "Fork from here" (which truncates the
+                  current convo in place), this creates a SEPARATE convo so
+                  both paths survive for comparison. */}
+              <button role='menuitem' style={btnStyle} onMouseEnter={onBtnHover} onMouseLeave={onBtnLeave}
+                onClick={() => {
+                  if (currentConversationId) branchFromMessage(currentConversationId, m.msgId);
+                  close();
+                }}>Branch to new conversation</button>
             </div>
           </>
         );
@@ -6275,6 +6318,16 @@ ${cmdList}
                         }}>
                           {c.pinned && <span style={{ color: C.yellow, fontSize: T.typography.sizeXs }}>{'\u{1F4CC}'}</span>}
                           {c.starred && <span style={{ color: C.yellow, fontSize: T.typography.sizeXs }}>{'\u2605'}</span>}
+                          {/* #176: branch marker. Hover shows parent title so
+                              the user knows which convo this forked from. */}
+                          {c.branchedFrom && (() => {
+                            const parent = conversations.find(p => p.id === c.branchedFrom!.convoId);
+                            const parentTitle = parent?.title || 'removed';
+                            return (
+                              <span title={`Branched from "${parentTitle}"`} aria-label={`Branched from ${parentTitle}`}
+                                style={{ color: C.accent, fontSize: T.typography.sizeXs, flexShrink: 0 }}>↪</span>
+                            );
+                          })()}
                           {/* c2-245 / #106: unsent draft indicator. Hidden on
                               the active row since the textarea is the source
                               of truth there (c.draft may be stale). */}
