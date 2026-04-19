@@ -3,3 +3,4 @@
 // separate binaries (tools/) because they're long-running jobs.
 
 pub mod wikidata;
+pub mod causenet;
