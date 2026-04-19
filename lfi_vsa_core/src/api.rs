@@ -5732,6 +5732,21 @@ pub fn create_router() -> Result<Router, Box<dyn std::error::Error>> {
         let limit: i64 = params.get("limit")
             .and_then(|s| s.parse().ok()).unwrap_or(50).min(500);
 
+        // #403 5-min response cache (same pattern as marketplace). The
+        // sample-50k + GROUP BY + JOIN is contention-prone; cache it.
+        static QUALITY_CACHE: std::sync::OnceLock<
+            parking_lot::Mutex<Option<(std::time::Instant, serde_json::Value)>>
+        > = std::sync::OnceLock::new();
+        let cache = QUALITY_CACHE.get_or_init(|| parking_lot::Mutex::new(None));
+        {
+            let guard = cache.lock();
+            if let Some((t, value)) = guard.as_ref() {
+                if t.elapsed() < std::time::Duration::from_secs(300) {
+                    return axum::Json(value.clone());
+                }
+            }
+        }
+
         let conn = match state.db.conn.lock() {
             Ok(c) => c,
             Err(_) => return axum::Json(json!({"error": "db lock"})),
@@ -5814,12 +5829,14 @@ pub fn create_router() -> Result<Router, Box<dyn std::error::Error>> {
             })
         }).collect();
 
-        axum::Json(json!({
+        let value = json!({
             "sources": items,
             "count": items.len(),
             "sample_size": 50_000,
             "sampled": true,
-        }))
+        });
+        *cache.lock() = Some((std::time::Instant::now(), value.clone()));
+        axum::Json(value)
     }
 
     // ---- Fact corpus marketplace (#285) ----
@@ -6118,6 +6135,21 @@ pub fn create_router() -> Result<Router, Box<dyn std::error::Error>> {
     async fn sources_trust_handler(
         State(state): State<Arc<AppState>>,
     ) -> impl IntoResponse {
+        // #403 60-second cache. list_source_trust takes the conn mutex;
+        // when contended it exceeds the UI's 15s fetch timeout. Tiny
+        // table (≤ 1000 rows typical) so a 60s stale window is fine.
+        static TRUST_CACHE: std::sync::OnceLock<
+            parking_lot::Mutex<Option<(std::time::Instant, serde_json::Value)>>
+        > = std::sync::OnceLock::new();
+        let cache = TRUST_CACHE.get_or_init(|| parking_lot::Mutex::new(None));
+        {
+            let guard = cache.lock();
+            if let Some((t, v)) = guard.as_ref() {
+                if t.elapsed() < std::time::Duration::from_secs(60) {
+                    return axum::Json(v.clone());
+                }
+            }
+        }
         let rows = state.db.list_source_trust();
         let items: Vec<serde_json::Value> = rows.into_iter()
             .map(|(source, trust, notes, updated_at)| json!({
@@ -6126,7 +6158,9 @@ pub fn create_router() -> Result<Router, Box<dyn std::error::Error>> {
                 "notes": notes,
                 "updated_at": updated_at,
             })).collect();
-        axum::Json(json!({"sources": items, "count": items.len()}))
+        let value = json!({"sources": items, "count": items.len()});
+        *cache.lock() = Some((std::time::Instant::now(), value.clone()));
+        axum::Json(value)
     }
 
     /// PUT /api/sources/trust
