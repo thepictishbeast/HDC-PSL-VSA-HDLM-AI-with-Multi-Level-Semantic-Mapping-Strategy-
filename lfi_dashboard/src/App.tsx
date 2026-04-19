@@ -4707,6 +4707,8 @@ ${cmdList}
             onRun: () => { setAdminInitialTab('tokens'); setShowAdmin(true); } },
           { id: 'open-admin-proof', label: 'Open Admin → Proof', hint: 'Lean4 verdict distribution across facts', group: 'Navigate',
             onRun: () => { setAdminInitialTab('proof'); setShowAdmin(true); } },
+          { id: 'open-admin-diag', label: 'Open Admin → Diag', hint: 'Runtime diagnostic log (errors, warnings, events)', group: 'Navigate',
+            onRun: () => { setAdminInitialTab('diag'); setShowAdmin(true); } },
           // c2-433: diag export — copy the runtime ring buffer (last 500
           // entries, includes auto-captured console warn/error + window
           // errors) to clipboard. Useful when filing an issue.

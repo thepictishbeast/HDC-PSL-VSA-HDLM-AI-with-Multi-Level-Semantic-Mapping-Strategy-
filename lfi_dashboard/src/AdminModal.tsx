@@ -19,13 +19,16 @@ import { TabBar } from './components/TabBar';
 // c2-375 / BIG #180: shared sortable table.
 import { DataTable } from './components';
 import type { Column } from './components';
+// c2-433: diag ring buffer — consumed by the Diag tab.
+import { diag } from './diag';
+import type { DiagEntry, DiagLevel } from './diag';
 
 // Full-screen admin modal per c0-017. Six tabs: Dashboard / Domains /
 // Training / Quality / System / Logs. Replaces the prior sidebar-slide admin
 // affordance which users found cramped. Sortable + filterable tables, big-
 // number dashboard cards, bar-chart visualisations of domains + quality.
 
-export type AdminTab = 'dashboard' | 'inventory' | 'domains' | 'training' | 'quality' | 'system' | 'fleet' | 'logs' | 'tokens' | 'proof';
+export type AdminTab = 'dashboard' | 'inventory' | 'domains' | 'training' | 'quality' | 'system' | 'fleet' | 'logs' | 'tokens' | 'proof' | 'diag';
 
 interface FleetInstance {
   id: string;
@@ -122,7 +125,7 @@ export const AdminModal: React.FC<AdminModalProps> = ({
     if (initialTab !== 'dashboard') return initialTab;
     try {
       const stored = localStorage.getItem('lfi_admin_tab') as AdminTab | null;
-      const valid: AdminTab[] = ['dashboard', 'inventory', 'domains', 'training', 'quality', 'system', 'fleet', 'logs', 'tokens', 'proof'];
+      const valid: AdminTab[] = ['dashboard', 'inventory', 'domains', 'training', 'quality', 'system', 'fleet', 'logs', 'tokens', 'proof', 'diag'];
       if (stored && valid.includes(stored)) return stored;
     } catch { /* storage blocked */ }
     return initialTab;
@@ -170,7 +173,7 @@ export const AdminModal: React.FC<AdminModalProps> = ({
   // takes over and this becomes hidden.
   const [lastChainVerifiedAt, setLastChainVerifiedAt] = useState<number | null>(null);
   const [err, setErr] = useState<Record<AdminTab, string | null>>({
-    dashboard: null, inventory: null, domains: null, training: null, quality: null, system: null, fleet: null, logs: null, tokens: null, proof: null,
+    dashboard: null, inventory: null, domains: null, training: null, quality: null, system: null, fleet: null, logs: null, tokens: null, proof: null, diag: null,
   });
   const [loading, setLoading] = useState<AdminTab | null>(null);
   // c2-272: per-tab last-successful-load timestamp. Mirrors the Classroom
@@ -659,6 +662,7 @@ export const AdminModal: React.FC<AdminModalProps> = ({
             { id: 'logs', label: 'Logs' },
             { id: 'tokens', label: 'Tokens' },
             { id: 'proof', label: 'Proof' },
+            { id: 'diag', label: 'Diag' },
           ]}
           active={tab}
           onChange={setTab} />
@@ -1717,6 +1721,13 @@ export const AdminModal: React.FC<AdminModalProps> = ({
           {tab === 'proof' && (
             <ProofTab C={C} host={host} />
           )}
+
+          {/* c2-433: in-app diag viewer — reads the diag ring buffer +
+              subscribes to new entries. Filter by level + search, Copy
+              + Clear. Avoids the DevTools-console path. */}
+          {tab === 'diag' && (
+            <DiagTab C={C} />
+          )}
         </div>
       </div>
     </div>
@@ -2462,6 +2473,220 @@ const ProofTab: React.FC<{ C: any; host: string }> = ({ C, host }) => {
           </div>
         );
       })()}
+    </div>
+  );
+};
+
+// c2-433: in-app diag viewer. Reads the diag ring buffer and subscribes
+// to new entries so the list updates in real time as console.warn/error
+// and window errors flow in. Filter by level + free-text search over
+// source/message/data. Copy-JSON + Clear actions. Stats chip at the top
+// shows error/warn counts so operators see health at a glance.
+const DiagTab: React.FC<{ C: any }> = ({ C }) => {
+  const [entries, setEntries] = useState<DiagEntry[]>(() => diag.snapshot());
+  const [levelFilter, setLevelFilter] = useState<DiagLevel | 'all'>('all');
+  const [query, setQuery] = useState<string>('');
+  const [copiedAt, setCopiedAt] = useState<number>(0);
+  const [autoScroll, setAutoScroll] = useState<boolean>(true);
+  const scrollRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const unsub = diag.subscribe(() => {
+      setEntries(diag.snapshot());
+    });
+    return unsub;
+  }, []);
+
+  // Auto-scroll to bottom when new entries arrive (unless user disabled).
+  useEffect(() => {
+    if (!autoScroll || !scrollRef.current) return;
+    scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+  }, [entries, autoScroll]);
+
+  const q = query.trim().toLowerCase();
+  const visible = entries.filter(e => {
+    if (levelFilter !== 'all' && e.level !== levelFilter) return false;
+    if (!q) return true;
+    if (e.source.toLowerCase().includes(q)) return true;
+    if (e.message.toLowerCase().includes(q)) return true;
+    if (e.data && JSON.stringify(e.data).toLowerCase().includes(q)) return true;
+    return false;
+  });
+
+  const counts = {
+    debug: entries.filter(e => e.level === 'debug').length,
+    info:  entries.filter(e => e.level === 'info').length,
+    warn:  entries.filter(e => e.level === 'warn').length,
+    error: entries.filter(e => e.level === 'error').length,
+  };
+  const toneFor = (l: DiagLevel): string =>
+    l === 'error' ? C.red :
+    l === 'warn'  ? C.yellow :
+    l === 'info'  ? C.accent :
+                    C.textMuted;
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: T.spacing.md, minHeight: 0 }}>
+      {/* Header: counts + actions */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: T.spacing.md, flexWrap: 'wrap' }}>
+        <Label color={C.textMuted}>Diagnostic log ({entries.length} entries)</Label>
+        <span style={{ fontFamily: T.typography.fontMono, fontSize: T.typography.sizeXs, color: C.textDim }}>
+          <span style={{ color: counts.error > 0 ? C.red : C.textDim }}>{counts.error} err</span>
+          {' · '}
+          <span style={{ color: counts.warn > 0 ? C.yellow : C.textDim }}>{counts.warn} warn</span>
+          {' · '}
+          <span style={{ color: C.textDim }}>{counts.info} info · {counts.debug} debug</span>
+        </span>
+        <div style={{ flex: 1 }} />
+        <button
+          disabled={entries.length === 0}
+          onClick={async () => {
+            try {
+              await navigator.clipboard.writeText(diag.export());
+              setCopiedAt(Date.now());
+              window.setTimeout(() => setCopiedAt(0), 2000);
+            } catch { /* blocked */ }
+          }}
+          title={copiedAt > 0 ? 'Copied to clipboard' : `Copy ${entries.length} diag entries + metadata as JSON`}
+          style={{
+            background: copiedAt > 0 ? `${C.green}18` : 'transparent',
+            border: `1px solid ${copiedAt > 0 ? C.green : C.borderSubtle}`,
+            color: copiedAt > 0 ? C.green : C.textMuted,
+            borderRadius: T.radii.sm,
+            cursor: entries.length === 0 ? 'not-allowed' : 'pointer',
+            padding: '4px 10px', fontFamily: 'inherit',
+            fontSize: T.typography.sizeXs, fontWeight: T.typography.weightSemibold,
+            opacity: entries.length === 0 ? 0.5 : 1,
+          }}>{copiedAt > 0 ? 'Copied \u2713' : 'Copy'}</button>
+        <button
+          disabled={entries.length === 0}
+          onClick={() => {
+            if (!window.confirm(`Clear ${entries.length} diag entries? Not recoverable.`)) return;
+            diag.clear();
+            setEntries([]);
+          }}
+          style={{
+            background: 'transparent',
+            border: `1px solid ${C.borderSubtle}`,
+            color: entries.length === 0 ? C.textDim : C.textMuted,
+            borderRadius: T.radii.sm,
+            cursor: entries.length === 0 ? 'not-allowed' : 'pointer',
+            padding: '4px 10px', fontFamily: 'inherit',
+            fontSize: T.typography.sizeXs, fontWeight: T.typography.weightSemibold,
+            opacity: entries.length === 0 ? 0.5 : 1,
+          }}>Clear</button>
+      </div>
+
+      {/* Filter row: level chips + query */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: T.spacing.sm, flexWrap: 'wrap' }}>
+        <div role='tablist' aria-label='Filter by level'
+          style={{ display: 'flex', gap: '4px' }}>
+          {([
+            { id: 'all', label: 'all', count: entries.length },
+            { id: 'error', label: 'error', count: counts.error },
+            { id: 'warn', label: 'warn', count: counts.warn },
+            { id: 'info', label: 'info', count: counts.info },
+            { id: 'debug', label: 'debug', count: counts.debug },
+          ]).map(b => {
+            const active = levelFilter === b.id;
+            const tone = b.id === 'error' ? C.red
+              : b.id === 'warn' ? C.yellow
+              : b.id === 'info' ? C.accent
+              : b.id === 'debug' ? C.textMuted
+              : C.accent;
+            return (
+              <button key={b.id} onClick={() => setLevelFilter(b.id as DiagLevel | 'all')}
+                role='tab' aria-selected={active}
+                style={{
+                  padding: '3px 9px', fontSize: '10px',
+                  fontWeight: T.typography.weightBold,
+                  background: active ? `${tone}18` : 'transparent',
+                  border: `1px solid ${active ? tone : C.borderSubtle}`,
+                  color: active ? tone : C.textMuted,
+                  borderRadius: T.radii.sm,
+                  cursor: 'pointer', fontFamily: T.typography.fontMono,
+                  letterSpacing: '0.04em', textTransform: 'uppercase',
+                }}>{b.label} <span style={{ opacity: 0.6, marginLeft: '3px' }}>{b.count}</span></button>
+            );
+          })}
+        </div>
+        <input type='search' value={query} onChange={e => setQuery(e.target.value)}
+          onKeyDown={(e) => { if (e.key === 'Escape' && query) { e.preventDefault(); e.stopPropagation(); setQuery(''); } }}
+          placeholder='Filter by source, message, or data…'
+          aria-label='Filter diag entries'
+          style={{
+            flex: '1 1 180px', minWidth: 0, maxWidth: '280px',
+            padding: '4px 10px',
+            background: C.bgCard, border: `1px solid ${C.borderSubtle}`,
+            color: C.text, borderRadius: T.radii.sm,
+            fontFamily: 'inherit', fontSize: T.typography.sizeXs,
+            outline: 'none',
+          }} />
+        <label style={{
+          display: 'inline-flex', alignItems: 'center', gap: '4px',
+          fontSize: '10px', color: C.textMuted,
+          fontFamily: T.typography.fontMono, letterSpacing: '0.04em',
+          cursor: 'pointer',
+        }}>
+          <input type='checkbox' checked={autoScroll} onChange={e => setAutoScroll(e.target.checked)} />
+          auto-scroll
+        </label>
+      </div>
+
+      {/* Entries list */}
+      <div ref={scrollRef} style={{
+        flex: 1, minHeight: '200px', maxHeight: '60vh', overflowY: 'auto',
+        background: C.bgInput, border: `1px solid ${C.borderSubtle}`,
+        borderRadius: T.radii.md, padding: T.spacing.sm,
+        fontFamily: T.typography.fontMono, fontSize: '11px',
+      }}>
+        {visible.length === 0 ? (
+          <div style={{
+            textAlign: 'center', color: C.textMuted, fontStyle: 'italic',
+            padding: T.spacing.xl, fontSize: T.typography.sizeSm,
+          }}>
+            {entries.length === 0 ? 'No diagnostic events yet. Log lines from console.warn/error and window errors land here.'
+              : `No entries match ${query ? `"${query}"` : levelFilter}.`}
+          </div>
+        ) : visible.map((e, i) => {
+          const d = new Date(e.ts);
+          const timestr = `${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}:${d.getSeconds().toString().padStart(2, '0')}.${d.getMilliseconds().toString().padStart(3, '0')}`;
+          return (
+            <div key={`${e.ts}-${i}`} style={{
+              display: 'grid',
+              gridTemplateColumns: 'minmax(80px, auto) minmax(40px, auto) minmax(60px, auto) 1fr',
+              gap: '8px', padding: '3px 0',
+              borderBottom: `1px dashed ${C.borderSubtle}`,
+              lineHeight: 1.35,
+            }}>
+              <span style={{ color: C.textDim }}>{timestr}</span>
+              <span style={{
+                color: toneFor(e.level),
+                fontWeight: T.typography.weightBold,
+                textTransform: 'uppercase', letterSpacing: '0.04em',
+              }}>{e.level}</span>
+              <span style={{ color: C.accent, fontWeight: 700 }}>{e.source}</span>
+              <span style={{
+                color: C.text, wordBreak: 'break-word',
+                whiteSpace: 'pre-wrap',
+              }}>
+                {e.message}
+                {e.data !== undefined && (
+                  <span style={{ color: C.textMuted, marginLeft: '6px' }}>
+                    {' '}{typeof e.data === 'object' ? JSON.stringify(e.data).slice(0, 200) : String(e.data)}
+                  </span>
+                )}
+                {e.stack && (
+                  <details style={{ marginTop: '2px' }}>
+                    <summary style={{ color: C.textDim, cursor: 'pointer', fontSize: '10px' }}>stack</summary>
+                    <pre style={{ margin: '4px 0', color: C.textDim, fontSize: '10px', whiteSpace: 'pre-wrap' }}>{e.stack}</pre>
+                  </details>
+                )}
+              </span>
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 };
