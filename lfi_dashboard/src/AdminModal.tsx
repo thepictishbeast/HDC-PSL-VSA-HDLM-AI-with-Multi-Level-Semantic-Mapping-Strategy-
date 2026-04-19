@@ -28,7 +28,7 @@ import type { DiagEntry, DiagLevel } from './diag';
 // affordance which users found cramped. Sortable + filterable tables, big-
 // number dashboard cards, bar-chart visualisations of domains + quality.
 
-export type AdminTab = 'dashboard' | 'inventory' | 'domains' | 'training' | 'quality' | 'system' | 'fleet' | 'logs' | 'tokens' | 'proof' | 'diag';
+export type AdminTab = 'dashboard' | 'inventory' | 'domains' | 'training' | 'quality' | 'system' | 'fleet' | 'logs' | 'tokens' | 'proof' | 'diag' | 'docs';
 
 interface FleetInstance {
   id: string;
@@ -129,7 +129,7 @@ export const AdminModal: React.FC<AdminModalProps> = ({
     if (initialTab !== 'dashboard') return initialTab;
     try {
       const stored = localStorage.getItem('lfi_admin_tab') as AdminTab | null;
-      const valid: AdminTab[] = ['dashboard', 'inventory', 'domains', 'training', 'quality', 'system', 'fleet', 'logs', 'tokens', 'proof', 'diag'];
+      const valid: AdminTab[] = ['dashboard', 'inventory', 'domains', 'training', 'quality', 'system', 'fleet', 'logs', 'tokens', 'proof', 'diag', 'docs'];
       if (stored && valid.includes(stored)) return stored;
     } catch { /* storage blocked */ }
     return initialTab;
@@ -674,6 +674,7 @@ export const AdminModal: React.FC<AdminModalProps> = ({
             { id: 'tokens', label: 'Tokens' },
             { id: 'proof', label: 'Proof' },
             { id: 'diag', label: 'Diag' },
+            { id: 'docs', label: 'Docs' },
           ]}
           active={tab}
           onChange={setTab} />
@@ -1739,6 +1740,13 @@ export const AdminModal: React.FC<AdminModalProps> = ({
           {tab === 'diag' && (
             <DiagTab C={C} />
           )}
+          {/* claude-0 11:15 ask: surface docs/manager_guide.md inside the
+              admin console so operators don't need to SSH into the server
+              to read it. Forward-compat — renders helpful 404 card when
+              the endpoint isn't yet live. */}
+          {tab === 'docs' && (
+            <DocsTab C={C} host={host} />
+          )}
         </div>
       </div>
     </div>
@@ -2698,6 +2706,197 @@ const DiagTab: React.FC<{ C: any }> = ({ C }) => {
           );
         })}
       </div>
+    </div>
+  );
+};
+
+// Tiny markdown renderer for the Docs tab. Intentionally minimal — headers,
+// paragraphs, fenced code, inline code, bold, italic, bullets. Not meant
+// to render arbitrary user-supplied markdown (that's what markdown.tsx's
+// renderMessageBody handles); this is for trusted backend-shipped docs.
+const renderDocsMarkdown = (src: string, C: any): React.ReactNode[] => {
+  const out: React.ReactNode[] = [];
+  const lines = src.split('\n');
+  let i = 0;
+  let k = 0;
+  const renderInline = (s: string, baseKey: string): React.ReactNode[] => {
+    const nodes: React.ReactNode[] = [];
+    let rest = s;
+    let j = 0;
+    while (rest.length > 0) {
+      const bold = rest.match(/^\*\*([^*]+)\*\*/);
+      const code = rest.match(/^`([^`]+)`/);
+      const ital = rest.match(/^\*([^*]+)\*/);
+      if (bold) {
+        nodes.push(<strong key={`${baseKey}-b${j++}`}>{bold[1]}</strong>);
+        rest = rest.slice(bold[0].length);
+      } else if (code) {
+        nodes.push(<code key={`${baseKey}-c${j++}`} style={{
+          background: C.bgInput, padding: '1px 5px', borderRadius: 3,
+          fontFamily: T.typography.fontMono, fontSize: '0.92em',
+        }}>{code[1]}</code>);
+        rest = rest.slice(code[0].length);
+      } else if (ital) {
+        nodes.push(<em key={`${baseKey}-i${j++}`}>{ital[1]}</em>);
+        rest = rest.slice(ital[0].length);
+      } else {
+        const nextSpecial = rest.search(/\*\*|`|\*/);
+        if (nextSpecial === -1) { nodes.push(rest); break; }
+        nodes.push(rest.slice(0, nextSpecial));
+        rest = rest.slice(nextSpecial);
+      }
+    }
+    return nodes;
+  };
+  while (i < lines.length) {
+    const line = lines[i];
+    // Fenced code block
+    const fence = line.match(/^```(\w*)/);
+    if (fence) {
+      const codeLines: string[] = [];
+      i++;
+      while (i < lines.length && !/^```/.test(lines[i])) { codeLines.push(lines[i]); i++; }
+      i++;
+      out.push(
+        <pre key={`pre${k++}`} style={{
+          background: C.bgInput, border: `1px solid ${C.borderSubtle}`,
+          borderRadius: T.radii.md, padding: T.spacing.sm,
+          fontFamily: T.typography.fontMono, fontSize: T.typography.sizeSm,
+          overflow: 'auto', margin: `${T.spacing.sm} 0`,
+          color: C.text, whiteSpace: 'pre', wordBreak: 'normal',
+        }}><code>{codeLines.join('\n')}</code></pre>
+      );
+      continue;
+    }
+    // Headers
+    const h1 = line.match(/^# (.+)/);
+    const h2 = line.match(/^## (.+)/);
+    const h3 = line.match(/^### (.+)/);
+    if (h1) {
+      out.push(<h1 key={`h${k++}`} style={{ fontSize: T.typography.size2xl, margin: `${T.spacing.lg} 0 ${T.spacing.sm}`, color: C.text }}>{renderInline(h1[1], `h${k}`)}</h1>);
+      i++; continue;
+    }
+    if (h2) {
+      out.push(<h2 key={`h${k++}`} style={{ fontSize: T.typography.sizeXl, margin: `${T.spacing.lg} 0 ${T.spacing.sm}`, color: C.text }}>{renderInline(h2[1], `h${k}`)}</h2>);
+      i++; continue;
+    }
+    if (h3) {
+      out.push(<h3 key={`h${k++}`} style={{ fontSize: T.typography.sizeLg, margin: `${T.spacing.md} 0 ${T.spacing.xs}`, color: C.text }}>{renderInline(h3[1], `h${k}`)}</h3>);
+      i++; continue;
+    }
+    // Bullet list (collect consecutive)
+    if (/^\s*[-*] /.test(line)) {
+      const items: string[] = [];
+      while (i < lines.length && /^\s*[-*] /.test(lines[i])) {
+        items.push(lines[i].replace(/^\s*[-*] /, ''));
+        i++;
+      }
+      out.push(
+        <ul key={`ul${k++}`} style={{ margin: `${T.spacing.sm} 0`, paddingLeft: 24, color: C.text }}>
+          {items.map((it, idx) => <li key={idx}>{renderInline(it, `li${k}-${idx}`)}</li>)}
+        </ul>
+      );
+      continue;
+    }
+    // Blank line → paragraph break
+    if (!line.trim()) { i++; continue; }
+    // Paragraph — collect until blank
+    const para: string[] = [];
+    while (i < lines.length && lines[i].trim() && !/^(#|```|\s*[-*] )/.test(lines[i])) {
+      para.push(lines[i]);
+      i++;
+    }
+    out.push(
+      <p key={`p${k++}`} style={{ margin: `${T.spacing.xs} 0`, lineHeight: 1.6, color: C.text }}>
+        {renderInline(para.join(' '), `p${k}`)}
+      </p>
+    );
+  }
+  return out;
+};
+
+// Docs tab — fetches a backend-shipped markdown doc (claude-0's
+// manager_guide.md) and renders it in-app. Falls back to a helpful
+// "not yet shipped" card when the endpoint 404s so older deployments
+// don't show a broken tab.
+const DocsTab: React.FC<{ C: any; host: string }> = ({ C, host }) => {
+  const [text, setText] = useState<string | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [source, setSource] = useState<string>('');
+  const load = React.useCallback(async () => {
+    setLoading(true); setErr(null);
+    // Try several known locations in order. First hit wins.
+    const candidates = [
+      `/docs/manager_guide.md`,
+      `/api/docs/manager_guide`,
+      `/api/docs/manager_guide.md`,
+    ];
+    for (const path of candidates) {
+      try {
+        const url = `http://${host}:3000${path}`;
+        const r = await fetch(url);
+        if (!r.ok) continue;
+        const body = await r.text();
+        if (body && body.length > 10) {
+          setText(body);
+          setSource(path);
+          setLoading(false);
+          return;
+        }
+      } catch { /* try next */ }
+    }
+    setLoading(false);
+    setErr('manager_guide.md not available yet — claude-0 is shipping the endpoint. Try again in a minute.');
+  }, [host]);
+  useEffect(() => { load(); }, [load]);
+  return (
+    <div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: T.spacing.sm, marginBottom: T.spacing.md }}>
+        <div style={{ fontSize: T.typography.sizeXs, color: C.textMuted, fontFamily: T.typography.fontMono }}>
+          {loading ? 'Loading…' : source ? `source: ${source}` : 'not available'}
+        </div>
+        <div style={{ flex: 1 }} />
+        <button onClick={load} disabled={loading}
+          style={{
+            background: 'transparent', border: `1px solid ${C.borderSubtle}`,
+            color: C.textMuted, borderRadius: T.radii.sm,
+            cursor: loading ? 'wait' : 'pointer',
+            padding: '4px 10px', fontSize: T.typography.sizeXs,
+            fontWeight: T.typography.weightBold, fontFamily: 'inherit',
+          }}>Reload</button>
+        {text && (
+          <button onClick={() => { try { navigator.clipboard?.writeText(text); } catch { /* silent */ } }}
+            style={{
+              background: 'transparent', border: `1px solid ${C.borderSubtle}`,
+              color: C.textMuted, borderRadius: T.radii.sm,
+              cursor: 'pointer', padding: '4px 10px',
+              fontSize: T.typography.sizeXs, fontWeight: T.typography.weightBold,
+              fontFamily: 'inherit',
+            }}>Copy</button>
+        )}
+      </div>
+      {err && !loading && (
+        <div style={{
+          padding: T.spacing.md, borderRadius: T.radii.md,
+          border: `1px solid ${C.borderSubtle}`, background: C.bgInput,
+          color: C.textMuted, fontSize: T.typography.sizeSm, lineHeight: 1.6,
+        }}>
+          <div style={{ fontWeight: T.typography.weightBold, marginBottom: T.spacing.xs, color: C.text }}>
+            Docs not loaded
+          </div>
+          {err}
+        </div>
+      )}
+      {text && !loading && (
+        <div style={{
+          background: C.bgCard, border: `1px solid ${C.borderSubtle}`,
+          borderRadius: T.radii.lg, padding: T.spacing.lg,
+          fontSize: T.typography.sizeSm,
+        }}>
+          {renderDocsMarkdown(text, C)}
+        </div>
+      )}
     </div>
   );
 };
