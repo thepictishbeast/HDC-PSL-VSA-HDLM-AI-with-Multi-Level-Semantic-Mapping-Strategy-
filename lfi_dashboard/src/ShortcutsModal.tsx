@@ -89,9 +89,14 @@ const SHORTCUTS: Array<{ group: string; items: Array<{ keys: string[]; label: st
 export interface ShortcutsModalProps {
   C: any;
   onClose: () => void;
+  // #351 polish: link the full user guide from the cheatsheet footer so
+  // users can jump from "what's the shortcut?" to "what does this do?" in
+  // one click. Optional — shipping new calls with it, existing ones still
+  // work without.
+  onOpenUserGuide?: () => void;
 }
 
-export const ShortcutsModal: React.FC<ShortcutsModalProps> = ({ C, onClose }) => {
+export const ShortcutsModal: React.FC<ShortcutsModalProps> = ({ C, onClose, onOpenUserGuide }) => {
   const dialogRef = useRef<HTMLDivElement>(null);
   useModalFocus(true, dialogRef);
   // c2-265: IS_MAC sourced from util.ts so the substitution rule matches the
@@ -162,6 +167,18 @@ export const ShortcutsModal: React.FC<ShortcutsModalProps> = ({ C, onClose }) =>
             background: C.bgInput, border: `1px solid ${C.borderSubtle}`,
             borderRadius: T.radii.xs, fontFamily: T.typography.fontMono,
           }}>?</kbd> any time to reopen this.
+          {onOpenUserGuide && (
+            <>
+              <span style={{ margin: '0 8px', color: C.borderSubtle }}>·</span>
+              <button onClick={onOpenUserGuide}
+                style={{
+                  background: 'transparent', border: 'none', color: C.accent,
+                  cursor: 'pointer', fontFamily: 'inherit',
+                  fontSize: T.typography.sizeXs, textDecoration: 'underline',
+                  padding: 0,
+                }}>Open user guide</button>
+            </>
+          )}
         </div>
       </div>
     </div>

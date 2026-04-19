@@ -700,6 +700,8 @@ const SovereignCommandConsole: React.FC = () => {
   const slashCommands: SlashCmd[] = [
     { cmd: '/teach', label: 'Teach LFI', desc: 'Add a fact to the substrate',
       run: () => setShowTeach(true) },
+    { cmd: '/guide', label: 'User guide', desc: 'Hands-on training guide (opens Admin → Docs)',
+      run: () => { setAdminInitialTab('docs'); setShowAdmin(true); } },
     { cmd: '/new', label: 'New chat', desc: 'Start a fresh conversation',
       run: () => createNewConversation() },
     { cmd: '/clear', label: 'Clear chat', desc: 'Erase current messages',
@@ -5042,6 +5044,8 @@ ${cmdList}
             onRun: () => { setAdminInitialTab('proof'); setShowAdmin(true); } },
           { id: 'open-admin-diag', label: 'Open Admin → Diag', hint: 'Runtime diagnostic log (errors, warnings, events)', group: 'Navigate',
             onRun: () => { setAdminInitialTab('diag'); setShowAdmin(true); } },
+          { id: 'open-user-guide', label: 'Open user guide', hint: 'Hands-on training guide — reading the UI, teach paths, troubleshooting', group: 'Help',
+            onRun: () => { setAdminInitialTab('docs'); setShowAdmin(true); } },
           // c2-433: diag export — copy the runtime ring buffer (last 500
           // entries, includes auto-captured console warn/error + window
           // errors) to clipboard. Useful when filing an issue.
@@ -5299,7 +5303,8 @@ ${cmdList}
       )}
 
       {/* ========== SHORTCUTS CHEATSHEET (opens with "?") ========== */}
-      {showShortcuts && <ShortcutsModal C={C} onClose={() => setShowShortcuts(false)} />}
+      {showShortcuts && <ShortcutsModal C={C} onClose={() => setShowShortcuts(false)}
+        onOpenUserGuide={() => { setShowShortcuts(false); setAdminInitialTab('docs'); setShowAdmin(true); }} />}
 
       {/* ========== SETTINGS MODAL ========== */}
       {showSettings && (
@@ -6772,12 +6777,35 @@ ${cmdList}
                   {isConnected ? '\u25CF Online' : '\u25CB Offline'}
                 </span>
               </div>
+              {/* #351 polish: Help button above the Settings gear. Single-
+                  click opens the Admin Docs tab which renders the bundled
+                  USER_GUIDE.md. Most discoverable path to the training
+                  guide. */}
+              <button onClick={() => { setAdminInitialTab('docs'); setShowAdmin(true); }}
+                title='User guide — hands-on training & troubleshooting'
+                aria-label='Open user guide'
+                style={{
+                  width: '100%', marginTop: '10px', padding: '8px 10px',
+                  display: 'flex', alignItems: 'center', gap: T.spacing.sm,
+                  background: 'transparent', border: `1px solid ${C.border}`,
+                  color: C.textSecondary, borderRadius: T.radii.md,
+                  cursor: 'pointer', fontFamily: 'inherit', fontSize: T.typography.sizeSm,
+                }}
+                onMouseEnter={(e) => { e.currentTarget.style.background = C.bgHover; e.currentTarget.style.color = C.text; }}
+                onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = C.textSecondary; }}>
+                <svg width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='currentColor' strokeWidth='2' strokeLinecap='round' strokeLinejoin='round' aria-hidden='true'>
+                  <circle cx='12' cy='12' r='10' />
+                  <path d='M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3' />
+                  <line x1='12' y1='17' x2='12.01' y2='17' />
+                </svg>
+                Help &amp; guide
+              </button>
               {/* c0-020 sidebar contract: settings gear at the bottom. Links
                   to the same Settings modal the header account menu opens. */}
               <button onClick={() => setShowSettings(true)}
                 title='Settings' aria-label='Open settings'
                 style={{
-                  width: '100%', marginTop: '10px', padding: '8px 10px',
+                  width: '100%', marginTop: '6px', padding: '8px 10px',
                   display: 'flex', alignItems: 'center', gap: T.spacing.sm,
                   background: 'transparent', border: `1px solid ${C.border}`,
                   color: C.textSecondary, borderRadius: T.radii.md,
