@@ -17,7 +17,7 @@
 // mid-flight refactors. The activate handler already drops any key that
 // isn't the current CACHE_VERSION so this single string change wipes
 // whatever stale build was serving.
-const CACHE_VERSION = 'plausiden-v5';
+const CACHE_VERSION = 'plausiden-v6';
 const PRECACHE_URLS = ['/'];
 const SAME_ORIGIN_STATIC = /\.(?:js|mjs|css|woff2?|ttf|otf|png|jpg|jpeg|svg|webp|ico)(?:\?.*)?$/i;
 

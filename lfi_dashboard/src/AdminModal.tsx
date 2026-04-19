@@ -300,8 +300,15 @@ export const AdminModal: React.FC<AdminModalProps> = ({
       setLoading(null);
     }
   };
-  // Auto-load the active tab on mount + when tab changes (if data missing).
-  useEffect(() => { loadTab(tab); /* eslint-disable-next-line */ }, [tab]);
+  // Auto-load the active tab on mount + when tab changes. Fire off the
+  // main thread via rAF → setTimeout so the modal's paint isn't blocked
+  // by the initial fetch. Perceived open-time drops from "wait for HTTP"
+  // to "instant render, then data streams in."
+  useEffect(() => {
+    const id = window.setTimeout(() => loadTab(tab), 0);
+    return () => window.clearTimeout(id);
+    /* eslint-disable-next-line */
+  }, [tab]);
 
   // c0-022: Training tab auto-refreshes every 5s so the user sees live
   // progress (pairs generated, accuracy over time). Pauses when the tab
@@ -2979,9 +2986,15 @@ const TeachActivityCard: React.FC<{ C: any; host: string }> = ({ C, host }) => {
     }
   }, [host]);
   React.useEffect(() => {
-    load();
-    const id = window.setInterval(load, 30000);
-    return () => window.clearInterval(id);
+    // Defer first load so the Admin modal's paint isn't blocked on this
+    // fetch (the modal should appear instantly). rAF → setTimeout fires
+    // after the React commit lands.
+    const first = window.setTimeout(load, 400);
+    const id = window.setInterval(() => {
+      if (typeof document !== 'undefined' && document.hidden) return;
+      load();
+    }, 30000);
+    return () => { window.clearTimeout(first); window.clearInterval(id); };
   }, [load]);
   const fmtTime = (e: Entry): string => {
     const ms = typeof e.ts === 'number' ? (e.ts > 1e12 ? e.ts : e.ts * 1000)

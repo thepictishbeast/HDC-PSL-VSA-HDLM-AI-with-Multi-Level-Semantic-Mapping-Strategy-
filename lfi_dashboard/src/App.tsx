@@ -876,36 +876,35 @@ ${cmdList}
   // proactively'). Standalone from the refusal-flow Teach CTA so users
   // can add facts without first hitting a refusal.
   const [showTeach, setShowTeach] = useState(false);
-  // #352 interactive tour state. Persists 'seen' flag so first-time users
-  // auto-trigger once, but existing users don't get interrupted.
-  const [showTour, setShowTour] = useState<boolean>(false);
+  // #352 per-view tour. Each view (chat/classroom/fleet/library/auditorium/
+  // admin) has its own sub-tour with its own seen-flag — first visit fires
+  // that view's tour, skipping views the user has already acknowledged.
+  // activeTour carries the view key while the overlay is open.
+  type TourKey = 'chat' | 'classroom' | 'fleet' | 'library' | 'auditorium' | 'admin';
+  const [activeTour, setActiveTour] = useState<TourKey | null>(null);
+  const tourSeen = (k: TourKey): boolean => {
+    try { return localStorage.getItem(`lfi_tour_seen_${k}_v2`) === '1'; } catch { return false; }
+  };
+  const markTourSeen = (k: TourKey) => {
+    try { localStorage.setItem(`lfi_tour_seen_${k}_v2`, '1'); } catch { /* silent */ }
+  };
+  // When the user first lands on each view (after consent + welcome
+  // dismissed), auto-launch that view's tour once. Separate effects per
+  // dep so a chat-view visit doesn't retrigger admin-tour logic.
   useEffect(() => {
-    // Don't fire while login screen is up — the tour targets main-app
-    // surfaces. Also private-mode browsers return '' from localStorage
-    // (not '1'), so without isAuthenticated gating the tour would auto-
-    // launch every session.
-    //
-    // Order of intro flow: Consent (tosAccepted) → Welcome → Tour. Each
-    // later step waits for the earlier to clear, so tour never pops over
-    // the welcome modal.
-    if (!isAuthenticated) return;
-    if (!tosAccepted) return;
-    if (showWelcome) return;
-    let seen = '1';
-    try { seen = localStorage.getItem('lfi_tour_seen_v1') || ''; } catch (e) {
-      diag.warn('tour', 'localStorage unavailable for seen-flag', e);
-    }
-    diag.debug('tour', 'auth-gate check', { isAuthenticated, seen });
-    if (seen === '1') return;
-    // Delay 1.5s to let the first-paint settle before introducing the
-    // overlay — otherwise the spotlight lands on an element that's still
-    // mounting + jumping.
-    const id = window.setTimeout(() => {
-      diag.info('tour', 'first-visit autolaunch (post-consent + post-welcome)');
-      setShowTour(true);
-    }, 1500);
+    if (!isAuthenticated || !tosAccepted || showWelcome) return;
+    let targetKey: TourKey | null = null;
+    if (showAdmin && !tourSeen('admin')) targetKey = 'admin';
+    else if (activeView === 'classroom' && !tourSeen('classroom')) targetKey = 'classroom';
+    else if (activeView === 'fleet' && !tourSeen('fleet')) targetKey = 'fleet';
+    else if (activeView === 'library' && !tourSeen('library')) targetKey = 'library';
+    else if (activeView === 'auditorium' && !tourSeen('auditorium')) targetKey = 'auditorium';
+    else if (activeView === 'chat' && !showAdmin && !tourSeen('chat')) targetKey = 'chat';
+    if (!targetKey) return;
+    diag.info('tour', `autolaunch per-view tour: ${targetKey}`);
+    const id = window.setTimeout(() => setActiveTour(targetKey), 1500);
     return () => window.clearTimeout(id);
-  }, [isAuthenticated, tosAccepted, showWelcome]);
+  }, [isAuthenticated, tosAccepted, showWelcome, activeView, showAdmin]);
   const [teachText, setTeachText] = useState('');
   const [teachSending, setTeachSending] = useState(false);
   const teachDialogRef = useRef<HTMLDivElement>(null);
@@ -1330,14 +1329,17 @@ ${cmdList}
       if (!ok) await loadLegacy();
     };
 
-    load();
+    // First load deferred 800ms so initial paint isn't blocked by
+    // the bundled drift/health fetch. UI renders instantly; chips
+    // fill in shortly after.
+    const firstFetch = window.setTimeout(() => load(), 800);
     // #354: only tick when the tab is visible. document.hidden flips on
     // tab-switch / screen-off; we'd waste polls otherwise.
     const id = window.setInterval(() => {
       if (typeof document !== 'undefined' && document.hidden) return;
       load();
     }, 30_000);
-    return () => { cancelled = true; window.clearInterval(id); };
+    return () => { cancelled = true; window.clearTimeout(firstFetch); window.clearInterval(id); };
   }, []);
 
   useEffect(() => {
@@ -5190,7 +5192,16 @@ ${cmdList}
           { id: 'open-user-guide', label: 'Open user guide', hint: 'Hands-on training guide — reading the UI, teach paths, troubleshooting', group: 'Help',
             onRun: () => { setAdminInitialTab('docs'); setShowAdmin(true); } },
           { id: 'start-tour', label: 'Start guided tour', hint: '60-second interactive walkthrough — desktop and mobile friendly', group: 'Help',
-            onRun: () => { setShowTour(true); } },
+            onRun: () => {
+              // Cmd+K "Start guided tour" replays the current-view tour.
+              const k: TourKey = showAdmin ? 'admin'
+                : activeView === 'classroom' ? 'classroom'
+                : activeView === 'fleet' ? 'fleet'
+                : activeView === 'library' ? 'library'
+                : activeView === 'auditorium' ? 'auditorium'
+                : 'chat';
+              setActiveTour(k);
+            } },
           // c2-433: diag export — copy the runtime ring buffer (last 500
           // entries, includes auto-captured console warn/error + window
           // errors) to clipboard. Useful when filing an issue.
@@ -5454,90 +5465,72 @@ ${cmdList}
           Mobile: tooltip pinned to bottom, swipe to navigate. Wrapped in
           an inline error boundary so a step-render crash closes the tour
           instead of white-screening the app (#354 stability). */}
-      {showTour && (
+      {/* Per-view tour — one compact flow per surface, fires on first
+          entry to that view and stamps its own seen-flag. Every step
+          has a target selector so the spotlight lands on what the copy
+          describes. */}
+      {activeTour && (
         <AppErrorBoundary themeBg={C.bg} themeText={C.text} themeAccent={C.accent}
-          inlineMode label="TourOverlay"
-          onReset={() => setShowTour(false)}>
-      <TourOverlay C={C} isMobile={isMobile} open={showTour}
-        onClose={() => {
-          setShowTour(false);
-          try { localStorage.setItem('lfi_tour_seen_v1', '1'); } catch { /* silent */ }
-        }}
-        steps={[
-          {
-            key: 'intro',
-            title: 'Welcome to PlausiDen',
-            body: <>LFI is a post-LLM substrate — it only answers from what it knows. This tour visits every view (Agora → Classroom → Admin → Fleet → Library → Auditorium). Use Back/Next, swipe, or keyboard arrows. Skip with <kbd>Esc</kbd>.</>,
-            onEnter: () => { setActiveView('chat'); setShowAdmin(false); },
-          },
-          {
-            key: 'chats-sidebar',
-            target: '[data-tour="chats-toggle"], [aria-label*="sidebar" i]',
-            title: 'Your conversations live here',
-            body: <>Every chat is saved. Click the sidebar toggle (top-left) or press <kbd>Cmd/Ctrl+B</kbd> to show/hide the list. Start a new one with <kbd>Cmd/Ctrl+N</kbd>.</>,
-            onEnter: () => { setActiveView('chat'); setShowAdmin(false); },
-          },
-          {
-            key: 'chat-input',
-            target: '[data-tour="chat-input"]',
-            title: 'Ask a question — the Agora',
-            body: <>Type here and press Enter. LFI gives substrate-composed prose with clickable <code>[fact:KEY]</code> chips. If it doesn't know, it refuses honestly (no fabrication).</>,
-            onEnter: () => { setActiveView('chat'); setShowAdmin(false); },
-          },
-          {
-            key: 'teach',
-            title: 'Teach LFI proactively',
-            body: <>Press <kbd>Cmd/Ctrl+K</kbd> → "Teach LFI a fact" or type <code>/teach</code>. On every refusal there's also an inline Teach button — one-click to fix.</>,
-          },
-          {
-            key: 'classroom',
-            title: 'Classroom — training state',
-            body: <>12 sub-tabs: Profile, Ingestion Control, Curriculum, Gradebook, Lesson Plans, Test Center, Reports, Office Hours, Library, Ledger, Drift, Ingest Runs. The Drift tab has one-click Kick-ingest / Encode-HDC / Auto-resolve-ledger.</>,
-            onEnter: () => { setActiveView('classroom'); setShowAdmin(false); },
-          },
-          {
-            key: 'fleet',
-            title: 'Fleet — orchestrator instances',
-            body: <>Live view of Claude/AI instances running against this stack: heartbeats, task timeline, session health. Open via <kbd>Cmd/Ctrl+4</kbd>.</>,
-            onEnter: () => { setActiveView('fleet'); setShowAdmin(false); },
-          },
-          {
-            key: 'library',
-            title: 'Library — source inventory',
-            body: <>365+ ingested sources with per-source trust sliders, quality dimensions, and the top-10 marketplace rank. Tune trust to influence what LFI pulls first. <kbd>Cmd/Ctrl+5</kbd>.</>,
-            onEnter: () => { setActiveView('library'); setShowAdmin(false); },
-          },
-          {
-            key: 'auditorium',
-            title: 'Auditorium — AVP-2 audit state',
-            body: <>6 tiers × 36 passes adversarial-validation status. Live passes_completed / findings_total / fix-ratio security_score from /api/avp/status. <kbd>Cmd/Ctrl+6</kbd>.</>,
-            onEnter: () => { setActiveView('auditorium'); setShowAdmin(false); },
-          },
-          {
-            key: 'admin',
-            title: 'Admin console',
-            body: <>12 tabs: Dashboard (Backup brain.db + Recent Teach Activity), Inventory, Domains, Training, Quality, System, Fleet, Logs, Tokens, Proof, Diag, Docs. <kbd>Cmd/Ctrl+3</kbd> opens it.</>,
-            onEnter: () => { setActiveView('chat'); setShowAdmin(true); setAdminInitialTab('dashboard'); },
-          },
-          {
-            key: 'docs',
-            title: 'Docs tab — the full user guide',
-            body: <>This tab always renders the USER_GUIDE.md (bundled fallback so it works offline). Reading the UI, teach paths, troubleshooting, keyboard reference, exports.</>,
-            onEnter: () => { setShowAdmin(true); setAdminInitialTab('docs'); },
-          },
-          {
-            key: 'help',
-            target: '[data-tour="help-button"]',
-            title: 'Find help from anywhere',
-            body: <>The sidebar <strong>Help & guide</strong> button or <kbd>?</kbd> cheatsheet or <kbd>Cmd/Ctrl+K</kbd> → "Open user guide" all land the same place.</>,
-            onEnter: () => { setShowAdmin(false); setActiveView('chat'); },
-          },
-          {
-            key: 'done',
-            title: "You're ready",
-            body: <>Re-run the tour any time from <kbd>Cmd/Ctrl+K</kbd> → "Start guided tour". Every page has its own per-surface hints when you first visit.</>,
-          },
-        ] as TourStep[]} />
+          inlineMode label={`TourOverlay:${activeTour}`}
+          onReset={() => { if (activeTour) markTourSeen(activeTour); setActiveTour(null); }}>
+          <TourOverlay C={C} isMobile={isMobile} open={!!activeTour}
+            onClose={() => { if (activeTour) markTourSeen(activeTour); setActiveTour(null); }}
+            steps={(() => {
+              const chatSteps: TourStep[] = [
+                { key: 'chat-hello', title: 'Welcome to the Agora (chat)',
+                  body: <>This is where you talk to LFI. Every reply is grounded in the substrate — citations included, refusals honest. Quick 30-second tour of the buttons.</> },
+                { key: 'chat-input', target: '[data-tour="chat-input"]', title: 'Type here',
+                  body: <>Enter to send. Shift+Enter for a newline. <kbd>/</kbd> opens slash commands. <kbd>Shift+↑</kbd> recalls history.</> },
+                { key: 'chat-toggle', target: '[data-tour="chats-toggle"]', title: 'Your chats list',
+                  body: <>Click this button (or <kbd>Cmd/Ctrl+B</kbd>) to show/hide the conversations sidebar. Every chat is saved.</> },
+                { key: 'chat-help', target: '[data-tour="help-button"]', title: 'Help always here',
+                  body: <>Sidebar <strong>Help &amp; guide</strong> opens the full user manual. Also <kbd>?</kbd> for the keyboard cheatsheet.</> },
+              ];
+              const classroomSteps: TourStep[] = [
+                { key: 'cls-hello', title: 'Welcome to the Classroom',
+                  body: <>Drill into training state: profile, ingestion, curriculum, drift, contradictions. 12 sub-tabs.</> },
+                { key: 'cls-tabs', target: '[role="tablist"][aria-label="Classroom sections"]', title: 'Sub-tabs',
+                  body: <>Profile, Ingestion Control, Curriculum, Gradebook, Lesson Plans, Test Center, Reports, Office Hours, Library, Ledger, Drift, Ingest Runs. Use arrow keys to navigate.</> },
+                { key: 'cls-drift-hint', title: 'Drift tab = health at a glance',
+                  body: <>9 metric cards with trends. Inside Drift: <strong>Kick ingest</strong>, <strong>Encode HDC cache</strong>, <strong>Auto-resolve ledger</strong> — one-click ops for solo training.</> },
+              ];
+              const fleetSteps: TourStep[] = [
+                { key: 'fleet-hello', title: 'Fleet — orchestrator instances',
+                  body: <>Live Claude/AI instances working against this stack. Heartbeats, task timeline, session health.</> },
+              ];
+              const librarySteps: TourStep[] = [
+                { key: 'lib-hello', title: 'Library — the source inventory',
+                  body: <>365+ sources LFI has ingested. Each row shows quality dimensions + a trust slider. Lower trust = LFI pulls less from it.</> },
+              ];
+              const auditoriumSteps: TourStep[] = [
+                { key: 'aud-hello', title: 'Auditorium — AVP-2 audit state',
+                  body: <>6 tiers × 36 passes of adversarial validation. Live passes_completed, findings_total, fix-ratio, security_score from <code>/api/avp/status</code>.</> },
+              ];
+              const adminSteps: TourStep[] = [
+                { key: 'adm-hello', title: 'Admin console',
+                  body: <>12 tabs. Dashboard first, then deep tools.</> },
+                { key: 'adm-tabs', target: '[role="tablist"][aria-label="Admin sections"]', title: 'Tab bar',
+                  body: <>Dashboard · Inventory · Domains · Training · Quality · System · Fleet · Logs · Tokens · Proof · Diag · Docs. Arrow keys navigate.</> },
+                { key: 'adm-dashboard', title: 'Dashboard — backup + teach activity',
+                  body: <>Top of Dashboard: Backup brain.db (hot SQLite snapshot, 4/hr limit) + Recent Teach Activity (last 10 teach events). Integrity banner shows audit-chain health.</>,
+                  onEnter: () => { setAdminInitialTab('dashboard'); } },
+                { key: 'adm-diag', title: 'Diag — runtime logs',
+                  body: <>Live ring-buffer of console warnings, errors, WS events, turn-traces. Copy JSON for bug reports.</>,
+                  onEnter: () => { setAdminInitialTab('diag'); } },
+                { key: 'adm-docs', title: 'Docs — the full user guide',
+                  body: <>Renders USER_GUIDE.md from the bundled fallback. Always works even offline.</>,
+                  onEnter: () => { setAdminInitialTab('docs'); } },
+              ];
+              const map: Record<TourKey, TourStep[]> = {
+                chat: chatSteps,
+                classroom: classroomSteps,
+                fleet: fleetSteps,
+                library: librarySteps,
+                auditorium: auditoriumSteps,
+                admin: adminSteps,
+              };
+              return map[activeTour] || [];
+            })()} />
         </AppErrorBoundary>
       )}
 
