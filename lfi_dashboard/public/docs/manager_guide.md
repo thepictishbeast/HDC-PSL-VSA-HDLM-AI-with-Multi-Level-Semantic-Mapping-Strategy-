@@ -207,15 +207,96 @@ Warmup runs at startup but can take a few seconds on a 92 GB brain.db. Subsequen
 | `/api/parse/english` | POST | Tokenise + POS tag |
 | `/api/hdlm/render` | POST | Concept similarity sketch |
 
-## 10. Roadmap
+## 10. Solo operator playbook — days without Claude
+
+You can run + improve LFI entirely without outside help. Follow this loop:
+
+### 10.1 Daily rhythm
+
+1. **Morning (5 min).** Open Classroom → Drift. Any red tile = act before new ingest:
+   - Contradictions red → Ledger → **Auto-resolve** (requires ≥ 0.20 trust gap between sources). Anything left, do Keep A / Keep B / Dismiss per row.
+   - HDC cache red → `curl -X POST http://127.0.0.1:3000/api/hdc/cache/encode -d '{"limit":1000}'` and let it catch up.
+   - FSRS lapse red → open Knowledge, rate the failing cards (Again / Hard / Good / Easy).
+2. **During the day (as you work).** Chat. Every canned-sounding reply? Hit 👎 and type a better answer. That correction is the training signal — the axiom weights reshape for next time.
+3. **Evening (10 min).** Classroom → Office Hours. Read the day's feedback queue. Anything needing triage, do it now. Close any resolved items.
+
+### 10.2 Add a new corpus you trust
+
+1. Library → scroll to the bottom. If the source isn't listed, it hasn't been ingested yet.
+2. Drop the JSONL into `/home/user/LFI-data/` (parsers in `lfi_vsa_core/src/ingest/` know the CauseNet / ATOMIC / Wikidata / discourse / dialogue formats).
+3. `curl -X POST http://127.0.0.1:3000/api/ingest/start -H 'content-type: application/json' -d '{"run_id":"manual_001","corpus":"my_corpus","tuples_requested":10000}'`
+4. Tail /var/log/lfi/server.log.* for `INGEST:` lines. When finished, the Library tab shows the new source with a default trust of 0.5.
+5. Set trust: Library → slider. 0 for adversarial, 0.7+ for anything you'd actually quote, 1.0 only for sources you verified in person.
+
+### 10.3 Delete a wrong fact
+
+1. Chat → click the `[fact:KEY]` chip that's wrong.
+2. Popover → **Dismiss as wrong**. The fact is soft-deleted + the source's trust is nudged down.
+3. If the whole source is bad: Library → set trust to 0 (all its contributions are down-weighted in retrieval).
+
+### 10.4 Back up the brain
+
+```bash
+# Cold backup (server stopped)
+pkill -TERM -f 'release/server'; sleep 5
+cp /home/user/.local/share/plausiden/brain.db /home/user/LFI-data/brain.db.$(date +%Y%m%d).bak
+nohup /home/user/cargo-target/release/server > /tmp/lfi_server.log 2>&1 & disown
+```
+
+Or live: `sqlite3 /home/user/.local/share/plausiden/brain.db ".backup /home/user/LFI-data/brain.db.live.bak"`.
+
+### 10.5 Server won't start
+
+Typically:
+- **Port 3000 busy** → `ss -tln | grep :3000` → find PID → kill it → retry.
+- **brain.db locked** → `lsof /home/user/.local/share/plausiden/brain.db`. Kill any stray ingester.
+- **Panic on startup** → Last 40 lines of `/var/log/lfi/server.log.$(date +%F)` usually tells you which corpus / row is malformed.
+
+### 10.6 Quick smoke test (30 s)
+
+```bash
+curl http://127.0.0.1:3000/api/health
+curl http://127.0.0.1:3000/api/status
+curl -X POST http://127.0.0.1:3000/api/settings -H 'content-type: application/json' -d '{"key":"probe","value":"ok"}'
+```
+
+All three should return `ok` or a populated JSON body in < 50 ms.
+
+### 10.7 Chat feels stuck
+
+1. Check `ss -tln | grep 3000` — server listening?
+2. Hit `curl http://127.0.0.1:3000/api/health`. If 200 → problem is WebSocket, not REST. Reload the tab; the UI auto-reconnects.
+3. Look at `/var/log/lfi/server.log.$(date +%F)` tail — `CHAT-TRACE[xxxx]` lines show each stage of a turn. Wherever the +ms offsets stop growing is where it's stuck.
+4. If backend is warming brain.db after a restart: wait for `STARTUP: warmup done` line. First hit after that is fast again.
+
+## 11. Knowing what to ask
+
+LFI is substrate-first. It's good at:
+- **Definitions** — "what is X", "define X", "tell me about X"
+- **Causal chains** — "why does X cause Y", "how does X work"
+- **Disambiguation** — "X vs Y"
+- **Walk-the-graph** — "what's related to X", "what depends on X"
+
+It refuses (with reason) on:
+- Open-ended casual chit-chat (no fact grounds it)
+- Topics no ingested source covers (rephrase as knowledge query instead)
+- Questions that hinge on live data LFI can't see (weather, news, markets)
+
+That refusal is a feature, not a bug — per doctrine it won't fabricate. If you want it to answer something it currently refuses, ingest a corpus that grounds the topic (§ 10.2).
+
+## 12. Roadmap
 
 Detail in `/docs/LFI_BEATS_LLMS_ROADMAP.md` (60 tasks across 9 tiers). Current session frontier in `/docs/LFI_TASK_QUEUE_2026-04-19.md`.
 
-Headline items:
+Shipped in the latest push (ff4a5f4 + predecessors):
+- lock-free stats cache: chat under UI-poll load 11 s → 40 ms
+- de-hardcoded conversational pool: Pulse routes through substrate
+- /api/avp/status, /api/settings generic, WS keepalive
+- #398 workspace slider (Settings → Behavior → Workspace capacity)
+- #359 calibrated refusal when no fact grounds the claim
 
-- #400 Strip all remaining hardcoded response pools (jokes, greetings, anchors)
+Remaining headline items:
 - #399 Learn uncertainty expressions from the dialogue corpus
-- #359 Grounded refusal when no source clears the trust threshold
 - #384 Streaming chat (gets rid of the 45 s "not streaming" banner permanently)
 - #382 ARM64 mobile build on a real device
 - #390 LFI mesh federation — multiple instances sharing facts via signed CRDT gossip
